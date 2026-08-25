@@ -1,5 +1,5 @@
 name: CloudMart Infrastructure Deployment
- 
+
 on:
   push:
     branches:
@@ -7,65 +7,69 @@ on:
     paths:
       - 'cloudformation/**'
       - '.github/workflows/deploy.yaml'
- 
+
   workflow_dispatch:
- 
+
 permissions:
   id-token: write
   contents: read
- 
+
 env:
   AWS_REGION: ap-south-1
   ENVIRONMENT: dev
-  NETWORK_STACK_NAME: cloudmart-network-dev
- 
+  NETWORK_STACK_NAME: cloudmart-network-security-dev
+
 jobs:
- 
+
   deploy-network:
-    name: Deploy Network Stack
+    name: Deploy Network-Security
     runs-on: ubuntu-latest
- 
+
     steps:
- 
+
       # --------------------------------------------------
-      # Checkout
+      # Checkout repository
       # --------------------------------------------------
- 
+
       - name: Checkout repository
         uses: actions/checkout@v4
- 
+
+
       # --------------------------------------------------
       # Configure AWS using GitHub OIDC
       # --------------------------------------------------
- 
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
- 
+
+
       # --------------------------------------------------
       # Verify AWS identity
       # --------------------------------------------------
- 
+
       - name: Verify AWS identity
         run: |
           aws sts get-caller-identity
- 
+
+
       # --------------------------------------------------
-      # Validate CloudFormation
+      # Validate Network-Security template
       # --------------------------------------------------
- 
-      - name: Validate Network CloudFormation template
+
+      - name: Validate Network-Security template
         run: |
           aws cloudformation validate-template \
             --template-body file://cloudformation/network-stack.yaml
- 
+
+
       # --------------------------------------------------
-      # Deploy Network Stack
+      # Deploy Network-Security stack
       # --------------------------------------------------
- 
-      - name: Deploy Network Stack
+
+      - name: Deploy Network-Security stack
         run: |
           aws cloudformation deploy \
             --template-file cloudformation/network-stack.yaml \
@@ -78,34 +82,56 @@ jobs:
               PrivateSubnetCidr="10.0.2.0/24" \
               AdminCidr="${{ secrets.ADMIN_CIDR }}" \
             --capabilities CAPABILITY_NAMED_IAM
- 
+
+
       # --------------------------------------------------
-      # Wait for deployment
+      # Wait for CloudFormation deployment
       # --------------------------------------------------
- 
-      - name: Wait for Network Stack
+
+      - name: Wait for Network-Security deployment
         run: |
-          aws cloudformation wait stack-create-complete \
-            --stack-name "$NETWORK_STACK_NAME" || \
-          aws cloudformation wait stack-update-complete \
-            --stack-name "$NETWORK_STACK_NAME"
- 
+          STATUS=$(aws cloudformation describe-stacks \
+            --stack-name "$NETWORK_STACK_NAME" \
+            --query 'Stacks[0].StackStatus' \
+            --output text)
+
+          echo "Current stack status: $STATUS"
+
+          if [ "$STATUS" = "CREATE_IN_PROGRESS" ]; then
+            aws cloudformation wait stack-create-complete \
+              --stack-name "$NETWORK_STACK_NAME"
+
+          elif [ "$STATUS" = "UPDATE_IN_PROGRESS" ]; then
+            aws cloudformation wait stack-update-complete \
+              --stack-name "$NETWORK_STACK_NAME"
+
+          elif [ "$STATUS" = "CREATE_COMPLETE" ] || \
+               [ "$STATUS" = "UPDATE_COMPLETE" ]; then
+            echo "Stack is already complete."
+
+          else
+            echo "Unexpected CloudFormation status: $STATUS"
+            exit 1
+          fi
+
+
       # --------------------------------------------------
-      # Show stack status
+      # Display stack status
       # --------------------------------------------------
- 
-      - name: Show Network Stack
+
+      - name: Display Network-Security status
         run: |
           aws cloudformation describe-stacks \
             --stack-name "$NETWORK_STACK_NAME" \
             --query 'Stacks[0].[StackName,StackStatus]' \
             --output table
- 
+
+
       # --------------------------------------------------
-      # Show stack outputs
+      # Display stack outputs
       # --------------------------------------------------
- 
-      - name: Show Network Outputs
+
+      - name: Display Network-Security outputs
         run: |
           aws cloudformation describe-stacks \
             --stack-name "$NETWORK_STACK_NAME" \
