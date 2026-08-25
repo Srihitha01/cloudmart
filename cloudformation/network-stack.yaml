@@ -18,7 +18,12 @@ Parameters:
   AvailabilityZone:
     Type: AWS::EC2::AvailabilityZone::Name
     Default: ap-south-1a
-    Description: Availability Zone used by CloudMart
+    Description: Primary Availability Zone used by CloudMart
+
+  SecondaryAvailabilityZone:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Default: ap-south-1b
+    Description: Secondary Availability Zone used by CloudMart
 
   VpcCidr:
     Type: String
@@ -32,6 +37,10 @@ Parameters:
     Type: String
     Default: 10.0.2.0/24
 
+  SecondaryPrivateSubnetCidr:
+    Type: String
+    Default: 10.0.3.0/24
+
 
 Resources:
 
@@ -41,6 +50,7 @@ Resources:
 
   CloudMartVPC:
     Type: AWS::EC2::VPC
+
     Properties:
       CidrBlock: !Ref VpcCidr
       EnableDnsSupport: true
@@ -91,7 +101,7 @@ Resources:
 
 
   # ==========================================================
-  # PRIVATE SUBNET
+  # PRIVATE SUBNET 1
   # ==========================================================
 
   PrivateSubnet:
@@ -105,7 +115,25 @@ Resources:
 
       Tags:
         - Key: Name
-          Value: !Sub cloudmart-${Environment}-private-subnet
+          Value: !Sub cloudmart-${Environment}-private-subnet-1
+
+
+  # ==========================================================
+  # PRIVATE SUBNET 2
+  # ==========================================================
+
+  SecondaryPrivateSubnet:
+    Type: AWS::EC2::Subnet
+
+    Properties:
+      VpcId: !Ref CloudMartVPC
+      CidrBlock: !Ref SecondaryPrivateSubnetCidr
+      AvailabilityZone: !Ref SecondaryAvailabilityZone
+      MapPublicIpOnLaunch: false
+
+      Tags:
+        - Key: Name
+          Value: !Sub cloudmart-${Environment}-private-subnet-2
 
 
   # ==========================================================
@@ -164,6 +192,14 @@ Resources:
     Properties:
       RouteTableId: !Ref PrivateRouteTable
       SubnetId: !Ref PrivateSubnet
+
+
+  SecondaryPrivateSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref SecondaryPrivateSubnet
 
 
   # ==========================================================
@@ -297,6 +333,7 @@ Resources:
 
       SubnetIds:
         - !Ref PrivateSubnet
+        - !Ref SecondaryPrivateSubnet
 
       SecurityGroupIds:
         - !Ref VPCEndpointSecurityGroup
@@ -319,6 +356,7 @@ Resources:
 
       SubnetIds:
         - !Ref PrivateSubnet
+        - !Ref SecondaryPrivateSubnet
 
       SecurityGroupIds:
         - !Ref VPCEndpointSecurityGroup
@@ -341,6 +379,7 @@ Resources:
 
       SubnetIds:
         - !Ref PrivateSubnet
+        - !Ref SecondaryPrivateSubnet
 
       SecurityGroupIds:
         - !Ref VPCEndpointSecurityGroup
@@ -369,11 +408,19 @@ Outputs:
 
 
   PrivateSubnetId:
-    Description: Private subnet ID
+    Description: Primary private subnet ID
     Value: !Ref PrivateSubnet
 
     Export:
       Name: !Sub cloudmart-${Environment}-PrivateSubnetId
+
+
+  SecondaryPrivateSubnetId:
+    Description: Secondary private subnet ID
+    Value: !Ref SecondaryPrivateSubnet
+
+    Export:
+      Name: !Sub cloudmart-${Environment}-SecondaryPrivateSubnetId
 
 
   LambdaSecurityGroupId:
