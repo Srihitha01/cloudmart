@@ -27,17 +27,17 @@ jobs:
 
     steps:
 
-      # --------------------------------------------------
+      # ==================================================
       # Checkout repository
-      # --------------------------------------------------
+      # ==================================================
 
       - name: Checkout repository
         uses: actions/checkout@v4
 
 
-      # --------------------------------------------------
+      # ==================================================
       # Configure AWS using GitHub OIDC
-      # --------------------------------------------------
+      # ==================================================
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -46,18 +46,18 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
 
-      # --------------------------------------------------
+      # ==================================================
       # Verify AWS identity
-      # --------------------------------------------------
+      # ==================================================
 
       - name: Verify AWS identity
         run: |
           aws sts get-caller-identity
 
 
-      # --------------------------------------------------
-      # Validate Network-Security template
-      # --------------------------------------------------
+      # ==================================================
+      # Validate CloudFormation template
+      # ==================================================
 
       - name: Validate Network-Security template
         run: |
@@ -65,9 +65,9 @@ jobs:
             --template-body file://cloudformation/network-stack.yaml
 
 
-      # --------------------------------------------------
+      # ==================================================
       # Deploy Network-Security stack
-      # --------------------------------------------------
+      # ==================================================
 
       - name: Deploy Network-Security stack
         run: |
@@ -84,42 +84,67 @@ jobs:
             --capabilities CAPABILITY_NAMED_IAM
 
 
-      # --------------------------------------------------
-      # Wait for CloudFormation deployment
-      # --------------------------------------------------
+      # ==================================================
+      # Display CloudFormation failure events
+      # ==================================================
+
+      - name: Show CloudFormation failure events
+        if: always()
+        run: |
+          echo "Checking CloudFormation stack events..."
+
+          aws cloudformation describe-stack-events \
+            --stack-name "$NETWORK_STACK_NAME" \
+            --query "StackEvents[?ResourceStatus=='CREATE_FAILED' || ResourceStatus=='UPDATE_FAILED' || ResourceStatus=='DELETE_FAILED'].[LogicalResourceId,ResourceType,ResourceStatus,ResourceStatusReason]" \
+            --output table
+
+
+      # ==================================================
+      # Wait for stack deployment
+      # ==================================================
 
       - name: Wait for Network-Security deployment
+        if: success()
         run: |
-          STATUS=$(aws cloudformation describe-stacks \
+          STACK_STATUS=$(aws cloudformation describe-stacks \
             --stack-name "$NETWORK_STACK_NAME" \
             --query 'Stacks[0].StackStatus' \
             --output text)
 
-          echo "Current stack status: $STATUS"
+          echo "Stack status: $STACK_STATUS"
 
-          if [ "$STATUS" = "CREATE_IN_PROGRESS" ]; then
+          if [ "$STACK_STATUS" = "CREATE_IN_PROGRESS" ]; then
+
             aws cloudformation wait stack-create-complete \
               --stack-name "$NETWORK_STACK_NAME"
 
-          elif [ "$STATUS" = "UPDATE_IN_PROGRESS" ]; then
+          elif [ "$STACK_STATUS" = "UPDATE_IN_PROGRESS" ]; then
+
             aws cloudformation wait stack-update-complete \
               --stack-name "$NETWORK_STACK_NAME"
 
-          elif [ "$STATUS" = "CREATE_COMPLETE" ] || \
-               [ "$STATUS" = "UPDATE_COMPLETE" ]; then
-            echo "Stack is already complete."
+          elif [ "$STACK_STATUS" = "CREATE_COMPLETE" ]; then
+
+            echo "Network-Security stack created successfully."
+
+          elif [ "$STACK_STATUS" = "UPDATE_COMPLETE" ]; then
+
+            echo "Network-Security stack updated successfully."
 
           else
-            echo "Unexpected CloudFormation status: $STATUS"
+
+            echo "Unexpected stack status: $STACK_STATUS"
             exit 1
+
           fi
 
 
-      # --------------------------------------------------
-      # Display stack status
-      # --------------------------------------------------
+      # ==================================================
+      # Show stack status
+      # ==================================================
 
-      - name: Display Network-Security status
+      - name: Show Network-Security status
+        if: success()
         run: |
           aws cloudformation describe-stacks \
             --stack-name "$NETWORK_STACK_NAME" \
@@ -127,11 +152,12 @@ jobs:
             --output table
 
 
-      # --------------------------------------------------
-      # Display stack outputs
-      # --------------------------------------------------
+      # ==================================================
+      # Show stack outputs
+      # ==================================================
 
-      - name: Display Network-Security outputs
+      - name: Show Network-Security outputs
+        if: success()
         run: |
           aws cloudformation describe-stacks \
             --stack-name "$NETWORK_STACK_NAME" \
