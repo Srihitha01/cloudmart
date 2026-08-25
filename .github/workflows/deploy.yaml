@@ -182,7 +182,7 @@ jobs:
 
       - name: Show Network-Security outputs
         if: success()
-        run: |
+        run: 
           aws cloudformation describe-stacks \
             --stack-name "$NETWORK_STACK_NAME" \
             --query 'Stacks[0].Outputs' \
