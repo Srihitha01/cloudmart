@@ -20,24 +20,13 @@ env:
   NETWORK_STACK_NAME: cloudmart-network-security-dev
 
 jobs:
-
   deploy-network:
     name: Deploy Network-Security Stack
     runs-on: ubuntu-latest
 
     steps:
-
-      # ==================================================
-      # Checkout repository
-      # ==================================================
-
       - name: Checkout repository
         uses: actions/checkout@v4
-
-
-      # ==================================================
-      # Configure AWS using GitHub OIDC
-      # ==================================================
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -45,89 +34,30 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Verify AWS identity
+        run: aws sts get-caller-identity
 
-      # ==================================================
-      # Verify AWS identity
-      # ==================================================
+      - name: Validate network CloudFormation template
+        run: aws cloudformation validate-template --template-body file://cloudformation/network-stack.yaml
 
-      - name: Check AWS identity
-        run: |
-          aws sts get-caller-identity
+      - name: Deploy Network-Security stack
+        run: aws cloudformation deploy --template-file cloudformation/network-stack.yaml --stack-name "$NETWORK_STACK_NAME" --parameter-overrides Environment="$ENVIRONMENT" AvailabilityZone="ap-south-1a" SecondaryAvailabilityZone="ap-south-1b" VpcCidr="10.0.0.0/16" PublicSubnetCidr="10.0.1.0/24" PrivateSubnetCidr="10.0.2.0/24" SecondaryPrivateSubnetCidr="10.0.3.0/24" --capabilities CAPABILITY_NAMED_IAM
 
+      - name: Check Network-Security stack
+        if: success()
+        run: aws cloudformation describe-stacks --stack-name "$NETWORK_STACK_NAME" --query 'Stacks[0].[StackName,StackStatus]' --output table
 
-      # ==================================================
-      # Validate CloudFormation template
-      # ==================================================
+      - name: Display Network-Security outputs
+        if: success()
+        run: aws cloudformation describe-stacks --stack-name "$NETWORK_STACK_NAME" --query 'Stacks[0].Outputs' --output table
 
-      - name: Validate network template
-        run: |
-          aws cloudformation validate-template \
-            --template-body file://cloudformation/network-stack.yaml
-
-
-      # ==================================================
-      # Deploy Network-Security stack
-      # ==================================================
-
-      - name: Deploy network infrastructure
-        run: |
-          aws cloudformation deploy \
-            --template-file cloudformation/network-stack.yaml \
-            --stack-name "$NETWORK_STACK_NAME" \
-            --parameter-overrides \
-              Environment="$ENVIRONMENT" \
-              AvailabilityZone="ap-south-1a" \
-              SecondaryAvailabilityZone="ap-south-1b" \
-              VpcCidr="10.0.0.0/16" \
-              PublicSubnetCidr="10.0.1.0/24" \
-              PrivateSubnetCidr="10.0.2.0/24" \
-              SecondaryPrivateSubnetCidr="10.0.3.0/24" \
-            --capabilities CAPABILITY_NAMED_IAM
-
-
-      # ==================================================
-      # Display CloudFormation failures
-      # ==================================================
-
-      - name: Report CloudFormation failures
+      - name: Show CloudFormation failure details
         if: failure()
         run: |
-          echo "Checking CloudFormation failure events..."
+          echo "Checking CloudFormation stack..."
 
-          if aws cloudformation describe-stacks \
-            --stack-name "$NETWORK_STACK_NAME" \
-            > /dev/null 2>&1
-          then
-            aws cloudformation describe-stack-events \
-              --stack-name "$NETWORK_STACK_NAME" \
-              --query "StackEvents[?ResourceStatus=='CREATE_FAILED' || ResourceStatus=='UPDATE_FAILED' || ResourceStatus=='DELETE_FAILED'].[LogicalResourceId,ResourceType,ResourceStatus,ResourceStatusReason]" \
-              --output table
+          if aws cloudformation describe-stacks --stack-name "$NETWORK_STACK_NAME" > /dev/null 2>&1; then
+            aws cloudformation describe-stack-events --stack-name "$NETWORK_STACK_NAME" --query "StackEvents[?ResourceStatus=='CREATE_FAILED' || ResourceStatus=='UPDATE_FAILED' || ResourceStatus=='DELETE_FAILED'].[LogicalResourceId,ResourceType,ResourceStatus,ResourceStatusReason]" --output table
           else
-            echo "CloudFormation stack does not exist."
+            echo "Network-Security stack does not exist."
           fi
-
-
-      # ==================================================
-      # Display stack status
-      # ==================================================
-
-      - name: Display stack status
-        if: success()
-        run: |
-          aws cloudformation describe-stacks \
-            --stack-name "$NETWORK_STACK_NAME" \
-            --query 'Stacks[0].[StackName,StackStatus]' \
-            --output table
-
-
-      # ==================================================
-      # Display stack outputs
-      # ==================================================
-
-      - name: Display network outputs
-        if: success()
-        run: |
-          aws cloudformation describe-stacks \
-            --stack-name "$NETWORK_STACK_NAME" \
-            --query 'Stacks[0].Outputs' \
-            --output table
