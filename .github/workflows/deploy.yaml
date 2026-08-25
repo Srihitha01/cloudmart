@@ -1,11 +1,11 @@
-name: CloudMart Infrastructure Deployment
+name: CloudMart Network-Security Deployment
 
 on:
   push:
     branches:
       - main
     paths:
-      - 'cloudformation/**'
+      - 'cloudformation/network-stack.yaml'
       - '.github/workflows/deploy.yaml'
 
   workflow_dispatch:
@@ -22,7 +22,7 @@ env:
 jobs:
 
   deploy-network:
-    name: Deploy Network-Security
+    name: Deploy Network-Security Stack
     runs-on: ubuntu-latest
 
     steps:
@@ -50,32 +50,16 @@ jobs:
       # Verify AWS identity
       # ==================================================
 
-      - name: Verify AWS identity
+      - name: Check AWS identity
         run: |
           aws sts get-caller-identity
-
-
-      # ==================================================
-      # Inspect Network-Security template
-      # ==================================================
-
-      - name: Inspect Network-Security template
-        run: |
-          echo "Commit being deployed:"
-          git rev-parse HEAD
-
-          echo "AvailabilityZone definition:"
-          grep -n -A4 -B2 "AvailabilityZone:" cloudformation/network-stack.yaml
-
-          echo "First 45 lines of template:"
-          sed -n '1,45p' cloudformation/network-stack.yaml
 
 
       # ==================================================
       # Validate CloudFormation template
       # ==================================================
 
-      - name: Validate Network-Security template
+      - name: Validate network template
         run: |
           aws cloudformation validate-template \
             --template-body file://cloudformation/network-stack.yaml
@@ -85,7 +69,7 @@ jobs:
       # Deploy Network-Security stack
       # ==================================================
 
-      - name: Deploy Network-Security stack
+      - name: Deploy network infrastructure
         run: |
           aws cloudformation deploy \
             --template-file cloudformation/network-stack.yaml \
@@ -93,81 +77,41 @@ jobs:
             --parameter-overrides \
               Environment="$ENVIRONMENT" \
               AvailabilityZone="ap-south-1a" \
+              SecondaryAvailabilityZone="ap-south-1b" \
               VpcCidr="10.0.0.0/16" \
               PublicSubnetCidr="10.0.1.0/24" \
               PrivateSubnetCidr="10.0.2.0/24" \
+              SecondaryPrivateSubnetCidr="10.0.3.0/24" \
             --capabilities CAPABILITY_NAMED_IAM
 
 
       # ==================================================
-      # Show CloudFormation failure events
+      # Display CloudFormation failures
       # ==================================================
 
-      - name: Show CloudFormation failure events
+      - name: Report CloudFormation failures
         if: failure()
         run: |
-          echo "Checking CloudFormation stack events..."
+          echo "Checking CloudFormation failure events..."
 
           if aws cloudformation describe-stacks \
-            --stack-name "$NETWORK_STACK_NAME" > /dev/null 2>&1; then
-
+            --stack-name "$NETWORK_STACK_NAME" \
+            > /dev/null 2>&1
+          then
             aws cloudformation describe-stack-events \
               --stack-name "$NETWORK_STACK_NAME" \
               --query "StackEvents[?ResourceStatus=='CREATE_FAILED' || ResourceStatus=='UPDATE_FAILED' || ResourceStatus=='DELETE_FAILED'].[LogicalResourceId,ResourceType,ResourceStatus,ResourceStatusReason]" \
               --output table
-
           else
-
             echo "CloudFormation stack does not exist."
-
           fi
 
 
       # ==================================================
-      # Wait for deployment
+      # Display stack status
       # ==================================================
 
-      - name: Wait for Network-Security deployment
-        if: success()
-        run: |
-          STACK_STATUS=$(aws cloudformation describe-stacks \
-            --stack-name "$NETWORK_STACK_NAME" \
-            --query 'Stacks[0].StackStatus' \
-            --output text)
-
-          echo "Stack status: $STACK_STATUS"
-
-          if [ "$STACK_STATUS" = "CREATE_IN_PROGRESS" ]; then
-
-            aws cloudformation wait stack-create-complete \
-              --stack-name "$NETWORK_STACK_NAME"
-
-          elif [ "$STACK_STATUS" = "UPDATE_IN_PROGRESS" ]; then
-
-            aws cloudformation wait stack-update-complete \
-              --stack-name "$NETWORK_STACK_NAME"
-
-          elif [ "$STACK_STATUS" = "CREATE_COMPLETE" ]; then
-
-            echo "Network-Security stack created successfully."
-
-          elif [ "$STACK_STATUS" = "UPDATE_COMPLETE" ]; then
-
-            echo "Network-Security stack updated successfully."
-
-          else
-
-            echo "Unexpected stack status: $STACK_STATUS"
-            exit 1
-
-          fi
-
-
-      # ==================================================
-      # Show stack status
-      # ==================================================
-
-      - name: Show Network-Security status
+      - name: Display stack status
         if: success()
         run: |
           aws cloudformation describe-stacks \
@@ -177,12 +121,12 @@ jobs:
 
 
       # ==================================================
-      # Show stack outputs
+      # Display stack outputs
       # ==================================================
 
-      - name: Show Network-Security outputs
+      - name: Display network outputs
         if: success()
-        run: 
+        run: |
           aws cloudformation describe-stacks \
             --stack-name "$NETWORK_STACK_NAME" \
             --query 'Stacks[0].Outputs' \
