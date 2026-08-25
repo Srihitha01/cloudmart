@@ -14,10 +14,10 @@ Parameters:
     AllowedValues:
       - dev
       - prod
-
-  AvailabilityZone:
-    Type: AWS::EC2::AvailabilityZone
-    Default: ap-south-1a
+AvailabilityZone:
+  Type: AWS::EC2::AvailabilityZone::Name
+  Default: ap-south-1a
+  Description: Availability Zone used by CloudMart
 
   VpcCidr:
     Type: String
