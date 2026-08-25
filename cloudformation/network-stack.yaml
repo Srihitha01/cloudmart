@@ -452,3 +452,13 @@ Outputs:
 
     Export:
       Name: !Sub cloudmart-${Environment}-SNSEndpointId
+         - name: Inspect Network-Security template
+        run: |
+          echo "Commit:"
+          git rev-parse HEAD
+
+          echo "AvailabilityZone definition:"
+          grep -n -A4 -B2 "AvailabilityZone:" cloudformation/network-stack.yaml
+
+          echo "Template beginning:"
+          sed -n '1,45p' cloudformation/network-stack.yaml
