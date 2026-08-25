@@ -40,6 +40,10 @@ Resources:
 
       Policies:
 
+        # ------------------------------------------------------
+        # CloudWatch Logs
+        # ------------------------------------------------------
+
         - PolicyName: LambdaAuthorizerLogging
           PolicyDocument:
             Version: '2012-10-17'
@@ -51,6 +55,10 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 Resource: '*'
+
+        # ------------------------------------------------------
+        # SSM Authorizer Parameters
+        # ------------------------------------------------------
 
         - PolicyName: LambdaAuthorizerSSM
           PolicyDocument:
@@ -91,6 +99,10 @@ Resources:
 
       Policies:
 
+        # ------------------------------------------------------
+        # CloudWatch Logs
+        # ------------------------------------------------------
+
         - PolicyName: ProductLambdaLogging
           PolicyDocument:
             Version: '2012-10-17'
@@ -103,6 +115,10 @@ Resources:
                   - logs:PutLogEvents
                 Resource: '*'
 
+        # ------------------------------------------------------
+        # SSM Database Parameters
+        # ------------------------------------------------------
+
         - PolicyName: ProductLambdaSSM
           PolicyDocument:
             Version: '2012-10-17'
@@ -114,6 +130,10 @@ Resources:
                   - ssm:GetParameters
                 Resource:
                   - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/db/*
+
+        # ------------------------------------------------------
+        # SNS Notifications
+        # ------------------------------------------------------
 
         - PolicyName: ProductLambdaSNS
           PolicyDocument:
@@ -152,6 +172,10 @@ Resources:
 
       Policies:
 
+        # ------------------------------------------------------
+        # CloudWatch Logs
+        # ------------------------------------------------------
+
         - PolicyName: OrderLambdaLogging
           PolicyDocument:
             Version: '2012-10-17'
@@ -163,6 +187,10 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 Resource: '*'
+
+        # ------------------------------------------------------
+        # SSM Database Parameters
+        # ------------------------------------------------------
 
         - PolicyName: OrderLambdaSSM
           PolicyDocument:
@@ -203,6 +231,10 @@ Resources:
 
       Policies:
 
+        # ------------------------------------------------------
+        # CloudWatch Logs
+        # ------------------------------------------------------
+
         - PolicyName: OrderProcessorLogging
           PolicyDocument:
             Version: '2012-10-17'
@@ -215,6 +247,10 @@ Resources:
                   - logs:PutLogEvents
                 Resource: '*'
 
+        # ------------------------------------------------------
+        # SSM Database Parameters
+        # ------------------------------------------------------
+
         - PolicyName: OrderProcessorSSM
           PolicyDocument:
             Version: '2012-10-17'
@@ -226,6 +262,10 @@ Resources:
                   - ssm:GetParameters
                 Resource:
                   - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/db/*
+
+        # ------------------------------------------------------
+        # SNS Notifications
+        # ------------------------------------------------------
 
         - PolicyName: OrderProcessorSNS
           PolicyDocument:
@@ -264,6 +304,10 @@ Resources:
 
       Policies:
 
+        # ------------------------------------------------------
+        # CloudWatch Logs
+        # ------------------------------------------------------
+
         - PolicyName: ReportLambdaLogging
           PolicyDocument:
             Version: '2012-10-17'
@@ -275,6 +319,10 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 Resource: '*'
+
+        # ------------------------------------------------------
+        # SSM Database Parameters
+        # ------------------------------------------------------
 
         - PolicyName: ReportLambdaSSM
           PolicyDocument:
@@ -288,19 +336,35 @@ Resources:
                 Resource:
                   - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/db/*
 
+        # ------------------------------------------------------
+        # S3 Report Bucket
+        # Uses the actual bucket ARN exported by Data Stack
+        # ------------------------------------------------------
+
         - PolicyName: ReportLambdaS3
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
 
+              # List objects in the report bucket
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource:
+                  Fn::ImportValue:
+                    Fn::Sub: cloudmart-${Environment}-ReportBucketArn
+
+              # Read and write report files
               - Effect: Allow
                 Action:
                   - s3:PutObject
                   - s3:GetObject
-                  - s3:ListBucket
                 Resource:
-                  - !Sub arn:aws:s3:::cloudmart-${Environment}-reports
-                  - !Sub arn:aws:s3:::cloudmart-${Environment}-reports/*
+                  Fn::Sub:
+                    - '${ReportBucketArn}/*'
+                    - ReportBucketArn:
+                        Fn::ImportValue:
+                          Fn::Sub: cloudmart-${Environment}-ReportBucketArn
 
       Tags:
         - Key: Name
@@ -313,6 +377,10 @@ Resources:
 
 Outputs:
 
+  # ----------------------------------------------------------
+  # Lambda Authorizer Role ARN
+  # ----------------------------------------------------------
+
   LambdaAuthorizerRoleArn:
     Description: Lambda Authorizer execution role ARN
     Value: !GetAtt LambdaAuthorizerRole.Arn
@@ -320,6 +388,10 @@ Outputs:
     Export:
       Name: !Sub cloudmart-${Environment}-LambdaAuthorizerRoleArn
 
+
+  # ----------------------------------------------------------
+  # Product Lambda Role ARN
+  # ----------------------------------------------------------
 
   ProductLambdaRoleArn:
     Description: Product Lambda execution role ARN
@@ -329,6 +401,10 @@ Outputs:
       Name: !Sub cloudmart-${Environment}-ProductLambdaRoleArn
 
 
+  # ----------------------------------------------------------
+  # Order Lambda Role ARN
+  # ----------------------------------------------------------
+
   OrderLambdaRoleArn:
     Description: Order Lambda execution role ARN
     Value: !GetAtt OrderLambdaRole.Arn
@@ -337,6 +413,10 @@ Outputs:
       Name: !Sub cloudmart-${Environment}-OrderLambdaRoleArn
 
 
+  # ----------------------------------------------------------
+  # Order Processor Lambda Role ARN
+  # ----------------------------------------------------------
+
   OrderProcessorLambdaRoleArn:
     Description: Order Processor Lambda execution role ARN
     Value: !GetAtt OrderProcessorLambdaRole.Arn
@@ -344,6 +424,10 @@ Outputs:
     Export:
       Name: !Sub cloudmart-${Environment}-OrderProcessorLambdaRoleArn
 
+
+  # ----------------------------------------------------------
+  # Report Lambda Role ARN
+  # ----------------------------------------------------------
 
   ReportLambdaRoleArn:
     Description: Report Lambda execution role ARN
