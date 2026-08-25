@@ -1,0 +1,68 @@
+name: CloudMart Data-Storage Deployment
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'cloudformation/data-stack.yaml'
+      - '.github/workflows/deploy-data.yaml'
+
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-south-1
+  ENVIRONMENT: dev
+  DATA_STACK_NAME: cloudmart-data-storage-dev
+
+jobs:
+
+  deploy-data:
+    name: Deploy Data-Storage Stack
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Verify AWS identity
+        run: aws sts get-caller-identity
+
+      - name: Validate data CloudFormation template
+        run: aws cloudformation validate-template --template-body file://cloudformation/data-stack.yaml
+
+      - name: Verify Network-Security stack
+        run: aws cloudformation describe-stacks --stack-name cloudmart-network-security-dev --query 'Stacks[0].[StackName,StackStatus]' --output table
+
+      - name: Deploy Data-Storage stack
+        run: aws cloudformation deploy --template-file cloudformation/data-stack.yaml --stack-name "$DATA_STACK_NAME" --parameter-overrides Environment="$ENVIRONMENT" DBName="cloudmart" DBUsername="cloudmartadmin" DBPassword="${{ secrets.CLOUDMART_DB_PASSWORD }}" DBInstanceClass="db.t3.micro" AllocatedStorage="20"
+
+      - name: Display Data-Storage status
+        if: success()
+        run: aws cloudformation describe-stacks --stack-name "$DATA_STACK_NAME" --query 'Stacks[0].[StackName,StackStatus]' --output table
+
+      - name: Display Data-Storage outputs
+        if: success()
+        run: aws cloudformation describe-stacks --stack-name "$DATA_STACK_NAME" --query 'Stacks[0].Outputs' --output table
+
+      - name: Show CloudFormation failure details
+        if: failure()
+        run: |
+          echo "Checking Data-Storage CloudFormation events..."
+
+          if aws cloudformation describe-stacks --stack-name "$DATA_STACK_NAME" > /dev/null 2>&1; then
+            aws cloudformation describe-stack-events --stack-name "$DATA_STACK_NAME" --query "StackEvents[?ResourceStatus=='CREATE_FAILED' || ResourceStatus=='UPDATE_FAILED' || ResourceStatus=='DELETE_FAILED'].[LogicalResourceId,ResourceType,ResourceStatus,ResourceStatusReason]" --output table
+          else
+            echo "Data-Storage stack does not exist."
+          fi
