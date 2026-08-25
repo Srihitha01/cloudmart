@@ -103,7 +103,9 @@ Resources:
 
       MultiAZ: false
 
-      BackupRetentionPeriod: 7
+      # Set to 0 because this AWS account currently
+      # restricts the available backup retention period.
+      BackupRetentionPeriod: 0
 
       CopyTagsToSnapshot: true
 
@@ -155,10 +157,6 @@ Resources:
 
 Outputs:
 
-  # ----------------------------------------------------------
-  # RDS Endpoint
-  # ----------------------------------------------------------
-
   DBEndpoint:
     Description: RDS MySQL endpoint
     Value: !GetAtt CloudMartRDS.Endpoint.Address
@@ -166,10 +164,6 @@ Outputs:
     Export:
       Name: !Sub cloudmart-${Environment}-DBEndpoint
 
-
-  # ----------------------------------------------------------
-  # RDS Port
-  # ----------------------------------------------------------
 
   DBPort:
     Description: RDS MySQL port
@@ -179,10 +173,6 @@ Outputs:
       Name: !Sub cloudmart-${Environment}-DBPort
 
 
-  # ----------------------------------------------------------
-  # Database Name
-  # ----------------------------------------------------------
-
   DBName:
     Description: CloudMart database name
     Value: !Ref DBName
@@ -190,10 +180,6 @@ Outputs:
     Export:
       Name: !Sub cloudmart-${Environment}-DBName
 
-
-  # ----------------------------------------------------------
-  # RDS Instance Identifier
-  # ----------------------------------------------------------
 
   DBInstanceIdentifier:
     Description: RDS instance identifier
@@ -203,10 +189,6 @@ Outputs:
       Name: !Sub cloudmart-${Environment}-DBInstanceIdentifier
 
 
-  # ----------------------------------------------------------
-  # S3 Bucket Name
-  # ----------------------------------------------------------
-
   ReportBucketName:
     Description: S3 report bucket name
     Value: !Ref CloudMartReportBucket
@@ -214,10 +196,6 @@ Outputs:
     Export:
       Name: !Sub cloudmart-${Environment}-ReportBucketName
 
-
-  # ----------------------------------------------------------
-  # S3 Bucket ARN
-  # ----------------------------------------------------------
 
   ReportBucketArn:
     Description: S3 report bucket ARN
