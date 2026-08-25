@@ -1,0 +1,353 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: >
+  CloudMart IAM Stack.
+  Creates least-privilege IAM execution roles
+  for CloudMart Lambda functions.
+
+Parameters:
+
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - prod
+    Description: Deployment environment
+
+
+Resources:
+
+  # ==========================================================
+  # LAMBDA AUTHORISER ROLE
+  # ==========================================================
+
+  LambdaAuthorizerRole:
+    Type: AWS::IAM::Role
+
+    Properties:
+      RoleName: !Sub cloudmart-${Environment}-lambda-authorizer-role
+
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+
+      Policies:
+
+        - PolicyName: LambdaAuthorizerLogging
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+
+        - PolicyName: LambdaAuthorizerSSM
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                Resource:
+                  - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/auth/*
+
+      Tags:
+        - Key: Name
+          Value: !Sub cloudmart-${Environment}-lambda-authorizer-role
+
+
+  # ==========================================================
+  # PRODUCT LAMBDA ROLE
+  # ==========================================================
+
+  ProductLambdaRole:
+    Type: AWS::IAM::Role
+
+    Properties:
+      RoleName: !Sub cloudmart-${Environment}-product-lambda-role
+
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+
+      Policies:
+
+        - PolicyName: ProductLambdaLogging
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+
+        - PolicyName: ProductLambdaSSM
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                Resource:
+                  - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/db/*
+
+        - PolicyName: ProductLambdaSNS
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource: '*'
+
+      Tags:
+        - Key: Name
+          Value: !Sub cloudmart-${Environment}-product-lambda-role
+
+
+  # ==========================================================
+  # ORDER LAMBDA ROLE
+  # ==========================================================
+
+  OrderLambdaRole:
+    Type: AWS::IAM::Role
+
+    Properties:
+      RoleName: !Sub cloudmart-${Environment}-order-lambda-role
+
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+
+      Policies:
+
+        - PolicyName: OrderLambdaLogging
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+
+        - PolicyName: OrderLambdaSSM
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                Resource:
+                  - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/db/*
+
+      Tags:
+        - Key: Name
+          Value: !Sub cloudmart-${Environment}-order-lambda-role
+
+
+  # ==========================================================
+  # ORDER PROCESSOR LAMBDA ROLE
+  # ==========================================================
+
+  OrderProcessorLambdaRole:
+    Type: AWS::IAM::Role
+
+    Properties:
+      RoleName: !Sub cloudmart-${Environment}-order-processor-role
+
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+
+      Policies:
+
+        - PolicyName: OrderProcessorLogging
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+
+        - PolicyName: OrderProcessorSSM
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                Resource:
+                  - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/db/*
+
+        - PolicyName: OrderProcessorSNS
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource: '*'
+
+      Tags:
+        - Key: Name
+          Value: !Sub cloudmart-${Environment}-order-processor-role
+
+
+  # ==========================================================
+  # REPORT LAMBDA ROLE
+  # ==========================================================
+
+  ReportLambdaRole:
+    Type: AWS::IAM::Role
+
+    Properties:
+      RoleName: !Sub cloudmart-${Environment}-report-lambda-role
+
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+
+      Policies:
+
+        - PolicyName: ReportLambdaLogging
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+
+        - PolicyName: ReportLambdaSSM
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                Resource:
+                  - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/db/*
+
+        - PolicyName: ReportLambdaS3
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub arn:aws:s3:::cloudmart-${Environment}-reports
+                  - !Sub arn:aws:s3:::cloudmart-${Environment}-reports/*
+
+      Tags:
+        - Key: Name
+          Value: !Sub cloudmart-${Environment}-report-lambda-role
+
+
+# ==========================================================
+# OUTPUTS
+# ==========================================================
+
+Outputs:
+
+  LambdaAuthorizerRoleArn:
+    Description: Lambda Authorizer execution role ARN
+    Value: !GetAtt LambdaAuthorizerRole.Arn
+
+    Export:
+      Name: !Sub cloudmart-${Environment}-LambdaAuthorizerRoleArn
+
+
+  ProductLambdaRoleArn:
+    Description: Product Lambda execution role ARN
+    Value: !GetAtt ProductLambdaRole.Arn
+
+    Export:
+      Name: !Sub cloudmart-${Environment}-ProductLambdaRoleArn
+
+
+  OrderLambdaRoleArn:
+    Description: Order Lambda execution role ARN
+    Value: !GetAtt OrderLambdaRole.Arn
+
+    Export:
+      Name: !Sub cloudmart-${Environment}-OrderLambdaRoleArn
+
+
+  OrderProcessorLambdaRoleArn:
+    Description: Order Processor Lambda execution role ARN
+    Value: !GetAtt OrderProcessorLambdaRole.Arn
+
+    Export:
+      Name: !Sub cloudmart-${Environment}-OrderProcessorLambdaRoleArn
+
+
+  ReportLambdaRoleArn:
+    Description: Report Lambda execution role ARN
+    Value: !GetAtt ReportLambdaRole.Arn
+
+    Export:
+      Name: !Sub cloudmart-${Environment}-ReportLambdaRoleArn
