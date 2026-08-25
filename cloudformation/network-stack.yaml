@@ -14,10 +14,11 @@ Parameters:
     AllowedValues:
       - dev
       - prod
-AvailabilityZone:
-  Type: AWS::EC2::AvailabilityZone::Name
-  Default: ap-south-1a
-  Description: Availability Zone used by CloudMart
+
+  AvailabilityZone:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Default: ap-south-1a
+    Description: Availability Zone used by CloudMart
 
   VpcCidr:
     Type: String
@@ -31,9 +32,6 @@ AvailabilityZone:
     Type: String
     Default: 10.0.2.0/24
 
-  AdminCidr:
-    Type: String
-    Default: 0.0.0.0/32
 
 Resources:
 
@@ -226,18 +224,6 @@ Resources:
     Properties:
       GroupDescription: Security group for CloudMart Flask dashboard
       VpcId: !Ref CloudMartVPC
-
-      SecurityGroupIngress:
-
-        - IpProtocol: tcp
-          FromPort: 22
-          ToPort: 22
-          CidrIp: !Ref AdminCidr
-
-        - IpProtocol: tcp
-          FromPort: 80
-          ToPort: 80
-          CidrIp: !Ref AdminCidr
 
       SecurityGroupEgress:
 
