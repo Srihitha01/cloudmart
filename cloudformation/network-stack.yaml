@@ -50,12 +50,10 @@ Resources:
 
   CloudMartVPC:
     Type: AWS::EC2::VPC
-
     Properties:
       CidrBlock: !Ref VpcCidr
       EnableDnsSupport: true
       EnableDnsHostnames: true
-
       Tags:
         - Key: Name
           Value: !Sub cloudmart-${Environment}-vpc
@@ -67,7 +65,6 @@ Resources:
 
   InternetGateway:
     Type: AWS::EC2::InternetGateway
-
     Properties:
       Tags:
         - Key: Name
@@ -76,7 +73,6 @@ Resources:
 
   InternetGatewayAttachment:
     Type: AWS::EC2::VPCGatewayAttachment
-
     Properties:
       VpcId: !Ref CloudMartVPC
       InternetGatewayId: !Ref InternetGateway
@@ -88,13 +84,11 @@ Resources:
 
   PublicSubnet:
     Type: AWS::EC2::Subnet
-
     Properties:
       VpcId: !Ref CloudMartVPC
       CidrBlock: !Ref PublicSubnetCidr
       AvailabilityZone: !Ref AvailabilityZone
       MapPublicIpOnLaunch: true
-
       Tags:
         - Key: Name
           Value: !Sub cloudmart-${Environment}-public-subnet
@@ -106,13 +100,11 @@ Resources:
 
   PrivateSubnet:
     Type: AWS::EC2::Subnet
-
     Properties:
       VpcId: !Ref CloudMartVPC
       CidrBlock: !Ref PrivateSubnetCidr
       AvailabilityZone: !Ref AvailabilityZone
       MapPublicIpOnLaunch: false
-
       Tags:
         - Key: Name
           Value: !Sub cloudmart-${Environment}-private-subnet-1
@@ -124,13 +116,11 @@ Resources:
 
   SecondaryPrivateSubnet:
     Type: AWS::EC2::Subnet
-
     Properties:
       VpcId: !Ref CloudMartVPC
       CidrBlock: !Ref SecondaryPrivateSubnetCidr
       AvailabilityZone: !Ref SecondaryAvailabilityZone
       MapPublicIpOnLaunch: false
-
       Tags:
         - Key: Name
           Value: !Sub cloudmart-${Environment}-private-subnet-2
@@ -142,10 +132,8 @@ Resources:
 
   PublicRouteTable:
     Type: AWS::EC2::RouteTable
-
     Properties:
       VpcId: !Ref CloudMartVPC
-
       Tags:
         - Key: Name
           Value: !Sub cloudmart-${Environment}-public-route-table
@@ -153,10 +141,8 @@ Resources:
 
   PublicRoute:
     Type: AWS::EC2::Route
-
     DependsOn:
       - InternetGatewayAttachment
-
     Properties:
       RouteTableId: !Ref PublicRouteTable
       DestinationCidrBlock: 0.0.0.0/0
@@ -165,7 +151,6 @@ Resources:
 
   PublicSubnetRouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
-
     Properties:
       RouteTableId: !Ref PublicRouteTable
       SubnetId: !Ref PublicSubnet
@@ -177,10 +162,8 @@ Resources:
 
   PrivateRouteTable:
     Type: AWS::EC2::RouteTable
-
     Properties:
       VpcId: !Ref CloudMartVPC
-
       Tags:
         - Key: Name
           Value: !Sub cloudmart-${Environment}-private-route-table
@@ -188,7 +171,6 @@ Resources:
 
   PrivateSubnetRouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
-
     Properties:
       RouteTableId: !Ref PrivateRouteTable
       SubnetId: !Ref PrivateSubnet
@@ -196,7 +178,6 @@ Resources:
 
   SecondaryPrivateSubnetRouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
-
     Properties:
       RouteTableId: !Ref PrivateRouteTable
       SubnetId: !Ref SecondaryPrivateSubnet
@@ -208,7 +189,6 @@ Resources:
 
   LambdaSecurityGroup:
     Type: AWS::EC2::SecurityGroup
-
     Properties:
       GroupDescription: Security group for CloudMart private Lambda functions
       VpcId: !Ref CloudMartVPC
@@ -228,20 +208,17 @@ Resources:
 
   RDSSecurityGroup:
     Type: AWS::EC2::SecurityGroup
-
     Properties:
       GroupDescription: MySQL access from CloudMart Lambda functions
       VpcId: !Ref CloudMartVPC
 
       SecurityGroupIngress:
-
         - IpProtocol: tcp
           FromPort: 3306
           ToPort: 3306
           SourceSecurityGroupId: !Ref LambdaSecurityGroup
 
       SecurityGroupEgress:
-
         - IpProtocol: -1
           CidrIp: 0.0.0.0/0
 
@@ -256,13 +233,11 @@ Resources:
 
   EC2SecurityGroup:
     Type: AWS::EC2::SecurityGroup
-
     Properties:
       GroupDescription: Security group for CloudMart Flask dashboard
       VpcId: !Ref CloudMartVPC
 
       SecurityGroupEgress:
-
         - IpProtocol: -1
           CidrIp: 0.0.0.0/0
 
@@ -277,20 +252,17 @@ Resources:
 
   VPCEndpointSecurityGroup:
     Type: AWS::EC2::SecurityGroup
-
     Properties:
       GroupDescription: HTTPS access for VPC interface endpoints
       VpcId: !Ref CloudMartVPC
 
       SecurityGroupIngress:
-
         - IpProtocol: tcp
           FromPort: 443
           ToPort: 443
           SourceSecurityGroupId: !Ref LambdaSecurityGroup
 
       SecurityGroupEgress:
-
         - IpProtocol: -1
           CidrIp: 0.0.0.0/0
 
@@ -305,11 +277,9 @@ Resources:
 
   S3GatewayEndpoint:
     Type: AWS::EC2::VPCEndpoint
-
     Properties:
       VpcId: !Ref CloudMartVPC
       VpcEndpointType: Gateway
-
       ServiceName: !Sub com.amazonaws.${AWS::Region}.s3
 
       RouteTableIds:
@@ -322,13 +292,10 @@ Resources:
 
   SSMEndpoint:
     Type: AWS::EC2::VPCEndpoint
-
     Properties:
       VpcId: !Ref CloudMartVPC
       VpcEndpointType: Interface
-
       ServiceName: !Sub com.amazonaws.${AWS::Region}.ssm
-
       PrivateDnsEnabled: true
 
       SubnetIds:
@@ -345,13 +312,10 @@ Resources:
 
   EventBridgeEndpoint:
     Type: AWS::EC2::VPCEndpoint
-
     Properties:
       VpcId: !Ref CloudMartVPC
       VpcEndpointType: Interface
-
       ServiceName: !Sub com.amazonaws.${AWS::Region}.events
-
       PrivateDnsEnabled: true
 
       SubnetIds:
@@ -368,13 +332,10 @@ Resources:
 
   SNSEndpoint:
     Type: AWS::EC2::VPCEndpoint
-
     Properties:
       VpcId: !Ref CloudMartVPC
       VpcEndpointType: Interface
-
       ServiceName: !Sub com.amazonaws.${AWS::Region}.sns
-
       PrivateDnsEnabled: true
 
       SubnetIds:
@@ -394,7 +355,6 @@ Outputs:
   VpcId:
     Description: CloudMart VPC ID
     Value: !Ref CloudMartVPC
-
     Export:
       Name: !Sub cloudmart-${Environment}-VpcId
 
@@ -402,7 +362,6 @@ Outputs:
   PublicSubnetId:
     Description: Public subnet ID
     Value: !Ref PublicSubnet
-
     Export:
       Name: !Sub cloudmart-${Environment}-PublicSubnetId
 
@@ -410,7 +369,6 @@ Outputs:
   PrivateSubnetId:
     Description: Primary private subnet ID
     Value: !Ref PrivateSubnet
-
     Export:
       Name: !Sub cloudmart-${Environment}-PrivateSubnetId
 
@@ -418,7 +376,6 @@ Outputs:
   SecondaryPrivateSubnetId:
     Description: Secondary private subnet ID
     Value: !Ref SecondaryPrivateSubnet
-
     Export:
       Name: !Sub cloudmart-${Environment}-SecondaryPrivateSubnetId
 
@@ -426,7 +383,6 @@ Outputs:
   LambdaSecurityGroupId:
     Description: Lambda security group ID
     Value: !Ref LambdaSecurityGroup
-
     Export:
       Name: !Sub cloudmart-${Environment}-LambdaSecurityGroupId
 
@@ -434,7 +390,6 @@ Outputs:
   RDSSecurityGroupId:
     Description: RDS security group ID
     Value: !Ref RDSSecurityGroup
-
     Export:
       Name: !Sub cloudmart-${Environment}-RDSSecurityGroupId
 
@@ -442,7 +397,6 @@ Outputs:
   EC2SecurityGroupId:
     Description: EC2 dashboard security group ID
     Value: !Ref EC2SecurityGroup
-
     Export:
       Name: !Sub cloudmart-${Environment}-EC2SecurityGroupId
 
@@ -450,7 +404,6 @@ Outputs:
   VPCEndpointSecurityGroupId:
     Description: VPC endpoint security group ID
     Value: !Ref VPCEndpointSecurityGroup
-
     Export:
       Name: !Sub cloudmart-${Environment}-VPCEndpointSecurityGroupId
 
@@ -458,7 +411,6 @@ Outputs:
   S3EndpointId:
     Description: S3 gateway endpoint ID
     Value: !Ref S3GatewayEndpoint
-
     Export:
       Name: !Sub cloudmart-${Environment}-S3EndpointId
 
@@ -466,32 +418,19 @@ Outputs:
   SSMEndpointId:
     Description: SSM interface endpoint ID
     Value: !Ref SSMEndpoint
-
     Export:
       Name: !Sub cloudmart-${Environment}-SSMEndpointId
 
 
   EventBridgeEndpointId:
-    Description: EventBridge interface endpoint ID
+    Description: EventBridge endpoint ID
     Value: !Ref EventBridgeEndpoint
-
     Export:
       Name: !Sub cloudmart-${Environment}-EventBridgeEndpointId
 
 
   SNSEndpointId:
-    Description: SNS interface endpoint ID
+    Description: SNS endpoint ID
     Value: !Ref SNSEndpoint
-
     Export:
       Name: !Sub cloudmart-${Environment}-SNSEndpointId
-         - name: Inspect Network-Security template
-        run: |
-          echo "Commit:"
-          git rev-parse HEAD
-
-          echo "AvailabilityZone definition:"
-          grep -n -A4 -B2 "AvailabilityZone:" cloudformation/network-stack.yaml
-
-          echo "Template beginning:"
-          sed -n '1,45p' cloudformation/network-stack.yaml
