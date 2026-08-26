@@ -2,10 +2,14 @@ AWSTemplateFormatVersion: '2010-09-09'
 
 Description: >
   CloudMart Application-Events Stack.
-  Creates Lambda functions and application event infrastructure.
-
+  Creates the Lambda Authorizer and Product Lambda.
+  Additional application-event resources will be added incrementally.
 
 Parameters:
+
+  # ==========================================================
+  # ENVIRONMENT
+  # ==========================================================
 
   Environment:
     Type: String
@@ -13,42 +17,60 @@ Parameters:
     AllowedValues:
       - dev
       - prod
+    Description: Deployment environment
+
+
+  # ==========================================================
+  # DATABASE SSM PARAMETERS
+  # ==========================================================
 
   DBName:
     Type: String
     Default: /cloudmart/dev/db/name
+    Description: SSM parameter containing database name
 
   DBEndpoint:
     Type: String
     Default: /cloudmart/dev/db/endpoint
+    Description: SSM parameter containing RDS endpoint
 
   DBPort:
     Type: String
     Default: /cloudmart/dev/db/port
+    Description: SSM parameter containing RDS port
 
   DBUsername:
     Type: String
     Default: /cloudmart/dev/db/username
+    Description: SSM parameter containing database username
 
   DBPassword:
     Type: String
     Default: /cloudmart/dev/db/password
+    Description: SSM parameter containing database password
+
+
+  # ==========================================================
+  # AUTHENTICATION
+  # ==========================================================
 
   AuthTokenParameter:
     Type: String
     Default: /cloudmart/dev/auth/token
+    Description: SSM SecureString containing API authentication token
 
 
 Resources:
 
-  # =========================================================
+  # ==========================================================
   # LAMBDA AUTHORISER
-  # =========================================================
+  # ==========================================================
 
   LambdaAuthorizer:
     Type: AWS::Lambda::Function
 
     Properties:
+
       FunctionName: !Sub cloudmart-${Environment}-lambda-authorizer
 
       Runtime: python3.12
@@ -69,6 +91,7 @@ Resources:
 
       Code:
         ZipFile: |
+          import json
           import os
           import boto3
 
@@ -86,6 +109,10 @@ Resources:
                   or headers.get("authorization")
               )
 
+              # ------------------------------------------------
+              # Missing token
+              # ------------------------------------------------
+
               if not authorization:
                   return {
                       "isAuthorized": False,
@@ -93,6 +120,10 @@ Resources:
                           "reason": "missing_token"
                       }
                   }
+
+              # ------------------------------------------------
+              # Invalid authorization format
+              # ------------------------------------------------
 
               if not authorization.startswith("Bearer "):
                   return {
@@ -104,6 +135,10 @@ Resources:
 
               supplied_token = authorization[len("Bearer "):].strip()
 
+              # ------------------------------------------------
+              # Read token from SSM
+              # ------------------------------------------------
+
               try:
                   response = ssm.get_parameter(
                       Name=TOKEN_PARAMETER,
@@ -112,13 +147,24 @@ Resources:
 
                   expected_token = response["Parameter"]["Value"]
 
-              except Exception:
+              except Exception as exc:
+
+                  print(json.dumps({
+                      "level": "ERROR",
+                      "message": "Unable to retrieve authorization token",
+                      "error": str(exc)
+                  }))
+
                   return {
                       "isAuthorized": False,
                       "context": {
                           "reason": "authorization_configuration_error"
                       }
                   }
+
+              # ------------------------------------------------
+              # Validate token
+              # ------------------------------------------------
 
               if supplied_token != expected_token:
                   return {
@@ -127,6 +173,10 @@ Resources:
                           "reason": "invalid_token"
                       }
                   }
+
+              # ------------------------------------------------
+              # Authorized
+              # ------------------------------------------------
 
               return {
                   "isAuthorized": True,
@@ -140,14 +190,15 @@ Resources:
           Value: !Sub cloudmart-${Environment}-lambda-authorizer
 
 
-  # =========================================================
+  # ==========================================================
   # PRODUCT LAMBDA
-  # =========================================================
+  # ==========================================================
 
   ProductLambda:
     Type: AWS::Lambda::Function
 
     Properties:
+
       FunctionName: !Sub cloudmart-${Environment}-product-lambda
 
       Runtime: python3.12
@@ -162,24 +213,51 @@ Resources:
 
       MemorySize: 256
 
+      # ------------------------------------------------------
+      # VPC CONFIGURATION
+      # ------------------------------------------------------
+
       VpcConfig:
+
         SubnetIds:
+
           - Fn::ImportValue:
               Fn::Sub: cloudmart-${Environment}-PrivateSubnetId
+
           - Fn::ImportValue:
               Fn::Sub: cloudmart-${Environment}-SecondaryPrivateSubnetId
 
         SecurityGroupIds:
+
           - Fn::ImportValue:
               Fn::Sub: cloudmart-${Environment}-LambdaSecurityGroupId
 
+      # ------------------------------------------------------
+      # SSM PARAMETER NAMES
+      # ------------------------------------------------------
+
       Environment:
+
         Variables:
+
           DB_NAME_PARAMETER: !Ref DBName
+
           DB_ENDPOINT_PARAMETER: !Ref DBEndpoint
+
           DB_PORT_PARAMETER: !Ref DBPort
+
           DB_USERNAME_PARAMETER: !Ref DBUsername
+
           DB_PASSWORD_PARAMETER: !Ref DBPassword
+
+      # ------------------------------------------------------
+      # BOOTSTRAP CODE
+      # ------------------------------------------------------
+      #
+      # This is intentionally a minimal bootstrap.
+      # GitHub Actions will later update the Lambda code
+      # with the packaged Python application and PyMySQL.
+      #
 
       Code:
         ZipFile: |
@@ -193,20 +271,25 @@ Resources:
                       "Content-Type": "application/json"
                   },
                   "body": json.dumps({
-                      "message": "Product Lambda is running"
+                      "message": "Product Lambda bootstrap is running"
                   })
               }
 
       Tags:
+
         - Key: Name
           Value: !Sub cloudmart-${Environment}-product-lambda
 
 
-# =========================================================
+# ============================================================
 # OUTPUTS
-# =========================================================
+# ============================================================
 
 Outputs:
+
+  # ----------------------------------------------------------
+  # Lambda Authorizer ARN
+  # ----------------------------------------------------------
 
   LambdaAuthorizerArn:
     Description: Lambda Authorizer ARN
@@ -216,6 +299,10 @@ Outputs:
       Name: !Sub cloudmart-${Environment}-LambdaAuthorizerArn
 
 
+  # ----------------------------------------------------------
+  # Lambda Authorizer Name
+  # ----------------------------------------------------------
+
   LambdaAuthorizerName:
     Description: Lambda Authorizer function name
     Value: !Ref LambdaAuthorizer
@@ -224,6 +311,10 @@ Outputs:
       Name: !Sub cloudmart-${Environment}-LambdaAuthorizerName
 
 
+  # ----------------------------------------------------------
+  # Product Lambda ARN
+  # ----------------------------------------------------------
+
   ProductLambdaArn:
     Description: Product Lambda ARN
     Value: !GetAtt ProductLambda.Arn
@@ -231,6 +322,10 @@ Outputs:
     Export:
       Name: !Sub cloudmart-${Environment}-ProductLambdaArn
 
+
+  # ----------------------------------------------------------
+  # Product Lambda Name
+  # ----------------------------------------------------------
 
   ProductLambdaName:
     Description: Product Lambda function name
