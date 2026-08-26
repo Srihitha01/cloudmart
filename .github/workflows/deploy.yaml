@@ -1,4 +1,3 @@
-```yaml
 name: CloudMart Infrastructure Deployment
 
 on:
@@ -27,15 +26,11 @@ env:
 
 jobs:
 
-  # ============================================================
-  # 1. NETWORK STACK
-  # ============================================================
   deploy-network:
     name: Deploy Network-Security Stack
     runs-on: ubuntu-latest
 
     steps:
-
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -61,7 +56,6 @@ jobs:
             --stack-name "$NETWORK_STACK_NAME" \
             --parameter-overrides \
               Environment="$ENVIRONMENT" \
-            --capabilities CAPABILITY_NAMED_IAM \
             --no-fail-on-empty-changeset
 
       - name: Show Network Stack Status
@@ -96,16 +90,12 @@ jobs:
           fi
 
 
-  # ============================================================
-  # 2. DATA STACK
-  # ============================================================
   deploy-data:
     name: Deploy Data-Storage Stack
     runs-on: ubuntu-latest
     needs: deploy-network
 
     steps:
-
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -143,7 +133,6 @@ jobs:
               DBPassword="${{ secrets.CLOUDMART_DB_PASSWORD }}" \
               DBInstanceClass="db.t3.micro" \
               AllocatedStorage="20" \
-            --capabilities CAPABILITY_NAMED_IAM \
             --no-fail-on-empty-changeset
 
       - name: Show Data Stack Status
@@ -178,16 +167,12 @@ jobs:
           fi
 
 
-  # ============================================================
-  # 3. IAM STACK
-  # ============================================================
   deploy-iam:
     name: Deploy IAM-Configuration Stack
     runs-on: ubuntu-latest
     needs: deploy-data
 
     steps:
-
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -253,4 +238,3 @@ jobs:
           else
             echo "IAM stack does not exist."
           fi
-```
