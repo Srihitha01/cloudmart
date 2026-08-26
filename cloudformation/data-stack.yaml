@@ -3,9 +3,13 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: >
   CloudMart Data-Storage Stack.
   Creates the private RDS MySQL database and
-  S3 bucket used for generated reports.
+  one stable S3 bucket used for generated reports.
 
 Parameters:
+
+  # ==========================================================
+  # ENVIRONMENT
+  # ==========================================================
 
   Environment:
     Type: String
@@ -14,6 +18,11 @@ Parameters:
       - dev
       - prod
     Description: Deployment environment
+
+
+  # ==========================================================
+  # DATABASE
+  # ==========================================================
 
   DBName:
     Type: String
@@ -43,6 +52,18 @@ Parameters:
     Description: Initial RDS storage in GB
 
 
+  # ==========================================================
+  # S3
+  # ==========================================================
+
+  ReportBucketName:
+    Type: String
+    Default: cloudmart-dev-reports
+    Description: >
+      Stable S3 bucket name used for generated CloudMart reports.
+      Use cloudmart-prod-reports for the prod environment.
+
+
 Resources:
 
   # ==========================================================
@@ -53,7 +74,7 @@ Resources:
     Type: AWS::RDS::DBSubnetGroup
 
     Properties:
-      DBSubnetGroupDescription: !Sub
+      DBSubnetGroupDescription: !Sub >
         CloudMart ${Environment} RDS private subnet group
 
       SubnetIds:
@@ -103,8 +124,8 @@ Resources:
 
       MultiAZ: false
 
-      # Set to 0 because this AWS account currently
-      # restricts the available backup retention period.
+      # Your AWS account previously rejected 7 days
+      # for the current Free Tier configuration.
       BackupRetentionPeriod: 0
 
       CopyTagsToSnapshot: true
@@ -132,6 +153,11 @@ Resources:
 
     Properties:
 
+      # Stable bucket name.
+      # Dev  -> cloudmart-dev-reports
+      # Prod -> pass cloudmart-prod-reports
+      BucketName: !Ref ReportBucketName
+
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
@@ -148,14 +174,18 @@ Resources:
 
       Tags:
         - Key: Name
-          Value: !Sub cloudmart-${Environment}-reports
+          Value: !Ref ReportBucketName
 
 
-# ==========================================================
+# ============================================================
 # OUTPUTS
-# ==========================================================
+# ============================================================
 
 Outputs:
+
+  # ----------------------------------------------------------
+  # RDS Endpoint
+  # ----------------------------------------------------------
 
   DBEndpoint:
     Description: RDS MySQL endpoint
@@ -165,6 +195,10 @@ Outputs:
       Name: !Sub cloudmart-${Environment}-DBEndpoint
 
 
+  # ----------------------------------------------------------
+  # RDS Port
+  # ----------------------------------------------------------
+
   DBPort:
     Description: RDS MySQL port
     Value: !GetAtt CloudMartRDS.Endpoint.Port
@@ -172,6 +206,10 @@ Outputs:
     Export:
       Name: !Sub cloudmart-${Environment}-DBPort
 
+
+  # ----------------------------------------------------------
+  # Database Name
+  # ----------------------------------------------------------
 
   DBName:
     Description: CloudMart database name
@@ -181,6 +219,10 @@ Outputs:
       Name: !Sub cloudmart-${Environment}-DBName
 
 
+  # ----------------------------------------------------------
+  # RDS Instance Identifier
+  # ----------------------------------------------------------
+
   DBInstanceIdentifier:
     Description: RDS instance identifier
     Value: !Ref CloudMartRDS
@@ -189,16 +231,24 @@ Outputs:
       Name: !Sub cloudmart-${Environment}-DBInstanceIdentifier
 
 
+  # ----------------------------------------------------------
+  # S3 Bucket Name
+  # ----------------------------------------------------------
+
   ReportBucketName:
-    Description: S3 report bucket name
+    Description: Stable CloudMart report bucket name
     Value: !Ref CloudMartReportBucket
 
     Export:
       Name: !Sub cloudmart-${Environment}-ReportBucketName
 
 
+  # ----------------------------------------------------------
+  # S3 Bucket ARN
+  # ----------------------------------------------------------
+
   ReportBucketArn:
-    Description: S3 report bucket ARN
+    Description: Stable CloudMart report bucket ARN
     Value: !GetAtt CloudMartReportBucket.Arn
 
     Export:
