@@ -5,9 +5,7 @@ on:
     branches:
       - main
     paths:
-      - 'cloudformation/network-stack.yaml'
-      - 'cloudformation/data-stack.yaml'
-      - 'cloudformation/iam-stack.yaml'
+      - 'cloudformation/**'
       - '.github/workflows/deploy.yaml'
 
   workflow_dispatch:
@@ -23,6 +21,12 @@ env:
   NETWORK_STACK_NAME: cloudmart-network-security-dev
   DATA_STACK_NAME: cloudmart-data-storage-dev
   IAM_STACK_NAME: cloudmart-iam-dev
+  APPLICATION_EVENTS_STACK_NAME: cloudmart-application-events-dev
+
+
+# ============================================================
+# 1. NETWORK-SECURITY STACK
+# ============================================================
 
 jobs:
 
@@ -31,6 +35,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -47,7 +52,8 @@ jobs:
       - name: Validate Network CloudFormation template
         run: |
           aws cloudformation validate-template \
-            --template-body file://cloudformation/network-stack.yaml
+            --template-body file://cloudformation/network-stack.yaml \
+            --region "$AWS_REGION"
 
       - name: Deploy Network-Security Stack
         run: |
@@ -56,12 +62,14 @@ jobs:
             --stack-name "$NETWORK_STACK_NAME" \
             --parameter-overrides \
               Environment="$ENVIRONMENT" \
+            --region "$AWS_REGION" \
             --no-fail-on-empty-changeset
 
       - name: Show Network Stack Status
         run: |
           aws cloudformation describe-stacks \
             --stack-name "$NETWORK_STACK_NAME" \
+            --region "$AWS_REGION" \
             --query 'Stacks[0].[StackName,StackStatus]' \
             --output table
 
@@ -69,7 +77,8 @@ jobs:
         run: |
           aws cloudformation describe-stacks \
             --stack-name "$NETWORK_STACK_NAME" \
-            --query 'Stacks[0].Outputs' \
+            --region "$AWS_REGION" \
+            --query 'Stacks[0].Outputs[*].[OutputKey,OutputValue]' \
             --output table
 
       - name: Show Network Stack Failure Details
@@ -78,10 +87,12 @@ jobs:
           echo "Checking Network-Security CloudFormation events..."
 
           if aws cloudformation describe-stacks \
-            --stack-name "$NETWORK_STACK_NAME" > /dev/null 2>&1; then
+            --stack-name "$NETWORK_STACK_NAME" \
+            --region "$AWS_REGION" > /dev/null 2>&1; then
 
             aws cloudformation describe-stack-events \
               --stack-name "$NETWORK_STACK_NAME" \
+              --region "$AWS_REGION" \
               --query "StackEvents[?ResourceStatus=='CREATE_FAILED' || ResourceStatus=='UPDATE_FAILED' || ResourceStatus=='DELETE_FAILED'].[LogicalResourceId,ResourceType,ResourceStatus,ResourceStatusReason]" \
               --output table
 
@@ -90,12 +101,18 @@ jobs:
           fi
 
 
+# ============================================================
+# 2. DATA-STORAGE STACK
+# ============================================================
+
   deploy-data:
     name: Deploy Data-Storage Stack
     runs-on: ubuntu-latest
+
     needs: deploy-network
 
     steps:
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -112,12 +129,14 @@ jobs:
       - name: Validate Data CloudFormation template
         run: |
           aws cloudformation validate-template \
-            --template-body file://cloudformation/data-stack.yaml
+            --template-body file://cloudformation/data-stack.yaml \
+            --region "$AWS_REGION"
 
       - name: Verify Network-Security Stack
         run: |
           aws cloudformation describe-stacks \
             --stack-name "$NETWORK_STACK_NAME" \
+            --region "$AWS_REGION" \
             --query 'Stacks[0].[StackName,StackStatus]' \
             --output table
 
@@ -133,12 +152,14 @@ jobs:
               DBPassword="${{ secrets.CLOUDMART_DB_PASSWORD }}" \
               DBInstanceClass="db.t3.micro" \
               AllocatedStorage="20" \
+            --region "$AWS_REGION" \
             --no-fail-on-empty-changeset
 
       - name: Show Data Stack Status
         run: |
           aws cloudformation describe-stacks \
             --stack-name "$DATA_STACK_NAME" \
+            --region "$AWS_REGION" \
             --query 'Stacks[0].[StackName,StackStatus]' \
             --output table
 
@@ -146,7 +167,8 @@ jobs:
         run: |
           aws cloudformation describe-stacks \
             --stack-name "$DATA_STACK_NAME" \
-            --query 'Stacks[0].Outputs' \
+            --region "$AWS_REGION" \
+            --query 'Stacks[0].Outputs[*].[OutputKey,OutputValue]' \
             --output table
 
       - name: Show Data Stack Failure Details
@@ -155,10 +177,12 @@ jobs:
           echo "Checking Data-Storage CloudFormation events..."
 
           if aws cloudformation describe-stacks \
-            --stack-name "$DATA_STACK_NAME" > /dev/null 2>&1; then
+            --stack-name "$DATA_STACK_NAME" \
+            --region "$AWS_REGION" > /dev/null 2>&1; then
 
             aws cloudformation describe-stack-events \
               --stack-name "$DATA_STACK_NAME" \
+              --region "$AWS_REGION" \
               --query "StackEvents[?ResourceStatus=='CREATE_FAILED' || ResourceStatus=='UPDATE_FAILED' || ResourceStatus=='DELETE_FAILED'].[LogicalResourceId,ResourceType,ResourceStatus,ResourceStatusReason]" \
               --output table
 
@@ -167,12 +191,18 @@ jobs:
           fi
 
 
+# ============================================================
+# 3. IAM-CONFIGURATION STACK
+# ============================================================
+
   deploy-iam:
     name: Deploy IAM-Configuration Stack
     runs-on: ubuntu-latest
+
     needs: deploy-data
 
     steps:
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -189,12 +219,14 @@ jobs:
       - name: Validate IAM CloudFormation template
         run: |
           aws cloudformation validate-template \
-            --template-body file://cloudformation/iam-stack.yaml
+            --template-body file://cloudformation/iam-stack.yaml \
+            --region "$AWS_REGION"
 
       - name: Verify Data-Storage Stack
         run: |
           aws cloudformation describe-stacks \
             --stack-name "$DATA_STACK_NAME" \
+            --region "$AWS_REGION" \
             --query 'Stacks[0].[StackName,StackStatus]' \
             --output table
 
@@ -206,12 +238,14 @@ jobs:
             --parameter-overrides \
               Environment="$ENVIRONMENT" \
             --capabilities CAPABILITY_NAMED_IAM \
+            --region "$AWS_REGION" \
             --no-fail-on-empty-changeset
 
       - name: Show IAM Stack Status
         run: |
           aws cloudformation describe-stacks \
             --stack-name "$IAM_STACK_NAME" \
+            --region "$AWS_REGION" \
             --query 'Stacks[0].[StackName,StackStatus]' \
             --output table
 
@@ -219,7 +253,8 @@ jobs:
         run: |
           aws cloudformation describe-stacks \
             --stack-name "$IAM_STACK_NAME" \
-            --query 'Stacks[0].Outputs' \
+            --region "$AWS_REGION" \
+            --query 'Stacks[0].Outputs[*].[OutputKey,OutputValue]' \
             --output table
 
       - name: Show IAM Stack Failure Details
@@ -228,13 +263,123 @@ jobs:
           echo "Checking IAM CloudFormation events..."
 
           if aws cloudformation describe-stacks \
-            --stack-name "$IAM_STACK_NAME" > /dev/null 2>&1; then
+            --stack-name "$IAM_STACK_NAME" \
+            --region "$AWS_REGION" > /dev/null 2>&1; then
 
             aws cloudformation describe-stack-events \
               --stack-name "$IAM_STACK_NAME" \
+              --region "$AWS_REGION" \
               --query "StackEvents[?ResourceStatus=='CREATE_FAILED' || ResourceStatus=='UPDATE_FAILED' || ResourceStatus=='DELETE_FAILED'].[LogicalResourceId,ResourceType,ResourceStatus,ResourceStatusReason]" \
               --output table
 
           else
             echo "IAM stack does not exist."
+          fi
+
+
+# ============================================================
+# 4. APPLICATION-EVENTS STACK
+# ============================================================
+
+  deploy-application-events:
+    name: Deploy Application-Events Stack
+    runs-on: ubuntu-latest
+
+    needs: deploy-iam
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Verify AWS identity
+        run: |
+          aws sts get-caller-identity
+
+      - name: Validate Application-Events CloudFormation template
+        run: |
+          aws cloudformation validate-template \
+            --template-body file://cloudformation/application-events-stack.yaml \
+            --region "$AWS_REGION"
+
+      - name: Verify Network-Security Stack
+        run: |
+          aws cloudformation describe-stacks \
+            --stack-name "$NETWORK_STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query 'Stacks[0].[StackName,StackStatus]' \
+            --output table
+
+      - name: Verify Data-Storage Stack
+        run: |
+          aws cloudformation describe-stacks \
+            --stack-name "$DATA_STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query 'Stacks[0].[StackName,StackStatus]' \
+            --output table
+
+      - name: Verify IAM-Configuration Stack
+        run: |
+          aws cloudformation describe-stacks \
+            --stack-name "$IAM_STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query 'Stacks[0].[StackName,StackStatus]' \
+            --output table
+
+      - name: Deploy Application-Events Stack
+        run: |
+          aws cloudformation deploy \
+            --template-file cloudformation/application-events-stack.yaml \
+            --stack-name "$APPLICATION_EVENTS_STACK_NAME" \
+            --parameter-overrides \
+              Environment="$ENVIRONMENT" \
+              DBName="/cloudmart/$ENVIRONMENT/db/name" \
+              DBEndpoint="/cloudmart/$ENVIRONMENT/db/endpoint" \
+              DBPort="/cloudmart/$ENVIRONMENT/db/port" \
+              DBUsername="/cloudmart/$ENVIRONMENT/db/username" \
+              DBPassword="/cloudmart/$ENVIRONMENT/db/password" \
+              AuthTokenParameter="/cloudmart/$ENVIRONMENT/auth/token" \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --region "$AWS_REGION" \
+            --no-fail-on-empty-changeset
+
+      - name: Show Application-Events Stack Status
+        run: |
+          aws cloudformation describe-stacks \
+            --stack-name "$APPLICATION_EVENTS_STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query 'Stacks[0].[StackName,StackStatus]' \
+            --output table
+
+      - name: Show Application-Events Stack Outputs
+        run: |
+          aws cloudformation describe-stacks \
+            --stack-name "$APPLICATION_EVENTS_STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query 'Stacks[0].Outputs[*].[OutputKey,OutputValue]' \
+            --output table
+
+      - name: Show Application-Events Stack Failure Details
+        if: failure()
+        run: |
+          echo "Checking Application-Events CloudFormation events..."
+
+          if aws cloudformation describe-stacks \
+            --stack-name "$APPLICATION_EVENTS_STACK_NAME" \
+            --region "$AWS_REGION" > /dev/null 2>&1; then
+
+            aws cloudformation describe-stack-events \
+              --stack-name "$APPLICATION_EVENTS_STACK_NAME" \
+              --region "$AWS_REGION" \
+              --query "StackEvents[?ResourceStatus=='CREATE_FAILED' || ResourceStatus=='UPDATE_FAILED' || ResourceStatus=='DELETE_FAILED'].[LogicalResourceId,ResourceType,ResourceStatus,ResourceStatusReason]" \
+              --output table
+
+          else
+            echo "Application-Events stack does not exist."
           fi

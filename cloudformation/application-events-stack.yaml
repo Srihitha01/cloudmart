@@ -1,0 +1,240 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: >
+  CloudMart Application-Events Stack.
+  Creates Lambda functions and application event infrastructure.
+
+
+Parameters:
+
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - prod
+
+  DBName:
+    Type: String
+    Default: /cloudmart/dev/db/name
+
+  DBEndpoint:
+    Type: String
+    Default: /cloudmart/dev/db/endpoint
+
+  DBPort:
+    Type: String
+    Default: /cloudmart/dev/db/port
+
+  DBUsername:
+    Type: String
+    Default: /cloudmart/dev/db/username
+
+  DBPassword:
+    Type: String
+    Default: /cloudmart/dev/db/password
+
+  AuthTokenParameter:
+    Type: String
+    Default: /cloudmart/dev/auth/token
+
+
+Resources:
+
+  # =========================================================
+  # LAMBDA AUTHORISER
+  # =========================================================
+
+  LambdaAuthorizer:
+    Type: AWS::Lambda::Function
+
+    Properties:
+      FunctionName: !Sub cloudmart-${Environment}-lambda-authorizer
+
+      Runtime: python3.12
+
+      Handler: index.lambda_handler
+
+      Role:
+        Fn::ImportValue:
+          Fn::Sub: cloudmart-${Environment}-LambdaAuthorizerRoleArn
+
+      Timeout: 10
+
+      MemorySize: 128
+
+      Environment:
+        Variables:
+          TOKEN_PARAMETER: !Ref AuthTokenParameter
+
+      Code:
+        ZipFile: |
+          import os
+          import boto3
+
+          ssm = boto3.client("ssm")
+
+          TOKEN_PARAMETER = os.environ["TOKEN_PARAMETER"]
+
+
+          def lambda_handler(event, context):
+
+              headers = event.get("headers") or {}
+
+              authorization = (
+                  headers.get("Authorization")
+                  or headers.get("authorization")
+              )
+
+              if not authorization:
+                  return {
+                      "isAuthorized": False,
+                      "context": {
+                          "reason": "missing_token"
+                      }
+                  }
+
+              if not authorization.startswith("Bearer "):
+                  return {
+                      "isAuthorized": False,
+                      "context": {
+                          "reason": "invalid_authorization_format"
+                      }
+                  }
+
+              supplied_token = authorization[len("Bearer "):].strip()
+
+              try:
+                  response = ssm.get_parameter(
+                      Name=TOKEN_PARAMETER,
+                      WithDecryption=True
+                  )
+
+                  expected_token = response["Parameter"]["Value"]
+
+              except Exception:
+                  return {
+                      "isAuthorized": False,
+                      "context": {
+                          "reason": "authorization_configuration_error"
+                      }
+                  }
+
+              if supplied_token != expected_token:
+                  return {
+                      "isAuthorized": False,
+                      "context": {
+                          "reason": "invalid_token"
+                      }
+                  }
+
+              return {
+                  "isAuthorized": True,
+                  "context": {
+                      "authenticated": "true"
+                  }
+              }
+
+      Tags:
+        - Key: Name
+          Value: !Sub cloudmart-${Environment}-lambda-authorizer
+
+
+  # =========================================================
+  # PRODUCT LAMBDA
+  # =========================================================
+
+  ProductLambda:
+    Type: AWS::Lambda::Function
+
+    Properties:
+      FunctionName: !Sub cloudmart-${Environment}-product-lambda
+
+      Runtime: python3.12
+
+      Handler: index.lambda_handler
+
+      Role:
+        Fn::ImportValue:
+          Fn::Sub: cloudmart-${Environment}-ProductLambdaRoleArn
+
+      Timeout: 30
+
+      MemorySize: 256
+
+      VpcConfig:
+        SubnetIds:
+          - Fn::ImportValue:
+              Fn::Sub: cloudmart-${Environment}-PrivateSubnetId
+          - Fn::ImportValue:
+              Fn::Sub: cloudmart-${Environment}-SecondaryPrivateSubnetId
+
+        SecurityGroupIds:
+          - Fn::ImportValue:
+              Fn::Sub: cloudmart-${Environment}-LambdaSecurityGroupId
+
+      Environment:
+        Variables:
+          DB_NAME_PARAMETER: !Ref DBName
+          DB_ENDPOINT_PARAMETER: !Ref DBEndpoint
+          DB_PORT_PARAMETER: !Ref DBPort
+          DB_USERNAME_PARAMETER: !Ref DBUsername
+          DB_PASSWORD_PARAMETER: !Ref DBPassword
+
+      Code:
+        ZipFile: |
+          import json
+
+          def lambda_handler(event, context):
+
+              return {
+                  "statusCode": 200,
+                  "headers": {
+                      "Content-Type": "application/json"
+                  },
+                  "body": json.dumps({
+                      "message": "Product Lambda is running"
+                  })
+              }
+
+      Tags:
+        - Key: Name
+          Value: !Sub cloudmart-${Environment}-product-lambda
+
+
+# =========================================================
+# OUTPUTS
+# =========================================================
+
+Outputs:
+
+  LambdaAuthorizerArn:
+    Description: Lambda Authorizer ARN
+    Value: !GetAtt LambdaAuthorizer.Arn
+
+    Export:
+      Name: !Sub cloudmart-${Environment}-LambdaAuthorizerArn
+
+
+  LambdaAuthorizerName:
+    Description: Lambda Authorizer function name
+    Value: !Ref LambdaAuthorizer
+
+    Export:
+      Name: !Sub cloudmart-${Environment}-LambdaAuthorizerName
+
+
+  ProductLambdaArn:
+    Description: Product Lambda ARN
+    Value: !GetAtt ProductLambda.Arn
+
+    Export:
+      Name: !Sub cloudmart-${Environment}-ProductLambdaArn
+
+
+  ProductLambdaName:
+    Description: Product Lambda function name
+    Value: !Ref ProductLambda
+
+    Export:
+      Name: !Sub cloudmart-${Environment}-ProductLambdaName
