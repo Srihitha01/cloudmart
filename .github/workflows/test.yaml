@@ -1,0 +1,258 @@
+name: CloudMart Application-Events Test
+
+on:
+  push:
+    branches:
+      - cloud
+    paths:
+      - 'cloudformation/application-events-stack.yaml'
+      - '.github/workflows/test.yaml'
+
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-south-1
+  ENVIRONMENT: dev
+
+  NETWORK_STACK_NAME: cloudmart-network-security-dev
+  DATA_STACK_NAME: cloudmart-data-storage-dev
+  IAM_STACK_NAME: cloudmart-iam-dev
+  APPLICATION_EVENTS_STACK_NAME: cloudmart-application-events-dev
+
+
+jobs:
+
+  # ==========================================================
+  # TEST APPLICATION-EVENTS STACK
+  # ==========================================================
+
+  test-application-events:
+
+    name: Test Application-Events Stack
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # --------------------------------------------------------
+      # CHECKOUT
+      # --------------------------------------------------------
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+
+      # --------------------------------------------------------
+      # DEBUG GITHUB OIDC CLAIMS
+      # --------------------------------------------------------
+
+      - name: Debug GitHub OIDC claims
+        uses: github/actions-oidc-debugger@main
+        with:
+          audience: sts.amazonaws.com
+
+
+      # --------------------------------------------------------
+      # CONFIGURE AWS
+      # --------------------------------------------------------
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+
+      # --------------------------------------------------------
+      # VERIFY AWS IDENTITY
+      # --------------------------------------------------------
+
+      - name: Verify AWS identity
+        run: |
+          aws sts get-caller-identity
+
+
+      # --------------------------------------------------------
+      # VERIFY NETWORK STACK
+      # --------------------------------------------------------
+
+      - name: Verify Network-Security Stack
+        run: |
+          aws cloudformation describe-stacks \
+            --stack-name "$NETWORK_STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query 'Stacks[0].[StackName,StackStatus]' \
+            --output table
+
+
+      # --------------------------------------------------------
+      # VERIFY DATA STACK
+      # --------------------------------------------------------
+
+      - name: Verify Data-Storage Stack
+        run: |
+          aws cloudformation describe-stacks \
+            --stack-name "$DATA_STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query 'Stacks[0].[StackName,StackStatus]' \
+            --output table
+
+
+      # --------------------------------------------------------
+      # VERIFY IAM STACK
+      # --------------------------------------------------------
+
+      - name: Verify IAM-Configuration Stack
+        run: |
+          aws cloudformation describe-stacks \
+            --stack-name "$IAM_STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query 'Stacks[0].[StackName,StackStatus]' \
+            --output table
+
+
+      # --------------------------------------------------------
+      # VERIFY AUTHENTICATION SSM PARAMETER
+      # --------------------------------------------------------
+
+      - name: Verify authentication parameter
+        run: |
+          aws ssm get-parameter \
+            --name "/cloudmart/$ENVIRONMENT/auth/token" \
+            --region "$AWS_REGION" \
+            --query 'Parameter.[Name,Type]' \
+            --output table
+
+
+      # --------------------------------------------------------
+      # VALIDATE APPLICATION-EVENTS TEMPLATE
+      # --------------------------------------------------------
+
+      - name: Validate Application-Events template
+        run: |
+          aws cloudformation validate-template \
+            --template-body file://cloudformation/application-events-stack.yaml \
+            --region "$AWS_REGION"
+
+
+      # --------------------------------------------------------
+      # DEPLOY APPLICATION-EVENTS STACK
+      # --------------------------------------------------------
+
+      - name: Deploy Application-Events Stack
+        run: |
+          aws cloudformation deploy \
+            --template-file cloudformation/application-events-stack.yaml \
+            --stack-name "$APPLICATION_EVENTS_STACK_NAME" \
+            --parameter-overrides \
+              Environment="$ENVIRONMENT" \
+              AuthTokenParameter="/cloudmart/$ENVIRONMENT/auth/token" \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --region "$AWS_REGION" \
+            --no-fail-on-empty-changeset
+
+
+      # --------------------------------------------------------
+      # VERIFY STACK STATUS
+      # --------------------------------------------------------
+
+      - name: Verify Application-Events Stack
+        run: |
+          aws cloudformation describe-stacks \
+            --stack-name "$APPLICATION_EVENTS_STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query 'Stacks[0].[StackName,StackStatus]' \
+            --output table
+
+
+      # --------------------------------------------------------
+      # SHOW STACK OUTPUTS
+      # --------------------------------------------------------
+
+      - name: Show Application-Events Outputs
+        run: |
+          aws cloudformation describe-stacks \
+            --stack-name "$APPLICATION_EVENTS_STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query 'Stacks[0].Outputs[*].[OutputKey,OutputValue]' \
+            --output table
+
+
+      # --------------------------------------------------------
+      # VERIFY AUTHORISER FUNCTION
+      # --------------------------------------------------------
+
+      - name: Verify Lambda Authorizer
+        run: |
+          aws lambda get-function \
+            --function-name "cloudmart-${ENVIRONMENT}-lambda-authorizer" \
+            --region "$AWS_REGION" \
+            --query 'Configuration.[FunctionName,Runtime,Handler,State,LastUpdateStatus]' \
+            --output table
+
+
+      # --------------------------------------------------------
+      # VERIFY PRODUCT LAMBDA
+      # --------------------------------------------------------
+
+      - name: Verify Product Lambda
+        run: |
+          aws lambda get-function \
+            --function-name "cloudmart-${ENVIRONMENT}-product-lambda" \
+            --region "$AWS_REGION" \
+            --query 'Configuration.[FunctionName,Runtime,Handler,State,LastUpdateStatus]' \
+            --output table
+
+
+      # --------------------------------------------------------
+      # VERIFY AUTHORISER CONFIGURATION
+      # --------------------------------------------------------
+
+      - name: Verify Authorizer configuration
+        run: |
+          aws lambda get-function-configuration \
+            --function-name "cloudmart-${ENVIRONMENT}-lambda-authorizer" \
+            --region "$AWS_REGION" \
+            --query 'Environment.Variables' \
+            --output json
+
+
+      # --------------------------------------------------------
+      # VERIFY PRODUCT LAMBDA VPC CONFIGURATION
+      # --------------------------------------------------------
+
+      - name: Verify Product Lambda VPC configuration
+        run: |
+          aws lambda get-function-configuration \
+            --function-name "cloudmart-${ENVIRONMENT}-product-lambda" \
+            --region "$AWS_REGION" \
+            --query '[VpcConfig.SubnetIds,VpcConfig.SecurityGroupIds]' \
+            --output json
+
+
+      # --------------------------------------------------------
+      # FAILURE DETAILS
+      # --------------------------------------------------------
+
+      - name: Show CloudFormation failure details
+        if: failure()
+        run: |
+          echo "Checking Application-Events CloudFormation events..."
+
+          if aws cloudformation describe-stacks \
+            --stack-name "$APPLICATION_EVENTS_STACK_NAME" \
+            --region "$AWS_REGION" > /dev/null 2>&1; then
+
+            aws cloudformation describe-stack-events \
+              --stack-name "$APPLICATION_EVENTS_STACK_NAME" \
+              --region "$AWS_REGION" \
+              --query "StackEvents[?ResourceStatus=='CREATE_FAILED' || ResourceStatus=='UPDATE_FAILED' || ResourceStatus=='DELETE_FAILED'].[LogicalResourceId,ResourceType,ResourceStatus,ResourceStatusReason]" \
+              --output table
+
+          else
+            echo "Application-Events stack does not exist."
+          fi
