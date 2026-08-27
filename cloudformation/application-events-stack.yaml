@@ -2,8 +2,8 @@ AWSTemplateFormatVersion: '2010-09-09'
 
 Description: >
   CloudMart Application-Events Stack.
-  Creates the Lambda Authorizer and Product Lambda.
-  Additional application-event resources will be added incrementally.
+  Creates the CloudMart Lambda Authorizer.
+  Additional application and event resources will be added incrementally.
 
 Parameters:
 
@@ -21,43 +21,15 @@ Parameters:
 
 
   # ==========================================================
-  # DATABASE SSM PARAMETERS
-  # ==========================================================
-
-  DBName:
-    Type: String
-    Default: /cloudmart/dev/db/name
-    Description: SSM parameter containing database name
-
-  DBEndpoint:
-    Type: String
-    Default: /cloudmart/dev/db/endpoint
-    Description: SSM parameter containing RDS endpoint
-
-  DBPort:
-    Type: String
-    Default: /cloudmart/dev/db/port
-    Description: SSM parameter containing RDS port
-
-  DBUsername:
-    Type: String
-    Default: /cloudmart/dev/db/username
-    Description: SSM parameter containing database username
-
-  DBPassword:
-    Type: String
-    Default: /cloudmart/dev/db/password
-    Description: SSM parameter containing database password
-
-
-  # ==========================================================
   # AUTHENTICATION
   # ==========================================================
 
   AuthTokenParameter:
     Type: String
     Default: /cloudmart/dev/auth/token
-    Description: SSM SecureString containing API authentication token
+    Description: >
+      SSM SecureString parameter containing the API
+      authentication token.
 
 
 Resources:
@@ -89,13 +61,35 @@ Resources:
         Variables:
           AUTH_TOKEN_PARAMETER: !Ref AuthTokenParameter
 
+      # ------------------------------------------------------
+      # ACTUAL AUTHORISER CODE
+      #
+      # CloudFormation receives the code inline.
+      # You do NOT create a .zip file yourself.
+      # ------------------------------------------------------
+
       Code:
         ZipFile: |
           import json
           import os
           import boto3
 
+
           ssm = boto3.client("ssm")
+
+
+          def log_event(level, result, reason=None):
+              record = {
+                  "level": level,
+                  "service": "cloudmart-lambda-authorizer",
+                  "operation": "AUTHORIZE",
+                  "result": result
+              }
+
+              if reason:
+                  record["reason"] = reason
+
+              print(json.dumps(record))
 
 
           def get_parameter(name):
@@ -125,11 +119,25 @@ Resources:
 
           def lambda_handler(event, context):
 
+              method_arn = event.get("methodArn", "*")
+
               try:
+
+                  # ------------------------------------------------
+                  # Get SSM parameter name
+                  # ------------------------------------------------
 
                   token_parameter = os.environ["AUTH_TOKEN_PARAMETER"]
 
+                  # ------------------------------------------------
+                  # Get actual token from SSM SecureString
+                  # ------------------------------------------------
+
                   expected_token = get_parameter(token_parameter)
+
+                  # ------------------------------------------------
+                  # Read Authorization header
+                  # ------------------------------------------------
 
                   headers = event.get("headers") or {}
 
@@ -138,158 +146,125 @@ Resources:
                       or headers.get("authorization")
                   )
 
+                  # ------------------------------------------------
+                  # Missing token
+                  # ------------------------------------------------
+
                   if not authorization_header:
 
-                      print(json.dumps({
-                          "level": "INFO",
-                          "operation": "AUTHORIZE",
-                          "result": "DENY",
-                          "reason": "TOKEN_MISSING"
-                      }))
-
-                      return generate_policy(
-                          "unauthorized",
-                          "Deny",
-                          event["methodArn"]
+                      log_event(
+                          "WARN",
+                          "DENY",
+                          "TOKEN_MISSING"
                       )
 
-                  token = authorization_header.strip()
+                      return generate_policy(
+                          "unauthorized-user",
+                          "Deny",
+                          method_arn
+                      )
 
-                  if token.startswith("Bearer "):
-                      token = token[len("Bearer "):].strip()
+                  # ------------------------------------------------
+                  # Clean header
+                  # ------------------------------------------------
+
+                  authorization_header = authorization_header.strip()
+
+                  # ------------------------------------------------
+                  # Require Bearer token
+                  # ------------------------------------------------
+
+                  if not authorization_header.startswith("Bearer "):
+
+                      log_event(
+                          "WARN",
+                          "DENY",
+                          "INVALID_AUTHORIZATION_FORMAT"
+                      )
+
+                      return generate_policy(
+                          "unauthorized-user",
+                          "Deny",
+                          method_arn
+                      )
+
+                  # ------------------------------------------------
+                  # Extract token
+                  # ------------------------------------------------
+
+                  token = authorization_header[len("Bearer "):].strip()
+
+                  if not token:
+
+                      log_event(
+                          "WARN",
+                          "DENY",
+                          "TOKEN_EMPTY"
+                      )
+
+                      return generate_policy(
+                          "unauthorized-user",
+                          "Deny",
+                          method_arn
+                      )
+
+                  # ------------------------------------------------
+                  # Compare token with SSM value
+                  # ------------------------------------------------
 
                   if token != expected_token:
 
-                      print(json.dumps({
-                          "level": "INFO",
-                          "operation": "AUTHORIZE",
-                          "result": "DENY",
-                          "reason": "TOKEN_INVALID"
-                      }))
-
-                      return generate_policy(
-                          "unauthorized",
-                          "Deny",
-                          event["methodArn"]
+                      log_event(
+                          "WARN",
+                          "DENY",
+                          "TOKEN_INVALID"
                       )
 
-                  print(json.dumps({
-                      "level": "INFO",
-                      "operation": "AUTHORIZE",
-                      "result": "ALLOW"
-                  }))
+                      return generate_policy(
+                          "unauthorized-user",
+                          "Deny",
+                          method_arn
+                      )
+
+                  # ------------------------------------------------
+                  # Token valid
+                  # ------------------------------------------------
+
+                  log_event(
+                      "INFO",
+                      "ALLOW"
+                  )
 
                   return generate_policy(
                       "authorized-user",
                       "Allow",
-                      event["methodArn"]
+                      method_arn
                   )
 
               except Exception as error:
 
+                  # ------------------------------------------------
+                  # Do not log the token or SSM secret
+                  # ------------------------------------------------
+
                   print(json.dumps({
                       "level": "ERROR",
+                      "service": "cloudmart-lambda-authorizer",
                       "operation": "AUTHORIZE",
                       "result": "ERROR",
                       "error_type": type(error).__name__
                   }))
 
                   return generate_policy(
-                      "unauthorized",
+                      "unauthorized-user",
                       "Deny",
-                      event.get("methodArn", "*")
+                      method_arn
                   )
 
-
       Tags:
+
         - Key: Name
           Value: !Sub cloudmart-${Environment}-lambda-authorizer
-
-
-  # ==========================================================
-  # PRODUCT LAMBDA
-  # ==========================================================
-
-  ProductLambda:
-    Type: AWS::Lambda::Function
-
-    Properties:
-
-      FunctionName: !Sub cloudmart-${Environment}-product-lambda
-
-      Runtime: python3.12
-
-      Handler: index.lambda_handler
-
-      Role:
-        Fn::ImportValue:
-          Fn::Sub: cloudmart-${Environment}-ProductLambdaRoleArn
-
-      Timeout: 30
-
-      MemorySize: 256
-
-      # ------------------------------------------------------
-      # VPC CONFIGURATION
-      # ------------------------------------------------------
-
-      VpcConfig:
-
-        SubnetIds:
-
-          - Fn::ImportValue:
-              Fn::Sub: cloudmart-${Environment}-PrivateSubnetId
-
-          - Fn::ImportValue:
-              Fn::Sub: cloudmart-${Environment}-SecondaryPrivateSubnetId
-
-        SecurityGroupIds:
-
-          - Fn::ImportValue:
-              Fn::Sub: cloudmart-${Environment}-LambdaSecurityGroupId
-
-      # ------------------------------------------------------
-      # SSM PARAMETER NAMES
-      # ------------------------------------------------------
-
-      Environment:
-
-        Variables:
-
-          DB_NAME_PARAMETER: !Ref DBName
-
-          DB_ENDPOINT_PARAMETER: !Ref DBEndpoint
-
-          DB_PORT_PARAMETER: !Ref DBPort
-
-          DB_USERNAME_PARAMETER: !Ref DBUsername
-
-          DB_PASSWORD_PARAMETER: !Ref DBPassword
-
-      # ------------------------------------------------------
-      # BOOTSTRAP CODE
-      # ------------------------------------------------------
-
-      Code:
-        ZipFile: |
-          import json
-
-          def lambda_handler(event, context):
-
-              return {
-                  "statusCode": 200,
-                  "headers": {
-                      "Content-Type": "application/json"
-                  },
-                  "body": json.dumps({
-                      "message": "Product Lambda bootstrap is running"
-                  })
-              }
-
-      Tags:
-
-        - Key: Name
-          Value: !Sub cloudmart-${Environment}-product-lambda
 
 
 # ============================================================
@@ -299,11 +274,12 @@ Resources:
 Outputs:
 
   # ----------------------------------------------------------
-  # LAMBDA AUTHORISER ARN
+  # AUTHORISER ARN
   # ----------------------------------------------------------
 
   LambdaAuthorizerArn:
-    Description: Lambda Authorizer ARN
+    Description: CloudMart Lambda Authorizer ARN
+
     Value: !GetAtt LambdaAuthorizer.Arn
 
     Export:
@@ -311,36 +287,13 @@ Outputs:
 
 
   # ----------------------------------------------------------
-  # LAMBDA AUTHORISER NAME
+  # AUTHORISER NAME
   # ----------------------------------------------------------
 
   LambdaAuthorizerName:
-    Description: Lambda Authorizer function name
+    Description: CloudMart Lambda Authorizer function name
+
     Value: !Ref LambdaAuthorizer
 
     Export:
       Name: !Sub cloudmart-${Environment}-LambdaAuthorizerName
-
-
-  # ----------------------------------------------------------
-  # PRODUCT LAMBDA ARN
-  # ----------------------------------------------------------
-
-  ProductLambdaArn:
-    Description: Product Lambda ARN
-    Value: !GetAtt ProductLambda.Arn
-
-    Export:
-      Name: !Sub cloudmart-${Environment}-ProductLambdaArn
-
-
-  # ----------------------------------------------------------
-  # PRODUCT LAMBDA NAME
-  # ----------------------------------------------------------
-
-  ProductLambdaName:
-    Description: Product Lambda function name
-    Value: !Ref ProductLambda
-
-    Export:
-      Name: !Sub cloudmart-${Environment}-ProductLambdaName
