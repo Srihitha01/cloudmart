@@ -2,8 +2,8 @@ AWSTemplateFormatVersion: '2010-09-09'
 
 Description: >
   CloudMart Application-Events Stack.
-  Creates the Lambda Authorizer and Product Lambda.
-  Additional application-event resources will be added incrementally.
+  Creates Lambda Authorizer, PyMySQL layer, Product Lambda,
+  Schema Initializer, EventBridge low-stock rule, and SNS alerts.
 
 Parameters:
 
@@ -57,8 +57,42 @@ Parameters:
   AuthTokenParameter:
     Type: String
     Default: /cloudmart/dev/auth/token
-    Description: SSM SecureString containing API authentication token
+    Description: SSM SecureString containing authentication token
 
+
+  # ==========================================================
+  # LAMBDA ARTIFACTS
+  # ==========================================================
+
+  LambdaArtifactBucket:
+    Type: String
+    Description: S3 bucket containing Lambda artifacts
+
+  PyMySQLLayerS3Key:
+    Type: String
+    Description: S3 object key for the PyMySQL Lambda layer
+
+  ProductLambdaS3Key:
+    Type: String
+    Description: S3 object key for the Product Lambda package
+
+  SchemaS3Key:
+    Type: String
+    Description: S3 object key for database/schema.sql
+
+
+  # ==========================================================
+  # SNS ALERT EMAIL
+  # ==========================================================
+
+  AlertEmail:
+    Type: String
+    Description: Email address for CloudMart low-stock alerts
+
+
+# ============================================================
+# RESOURCES
+# ============================================================
 
 Resources:
 
@@ -71,11 +105,14 @@ Resources:
 
     Properties:
 
-      FunctionName: !Sub cloudmart-${Environment}-lambda-authorizer
+      FunctionName:
+        !Sub cloudmart-${Environment}-lambda-authorizer
 
-      Runtime: python3.12
+      Runtime:
+        python3.12
 
-      Handler: index.lambda_handler
+      Handler:
+        index.lambda_handler
 
       Role:
         Fn::ImportValue:
@@ -85,125 +122,337 @@ Resources:
 
       MemorySize: 128
 
+      VpcConfig:
+
+        SecurityGroupIds:
+          - Fn::ImportValue:
+              Fn::Sub: cloudmart-${Environment}-LambdaSecurityGroupId
+
+        SubnetIds:
+          - Fn::ImportValue:
+              Fn::Sub: cloudmart-${Environment}-PrivateSubnetId
+
+          - Fn::ImportValue:
+              Fn::Sub: cloudmart-${Environment}-SecondaryPrivateSubnetId
+
       Environment:
+
         Variables:
-          AUTH_TOKEN_PARAMETER: !Ref AuthTokenParameter
+
+          AUTH_TOKEN_PARAMETER:
+            !Ref AuthTokenParameter
 
       Code:
+
         ZipFile: |
           import json
           import os
+
           import boto3
+
 
           ssm = boto3.client("ssm")
 
 
-          def get_parameter(name):
+          TOKEN_PARAMETER = os.environ[
+              "AUTH_TOKEN_PARAMETER"
+          ]
+
+
+          def log_event(level, message, **details):
+
+              record = {
+                  "level": level,
+                  "service": "cloudmart-lambda-authorizer",
+                  "message": message,
+                  **details
+              }
+
+              print(
+                  json.dumps(record)
+              )
+
+
+          def get_expected_token():
+
               response = ssm.get_parameter(
-                  Name=name,
+                  Name=TOKEN_PARAMETER,
                   WithDecryption=True
               )
 
-              return response["Parameter"]["Value"]
+              return response[
+                  "Parameter"
+              ][
+                  "Value"
+              ]
 
 
-          def generate_policy(principal_id, effect, resource):
+          def generate_policy(
+              principal_id,
+              effect,
+              resource
+          ):
+
               return {
                   "principalId": principal_id,
+
                   "policyDocument": {
                       "Version": "2012-10-17",
+
                       "Statement": [
                           {
-                              "Action": "execute-api:Invoke",
-                              "Effect": effect,
-                              "Resource": resource
+                              "Action":
+                                  "execute-api:Invoke",
+
+                              "Effect":
+                                  effect,
+
+                              "Resource":
+                                  resource
                           }
                       ]
                   }
               }
 
 
+          def get_stage_resource(method_arn):
+
+              parts = method_arn.split(":")
+
+              if len(parts) < 6:
+                  return method_arn
+
+              api_gateway_part = parts[5]
+
+              api_parts = (
+                  api_gateway_part.split("/")
+              )
+
+              if len(api_parts) < 2:
+                  return method_arn
+
+              api_id = api_parts[0]
+
+              stage = api_parts[1]
+
+              return (
+                  ":".join(parts[:5])
+                  + ":"
+                  + api_id
+                  + "/"
+                  + stage
+                  + "/*/*"
+              )
+
+
           def lambda_handler(event, context):
+
+              request_id = (
+                  context.aws_request_id
+              )
+
+              method_arn = event.get(
+                  "methodArn",
+                  "*"
+              )
 
               try:
 
-                  token_parameter = os.environ["AUTH_TOKEN_PARAMETER"]
-
-                  expected_token = get_parameter(token_parameter)
-
-                  headers = event.get("headers") or {}
-
-                  authorization_header = (
-                      headers.get("Authorization")
-                      or headers.get("authorization")
+                  log_event(
+                      "INFO",
+                      "Authorization request received",
+                      request_id=request_id
                   )
 
-                  if not authorization_header:
+                  authorization_token = event.get(
+                      "authorizationToken",
+                      ""
+                  )
 
-                      print(json.dumps({
-                          "level": "INFO",
-                          "operation": "AUTHORIZE",
-                          "result": "DENY",
-                          "reason": "TOKEN_MISSING"
-                      }))
+                  if not authorization_token:
+
+                      headers = (
+                          event.get(
+                              "headers",
+                              {}
+                          )
+                          or {}
+                      )
+
+                      authorization_token = (
+                          headers.get(
+                              "Authorization"
+                          )
+                          or
+                          headers.get(
+                              "authorization"
+                          )
+                          or
+                          ""
+                      )
+
+                  if not authorization_token:
+
+                      log_event(
+                          "WARN",
+                          "Authorization token missing",
+                          request_id=request_id
+                      )
 
                       return generate_policy(
                           "unauthorized",
                           "Deny",
-                          event["methodArn"]
+                          method_arn
                       )
 
-                  token = authorization_header.strip()
+                  provided_token = (
+                      authorization_token.strip()
+                  )
 
-                  if token.startswith("Bearer "):
-                      token = token[len("Bearer "):].strip()
+                  if provided_token.startswith(
+                      "Bearer "
+                  ):
 
-                  if token != expected_token:
+                      provided_token = (
+                          provided_token[
+                              len("Bearer "):
+                          ]
+                          .strip()
+                      )
 
-                      print(json.dumps({
-                          "level": "INFO",
-                          "operation": "AUTHORIZE",
-                          "result": "DENY",
-                          "reason": "TOKEN_INVALID"
-                      }))
+                  if not provided_token:
+
+                      log_event(
+                          "WARN",
+                          "Authorization token empty",
+                          request_id=request_id
+                      )
 
                       return generate_policy(
                           "unauthorized",
                           "Deny",
-                          event["methodArn"]
+                          method_arn
                       )
 
-                  print(json.dumps({
-                      "level": "INFO",
-                      "operation": "AUTHORIZE",
-                      "result": "ALLOW"
-                  }))
+                  expected_token = (
+                      get_expected_token()
+                  )
+
+                  if (
+                      provided_token
+                      !=
+                      expected_token
+                  ):
+
+                      log_event(
+                          "WARN",
+                          "Authorization token invalid",
+                          request_id=request_id
+                      )
+
+                      return generate_policy(
+                          "unauthorized",
+                          "Deny",
+                          method_arn
+                      )
+
+                  stage_resource = (
+                      get_stage_resource(
+                          method_arn
+                      )
+                  )
+
+                  log_event(
+                      "INFO",
+                      "Authorization successful",
+                      request_id=request_id
+                  )
 
                   return generate_policy(
                       "authorized-user",
                       "Allow",
-                      event["methodArn"]
+                      stage_resource
                   )
 
               except Exception as error:
 
-                  print(json.dumps({
-                      "level": "ERROR",
-                      "operation": "AUTHORIZE",
-                      "result": "ERROR",
-                      "error_type": type(error).__name__
-                  }))
+                  log_event(
+                      "ERROR",
+                      "Authorization failed",
+                      request_id=request_id,
+                      error_type=type(error).__name__,
+                      error=str(error)
+                  )
 
                   return generate_policy(
                       "unauthorized",
                       "Deny",
-                      event.get("methodArn", "*")
+                      method_arn
                   )
 
 
       Tags:
+
         - Key: Name
-          Value: !Sub cloudmart-${Environment}-lambda-authorizer
+          Value:
+            !Sub cloudmart-${Environment}-lambda-authorizer
+
+        - Key: Project
+          Value: CloudMart
+
+        - Key: Environment
+          Value: !Ref Environment
+
+
+  # ==========================================================
+  # AUTHORISER INVOCATION PERMISSION
+  # ==========================================================
+
+  AuthorizerInvokePermission:
+    Type: AWS::Lambda::Permission
+
+    Properties:
+
+      FunctionName:
+        !Ref LambdaAuthorizer
+
+      Action:
+        lambda:InvokeFunction
+
+      Principal:
+        apigateway.amazonaws.com
+
+
+  # ==========================================================
+  # PYMYSQL LAMBDA LAYER
+  # ==========================================================
+
+  PyMySQLLayer:
+    Type: AWS::Lambda::LayerVersion
+
+    Properties:
+
+      LayerName:
+        !Sub cloudmart-${Environment}-pymysql
+
+      Description:
+        PyMySQL and cryptography dependencies for CloudMart Lambdas
+
+      CompatibleRuntimes:
+
+        - python3.12
+
+      CompatibleArchitectures:
+
+        - x86_64
+
+      Content:
+
+        S3Bucket:
+          !Ref LambdaArtifactBucket
+
+        S3Key:
+          !Ref PyMySQLLayerS3Key
 
 
   # ==========================================================
@@ -215,11 +464,14 @@ Resources:
 
     Properties:
 
-      FunctionName: !Sub cloudmart-${Environment}-product-lambda
+      FunctionName:
+        !Sub cloudmart-${Environment}-product-lambda
 
-      Runtime: python3.12
+      Runtime:
+        python3.12
 
-      Handler: index.lambda_handler
+      Handler:
+        index.lambda_handler
 
       Role:
         Fn::ImportValue:
@@ -229,11 +481,16 @@ Resources:
 
       MemorySize: 256
 
-      # ------------------------------------------------------
-      # VPC CONFIGURATION
-      # ------------------------------------------------------
+      Layers:
+
+        - !Ref PyMySQLLayer
 
       VpcConfig:
+
+        SecurityGroupIds:
+
+          - Fn::ImportValue:
+              Fn::Sub: cloudmart-${Environment}-LambdaSecurityGroupId
 
         SubnetIds:
 
@@ -243,53 +500,556 @@ Resources:
           - Fn::ImportValue:
               Fn::Sub: cloudmart-${Environment}-SecondaryPrivateSubnetId
 
+      Environment:
+
+        Variables:
+
+          DB_NAME_PARAMETER:
+            !Ref DBName
+
+          DB_ENDPOINT_PARAMETER:
+            !Ref DBEndpoint
+
+          DB_PORT_PARAMETER:
+            !Ref DBPort
+
+          DB_USERNAME_PARAMETER:
+            !Ref DBUsername
+
+          DB_PASSWORD_PARAMETER:
+            !Ref DBPassword
+
+      Code:
+
+        S3Bucket:
+          !Ref LambdaArtifactBucket
+
+        S3Key:
+          !Ref ProductLambdaS3Key
+
+      Tags:
+
+        - Key: Name
+          Value:
+            !Sub cloudmart-${Environment}-product-lambda
+
+        - Key: Project
+          Value: CloudMart
+
+        - Key: Environment
+          Value: !Ref Environment
+
+
+  # ==========================================================
+  # SCHEMA INITIALIZER LAMBDA
+  # ==========================================================
+
+  SchemaInitializerLambda:
+    Type: AWS::Lambda::Function
+
+    Properties:
+
+      FunctionName:
+        !Sub cloudmart-${Environment}-schema-initializer
+
+      Runtime:
+        python3.12
+
+      Handler:
+        index.lambda_handler
+
+      Role:
+        Fn::ImportValue:
+          Fn::Sub: cloudmart-${Environment}-ProductLambdaRoleArn
+
+      Timeout: 300
+
+      MemorySize: 256
+
+      Layers:
+
+        - !Ref PyMySQLLayer
+
+      VpcConfig:
+
         SecurityGroupIds:
 
           - Fn::ImportValue:
               Fn::Sub: cloudmart-${Environment}-LambdaSecurityGroupId
 
-      # ------------------------------------------------------
-      # SSM PARAMETER NAMES
-      # ------------------------------------------------------
+        SubnetIds:
+
+          - Fn::ImportValue:
+              Fn::Sub: cloudmart-${Environment}-PrivateSubnetId
+
+          - Fn::ImportValue:
+              Fn::Sub: cloudmart-${Environment}-SecondaryPrivateSubnetId
 
       Environment:
 
         Variables:
 
-          DB_NAME_PARAMETER: !Ref DBName
+          DB_NAME_PARAMETER:
+            !Ref DBName
 
-          DB_ENDPOINT_PARAMETER: !Ref DBEndpoint
+          DB_ENDPOINT_PARAMETER:
+            !Ref DBEndpoint
 
-          DB_PORT_PARAMETER: !Ref DBPort
+          DB_PORT_PARAMETER:
+            !Ref DBPort
 
-          DB_USERNAME_PARAMETER: !Ref DBUsername
+          DB_USERNAME_PARAMETER:
+            !Ref DBUsername
 
-          DB_PASSWORD_PARAMETER: !Ref DBPassword
+          DB_PASSWORD_PARAMETER:
+            !Ref DBPassword
 
-      # ------------------------------------------------------
-      # BOOTSTRAP CODE
-      # ------------------------------------------------------
+          SCHEMA_BUCKET:
+            !Ref LambdaArtifactBucket
+
+          SCHEMA_KEY:
+            !Ref SchemaS3Key
 
       Code:
+
         ZipFile: |
           import json
+          import os
 
-          def lambda_handler(event, context):
+          import boto3
+          import pymysql
 
-              return {
-                  "statusCode": 200,
-                  "headers": {
-                      "Content-Type": "application/json"
-                  },
-                  "body": json.dumps({
-                      "message": "Product Lambda bootstrap is running"
-                  })
+
+          s3 = boto3.client("s3")
+          ssm = boto3.client("ssm")
+
+
+          DB_NAME_PARAMETER = os.environ[
+              "DB_NAME_PARAMETER"
+          ]
+
+          DB_ENDPOINT_PARAMETER = os.environ[
+              "DB_ENDPOINT_PARAMETER"
+          ]
+
+          DB_PORT_PARAMETER = os.environ[
+              "DB_PORT_PARAMETER"
+          ]
+
+          DB_USERNAME_PARAMETER = os.environ[
+              "DB_USERNAME_PARAMETER"
+          ]
+
+          DB_PASSWORD_PARAMETER = os.environ[
+              "DB_PASSWORD_PARAMETER"
+          ]
+
+          SCHEMA_BUCKET = os.environ[
+              "SCHEMA_BUCKET"
+          ]
+
+          SCHEMA_KEY = os.environ[
+              "SCHEMA_KEY"
+          ]
+
+
+          def log_event(
+              level,
+              message,
+              **details
+          ):
+
+              record = {
+                  "level": level,
+                  "service":
+                      "cloudmart-schema-initializer",
+                  "message":
+                      message,
+                  **details
               }
+
+              print(
+                  json.dumps(record)
+              )
+
+
+          def get_parameter(name):
+
+              result = ssm.get_parameter(
+                  Name=name,
+                  WithDecryption=True
+              )
+
+              return result[
+                  "Parameter"
+              ][
+                  "Value"
+              ]
+
+
+          def get_db_connection():
+
+              return pymysql.connect(
+                  host=get_parameter(
+                      DB_ENDPOINT_PARAMETER
+                  ),
+                  port=int(
+                      get_parameter(
+                          DB_PORT_PARAMETER
+                      )
+                  ),
+                  user=get_parameter(
+                      DB_USERNAME_PARAMETER
+                  ),
+                  password=get_parameter(
+                      DB_PASSWORD_PARAMETER
+                  ),
+                  database=get_parameter(
+                      DB_NAME_PARAMETER
+                  ),
+                  connect_timeout=10,
+                  read_timeout=30,
+                  write_timeout=30,
+                  cursorclass=
+                      pymysql.cursors.DictCursor
+              )
+
+
+          def load_schema():
+
+              result = s3.get_object(
+                  Bucket=SCHEMA_BUCKET,
+                  Key=SCHEMA_KEY
+              )
+
+              return result[
+                  "Body"
+              ].read().decode(
+                  "utf-8"
+              )
+
+
+          def execute_schema(
+              connection,
+              schema
+          ):
+
+              lines = []
+
+              for line in schema.splitlines():
+
+                  stripped = line.strip()
+
+                  if stripped.startswith("--"):
+                      continue
+
+                  if not stripped:
+                      continue
+
+                  lines.append(line)
+
+              cleaned_schema = "\n".join(
+                  lines
+              )
+
+              statements = [
+
+                  statement.strip()
+
+                  for statement
+                  in cleaned_schema.split(";")
+
+                  if statement.strip()
+              ]
+
+              executed = 0
+
+              with connection.cursor() as cursor:
+
+                  for statement in statements:
+
+                      cursor.execute(
+                          statement
+                      )
+
+                      executed += 1
+
+              connection.commit()
+
+              return executed
+
+
+          def lambda_handler(
+              event,
+              context
+          ):
+
+              request_id = (
+                  context.aws_request_id
+              )
+
+              connection = None
+
+              log_event(
+                  "INFO",
+                  "Schema initialization request received",
+                  request_id=request_id
+              )
+
+              try:
+
+                  schema = load_schema()
+
+                  log_event(
+                      "INFO",
+                      "Schema file loaded from S3",
+                      request_id=request_id,
+                      bucket=SCHEMA_BUCKET,
+                      key=SCHEMA_KEY
+                  )
+
+                  connection = (
+                      get_db_connection()
+                  )
+
+                  log_event(
+                      "INFO",
+                      "RDS connection established",
+                      request_id=request_id
+                  )
+
+                  statement_count = (
+                      execute_schema(
+                          connection,
+                          schema
+                      )
+                  )
+
+                  log_event(
+                      "INFO",
+                      "Database schema applied successfully",
+                      request_id=request_id,
+                      statements_executed=
+                          statement_count
+                  )
+
+                  return {
+                      "statusCode": 200,
+                      "headers": {
+                          "Content-Type":
+                              "application/json"
+                      },
+                      "body": json.dumps({
+                          "message":
+                              "CloudMart database schema applied successfully",
+                          "statements_executed":
+                              statement_count,
+                          "request_id":
+                              request_id
+                      })
+                  }
+
+              except Exception as exc:
+
+                  if connection is not None:
+
+                      try:
+                          connection.rollback()
+                      except Exception:
+                          pass
+
+                  log_event(
+                      "ERROR",
+                      "Database schema initialization failed",
+                      request_id=request_id,
+                      error_type=
+                          type(exc).__name__,
+                      error=str(exc)
+                  )
+
+                  return {
+                      "statusCode": 500,
+                      "headers": {
+                          "Content-Type":
+                              "application/json"
+                      },
+                      "body": json.dumps({
+                          "message":
+                              "Database schema initialization failed",
+                          "error_type":
+                              type(exc).__name__,
+                          "request_id":
+                              request_id
+                      })
+                  }
+
+              finally:
+
+                  if connection is not None:
+
+                      try:
+                          connection.close()
+                      except Exception:
+                          pass
+
 
       Tags:
 
         - Key: Name
-          Value: !Sub cloudmart-${Environment}-product-lambda
+          Value:
+            !Sub cloudmart-${Environment}-schema-initializer
+
+        - Key: Project
+          Value: CloudMart
+
+        - Key: Environment
+          Value: !Ref Environment
+
+
+  # ==========================================================
+  # SNS LOW-STOCK ALERT TOPIC
+  # ==========================================================
+
+  LowStockTopic:
+    Type: AWS::SNS::Topic
+
+    Properties:
+
+      TopicName:
+        !Sub cloudmart-${Environment}-low-stock-alerts
+
+      DisplayName:
+        !Sub CloudMart ${Environment} Low Stock Alerts
+
+      Tags:
+
+        - Key: Name
+          Value:
+            !Sub cloudmart-${Environment}-low-stock-alerts
+
+        - Key: Project
+          Value: CloudMart
+
+        - Key: Environment
+          Value: !Ref Environment
+
+
+  # ==========================================================
+  # SNS EMAIL SUBSCRIPTION
+  # ==========================================================
+
+  LowStockEmailSubscription:
+    Type: AWS::SNS::Subscription
+
+    Properties:
+
+      TopicArn:
+        !Ref LowStockTopic
+
+      Protocol:
+        email
+
+      Endpoint:
+        !Ref AlertEmail
+
+
+  # ==========================================================
+  # SNS TOPIC POLICY
+  # ==========================================================
+
+  LowStockTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+
+    Properties:
+
+      Topics:
+
+        - !Ref LowStockTopic
+
+      PolicyDocument:
+
+        Version: '2012-10-17'
+
+        Statement:
+
+          - Sid:
+              AllowEventBridgePublish
+
+            Effect:
+              Allow
+
+            Principal:
+              Service:
+                events.amazonaws.com
+
+            Action:
+
+              - sns:Publish
+
+            Resource:
+              !Ref LowStockTopic
+
+
+  # ==========================================================
+  # EVENTBRIDGE LOW-STOCK RULE
+  # ==========================================================
+
+  LowStockEventRule:
+    Type: AWS::Events::Rule
+
+    Properties:
+
+      Name:
+        !Sub cloudmart-${Environment}-low-stock-rule
+
+      Description:
+        !Sub CloudMart ${Environment} low-stock inventory alert rule
+
+      State:
+        ENABLED
+
+      EventPattern:
+
+        source:
+
+          - cloudmart.product
+
+        detail-type:
+
+          - Inventory Stock Changed
+
+        detail:
+
+          low_stock:
+
+            - true
+
+      Targets:
+
+        - Id:
+            LowStockSnsTarget
+
+          Arn:
+            !Ref LowStockTopic
+
+          InputTransformer:
+
+            InputPathsMap:
+
+              product_id:
+                $.detail.product_id
+
+              previous_stock_quantity:
+                $.detail.previous_stock_quantity
+
+              stock_quantity:
+                $.detail.stock_quantity
+
+              reorder_threshold:
+                $.detail.reorder_threshold
+
+            InputTemplate: |
+              "🚨 CloudMart Low Stock Alert\n\nProduct ID: <product_id>\nPrevious Stock Quantity: <previous_stock_quantity>\nCurrent Stock Quantity: <stock_quantity>\nReorder Threshold: <reorder_threshold>\n\nThe product stock is below the reorder threshold."
 
 
 # ============================================================
@@ -298,49 +1058,131 @@ Resources:
 
 Outputs:
 
-  # ----------------------------------------------------------
-  # LAMBDA AUTHORISER ARN
-  # ----------------------------------------------------------
-
   LambdaAuthorizerArn:
-    Description: Lambda Authorizer ARN
-    Value: !GetAtt LambdaAuthorizer.Arn
+
+    Description:
+      Lambda Authorizer ARN
+
+    Value:
+      !GetAtt LambdaAuthorizer.Arn
 
     Export:
-      Name: !Sub cloudmart-${Environment}-LambdaAuthorizerArn
+      Name:
+        !Sub cloudmart-${Environment}-LambdaAuthorizerArn
 
-
-  # ----------------------------------------------------------
-  # LAMBDA AUTHORISER NAME
-  # ----------------------------------------------------------
 
   LambdaAuthorizerName:
-    Description: Lambda Authorizer function name
-    Value: !Ref LambdaAuthorizer
+
+    Description:
+      Lambda Authorizer function name
+
+    Value:
+      !Ref LambdaAuthorizer
 
     Export:
-      Name: !Sub cloudmart-${Environment}-LambdaAuthorizerName
+      Name:
+        !Sub cloudmart-${Environment}-LambdaAuthorizerName
 
-
-  # ----------------------------------------------------------
-  # PRODUCT LAMBDA ARN
-  # ----------------------------------------------------------
 
   ProductLambdaArn:
-    Description: Product Lambda ARN
-    Value: !GetAtt ProductLambda.Arn
+
+    Description:
+      Product Lambda ARN
+
+    Value:
+      !GetAtt ProductLambda.Arn
 
     Export:
-      Name: !Sub cloudmart-${Environment}-ProductLambdaArn
+      Name:
+        !Sub cloudmart-${Environment}-ProductLambdaArn
 
-
-  # ----------------------------------------------------------
-  # PRODUCT LAMBDA NAME
-  # ----------------------------------------------------------
 
   ProductLambdaName:
-    Description: Product Lambda function name
-    Value: !Ref ProductLambda
+
+    Description:
+      Product Lambda function name
+
+    Value:
+      !Ref ProductLambda
 
     Export:
-      Name: !Sub cloudmart-${Environment}-ProductLambdaName
+      Name:
+        !Sub cloudmart-${Environment}-ProductLambdaName
+
+
+  SchemaInitializerLambdaArn:
+
+    Description:
+      Schema Initializer Lambda ARN
+
+    Value:
+      !GetAtt SchemaInitializerLambda.Arn
+
+    Export:
+      Name:
+        !Sub cloudmart-${Environment}-SchemaInitializerLambdaArn
+
+
+  SchemaInitializerLambdaName:
+
+    Description:
+      Schema Initializer Lambda function name
+
+    Value:
+      !Ref SchemaInitializerLambda
+
+    Export:
+      Name:
+        !Sub cloudmart-${Environment}-SchemaInitializerLambdaName
+
+
+  PyMySQLLayerArn:
+
+    Description:
+      PyMySQL Lambda Layer ARN
+
+    Value:
+      !Ref PyMySQLLayer
+
+    Export:
+      Name:
+        !Sub cloudmart-${Environment}-PyMySQLLayerArn
+
+
+  LowStockTopicArn:
+
+    Description:
+      SNS topic ARN for low-stock alerts
+
+    Value:
+      !Ref LowStockTopic
+
+    Export:
+      Name:
+        !Sub cloudmart-${Environment}-LowStockTopicArn
+
+
+  LowStockTopicName:
+
+    Description:
+      SNS low-stock alert topic name
+
+    Value:
+      !GetAtt LowStockTopic.TopicName
+
+    Export:
+      Name:
+        !Sub cloudmart-${Environment}-LowStockTopicName
+
+
+  LowStockEventRuleArn:
+
+    Description:
+      EventBridge low-stock rule ARN
+
+    Value:
+      !GetAtt LowStockEventRule.Arn
+
+    Export:
+      Name:
+        !Sub cloudmart-${Environment}-LowStockEventRuleArn

@@ -2,10 +2,15 @@ AWSTemplateFormatVersion: '2010-09-09'
 
 Description: >
   CloudMart Data-Storage Stack.
-  Creates the private RDS MySQL database and
-  S3 bucket used for generated reports.
+  Creates the private RDS MySQL database,
+  S3 report bucket, and Lambda deployment
+  artifact bucket.
 
 Parameters:
+
+  # ==========================================================
+  # ENVIRONMENT
+  # ==========================================================
 
   Environment:
     Type: String
@@ -15,10 +20,16 @@ Parameters:
       - prod
     Description: Deployment environment
 
+
+  # ==========================================================
+  # DATABASE
+  # ==========================================================
+
   DBName:
     Type: String
     Default: cloudmart
     Description: CloudMart database name
+
 
   DBUsername:
     Type: String
@@ -26,16 +37,19 @@ Parameters:
     NoEcho: true
     Description: RDS master username
 
+
   DBPassword:
     Type: String
     NoEcho: true
     MinLength: 12
     Description: RDS master password
 
+
   DBInstanceClass:
     Type: String
     Default: db.t3.micro
     Description: RDS instance class
+
 
   AllocatedStorage:
     Type: Number
@@ -53,10 +67,12 @@ Resources:
     Type: AWS::RDS::DBSubnetGroup
 
     Properties:
+
       DBSubnetGroupDescription: !Sub
         CloudMart ${Environment} RDS private subnet group
 
       SubnetIds:
+
         - Fn::ImportValue:
             Fn::Sub: cloudmart-${Environment}-PrivateSubnetId
 
@@ -64,8 +80,15 @@ Resources:
             Fn::Sub: cloudmart-${Environment}-SecondaryPrivateSubnetId
 
       Tags:
+
         - Key: Name
           Value: !Sub cloudmart-${Environment}-rds-subnet-group
+
+        - Key: Project
+          Value: CloudMart
+
+        - Key: Environment
+          Value: !Ref Environment
 
 
   # ==========================================================
@@ -80,44 +103,64 @@ Resources:
 
     Properties:
 
-      DBInstanceIdentifier: !Sub
-        cloudmart-${Environment}-mysql
+      DBInstanceIdentifier:
+        !Sub cloudmart-${Environment}-mysql
 
-      Engine: mysql
+      Engine:
+        mysql
 
-      DBName: !Ref DBName
+      DBName:
+        !Ref DBName
 
-      MasterUsername: !Ref DBUsername
+      MasterUsername:
+        !Ref DBUsername
 
-      MasterUserPassword: !Ref DBPassword
+      MasterUserPassword:
+        !Ref DBPassword
 
-      DBInstanceClass: !Ref DBInstanceClass
+      DBInstanceClass:
+        !Ref DBInstanceClass
 
-      AllocatedStorage: !Ref AllocatedStorage
+      AllocatedStorage:
+        !Ref AllocatedStorage
 
-      StorageType: gp3
+      StorageType:
+        gp3
 
-      Port: 3306
+      Port:
+        3306
 
-      PubliclyAccessible: false
+      PubliclyAccessible:
+        false
 
-      MultiAZ: false
+      MultiAZ:
+        false
 
-      # Set to 0 because this AWS account currently
-      # restricts the available backup retention period.
-      BackupRetentionPeriod: 0
+      # Account currently restricts backup retention.
+      BackupRetentionPeriod:
+        0
 
-      CopyTagsToSnapshot: true
+      CopyTagsToSnapshot:
+        true
 
-      DBSubnetGroupName: !Ref CloudMartDBSubnetGroup
+      DBSubnetGroupName:
+        !Ref CloudMartDBSubnetGroup
 
       VPCSecurityGroups:
+
         - Fn::ImportValue:
             Fn::Sub: cloudmart-${Environment}-RDSSecurityGroupId
 
       Tags:
+
         - Key: Name
           Value: !Sub cloudmart-${Environment}-rds
+
+        - Key: Project
+          Value: CloudMart
+
+        - Key: Environment
+          Value: !Ref Environment
 
 
   # ==========================================================
@@ -133,11 +176,14 @@ Resources:
     Properties:
 
       BucketEncryption:
+
         ServerSideEncryptionConfiguration:
+
           - ServerSideEncryptionByDefault:
               SSEAlgorithm: AES256
 
       PublicAccessBlockConfiguration:
+
         BlockPublicAcls: true
         BlockPublicPolicy: true
         IgnorePublicAcls: true
@@ -147,59 +193,182 @@ Resources:
         Status: Enabled
 
       Tags:
+
         - Key: Name
           Value: !Sub cloudmart-${Environment}-reports
 
+        - Key: Project
+          Value: CloudMart
 
-# ==========================================================
+        - Key: Environment
+          Value: !Ref Environment
+
+
+  # ==========================================================
+  # LAMBDA ARTIFACT BUCKET
+  # ==========================================================
+
+  CloudMartLambdaArtifactBucket:
+    Type: AWS::S3::Bucket
+
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+
+    Properties:
+
+      BucketName:
+        !Sub cloudmart-${Environment}-artifacts
+
+      BucketEncryption:
+
+        ServerSideEncryptionConfiguration:
+
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+      PublicAccessBlockConfiguration:
+
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+      VersioningConfiguration:
+        Status: Enabled
+
+      Tags:
+
+        - Key: Name
+          Value: !Sub cloudmart-${Environment}-artifacts
+
+        - Key: Project
+          Value: CloudMart
+
+        - Key: Environment
+          Value: !Ref Environment
+
+
+# ============================================================
 # OUTPUTS
-# ==========================================================
+# ============================================================
 
 Outputs:
 
+  # ----------------------------------------------------------
+  # RDS ENDPOINT
+  # ----------------------------------------------------------
+
   DBEndpoint:
     Description: RDS MySQL endpoint
-    Value: !GetAtt CloudMartRDS.Endpoint.Address
+
+    Value:
+      !GetAtt CloudMartRDS.Endpoint.Address
 
     Export:
-      Name: !Sub cloudmart-${Environment}-DBEndpoint
+      Name:
+        !Sub cloudmart-${Environment}-DBEndpoint
 
+
+  # ----------------------------------------------------------
+  # RDS PORT
+  # ----------------------------------------------------------
 
   DBPort:
     Description: RDS MySQL port
-    Value: !GetAtt CloudMartRDS.Endpoint.Port
+
+    Value:
+      !GetAtt CloudMartRDS.Endpoint.Port
 
     Export:
-      Name: !Sub cloudmart-${Environment}-DBPort
+      Name:
+        !Sub cloudmart-${Environment}-DBPort
 
+
+  # ----------------------------------------------------------
+  # DATABASE NAME
+  # ----------------------------------------------------------
 
   DBName:
     Description: CloudMart database name
-    Value: !Ref DBName
+
+    Value:
+      !Ref DBName
 
     Export:
-      Name: !Sub cloudmart-${Environment}-DBName
+      Name:
+        !Sub cloudmart-${Environment}-DBName
 
+
+  # ----------------------------------------------------------
+  # RDS INSTANCE IDENTIFIER
+  # ----------------------------------------------------------
 
   DBInstanceIdentifier:
     Description: RDS instance identifier
-    Value: !Ref CloudMartRDS
+
+    Value:
+      !Ref CloudMartRDS
 
     Export:
-      Name: !Sub cloudmart-${Environment}-DBInstanceIdentifier
+      Name:
+        !Sub cloudmart-${Environment}-DBInstanceIdentifier
 
+
+  # ----------------------------------------------------------
+  # REPORT BUCKET NAME
+  # ----------------------------------------------------------
 
   ReportBucketName:
     Description: S3 report bucket name
-    Value: !Ref CloudMartReportBucket
+
+    Value:
+      !Ref CloudMartReportBucket
 
     Export:
-      Name: !Sub cloudmart-${Environment}-ReportBucketName
+      Name:
+        !Sub cloudmart-${Environment}-ReportBucketName
 
+
+  # ----------------------------------------------------------
+  # REPORT BUCKET ARN
+  # ----------------------------------------------------------
 
   ReportBucketArn:
     Description: S3 report bucket ARN
-    Value: !GetAtt CloudMartReportBucket.Arn
+
+    Value:
+      !GetAtt CloudMartReportBucket.Arn
 
     Export:
-      Name: !Sub cloudmart-${Environment}-ReportBucketArn
+      Name:
+        !Sub cloudmart-${Environment}-ReportBucketArn
+
+
+  # ----------------------------------------------------------
+  # LAMBDA ARTIFACT BUCKET NAME
+  # ----------------------------------------------------------
+
+  LambdaArtifactBucketName:
+    Description: Lambda dependency artifact bucket name
+
+    Value:
+      !Ref CloudMartLambdaArtifactBucket
+
+    Export:
+      Name:
+        !Sub cloudmart-${Environment}-LambdaArtifactBucketName
+
+
+  # ----------------------------------------------------------
+  # LAMBDA ARTIFACT BUCKET ARN
+  # ----------------------------------------------------------
+
+  LambdaArtifactBucketArn:
+    Description: Lambda dependency artifact bucket ARN
+
+    Value:
+      !GetAtt CloudMartLambdaArtifactBucket.Arn
+
+    Export:
+      Name:
+        !Sub cloudmart-${Environment}-LambdaArtifactBucketArn

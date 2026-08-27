@@ -42,6 +42,10 @@ CREATE TABLE IF NOT EXISTS customers (
 -- =========================================================
 -- 3. PRODUCTS
 -- =========================================================
+-- Inventory is maintained directly in this table through
+-- stock_quantity and reorder_threshold.
+-- No separate inventory table is required.
+-- =========================================================
 
 CREATE TABLE IF NOT EXISTS products (
     product_id INT AUTO_INCREMENT PRIMARY KEY,
@@ -158,16 +162,19 @@ CREATE TABLE IF NOT EXISTS order_logs (
 -- =========================================================
 
 -- Categories
+
 CREATE INDEX idx_categories_name
     ON categories(name);
 
 
 -- Customers
+
 CREATE INDEX idx_customers_name
     ON customers(name);
 
 
 -- Products
+
 CREATE INDEX idx_products_category_id
     ON products(category_id);
 
@@ -179,6 +186,7 @@ CREATE INDEX idx_products_stock_quantity
 
 
 -- Orders
+
 CREATE INDEX idx_orders_customer_id
     ON orders(customer_id);
 
@@ -190,6 +198,7 @@ CREATE INDEX idx_orders_order_date
 
 
 -- Order Items
+
 CREATE INDEX idx_order_items_order_id
     ON order_items(order_id);
 
@@ -198,6 +207,7 @@ CREATE INDEX idx_order_items_product_id
 
 
 -- Order Logs
+
 CREATE INDEX idx_order_logs_order_id
     ON order_logs(order_id);
 
@@ -206,3 +216,363 @@ CREATE INDEX idx_order_logs_created_at
 
 CREATE INDEX idx_order_logs_new_status
     ON order_logs(new_status);
+
+
+-- =========================================================
+-- SAMPLE DATA
+-- =========================================================
+
+-- =========================================================
+-- SAMPLE CATEGORIES
+-- =========================================================
+
+INSERT INTO categories (
+    name,
+    description
+)
+SELECT
+    'Electronics',
+    'Electronic devices and accessories'
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM categories
+    WHERE name = 'Electronics'
+);
+
+
+INSERT INTO categories (
+    name,
+    description
+)
+SELECT
+    'Home Appliances',
+    'Appliances and household equipment'
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM categories
+    WHERE name = 'Home Appliances'
+);
+
+
+INSERT INTO categories (
+    name,
+    description
+)
+SELECT
+    'Books',
+    'Books and educational materials'
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM categories
+    WHERE name = 'Books'
+);
+
+
+-- =========================================================
+-- SAMPLE CUSTOMERS
+-- =========================================================
+
+INSERT INTO customers (
+    name,
+    email,
+    address
+)
+SELECT
+    'Rahul Sharma',
+    'rahul.sharma@example.com',
+    'Hyderabad, Telangana'
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM customers
+    WHERE email = 'rahul.sharma@example.com'
+);
+
+
+INSERT INTO customers (
+    name,
+    email,
+    address
+)
+SELECT
+    'Priya Reddy',
+    'priya.reddy@example.com',
+    'Bengaluru, Karnataka'
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM customers
+    WHERE email = 'priya.reddy@example.com'
+);
+
+
+-- =========================================================
+-- SAMPLE PRODUCTS
+-- =========================================================
+-- stock_quantity represents current inventory.
+-- reorder_threshold determines when a low-stock alert
+-- should be generated.
+-- =========================================================
+
+INSERT INTO products (
+    category_id,
+    name,
+    description,
+    price,
+    stock_quantity,
+    reorder_threshold
+)
+SELECT
+    category_id,
+    'Wireless Mouse',
+    'Wireless optical mouse',
+    799.00,
+    25,
+    5
+FROM categories
+WHERE name = 'Electronics'
+  AND NOT EXISTS (
+      SELECT 1
+      FROM products
+      WHERE name = 'Wireless Mouse'
+  )
+LIMIT 1;
+
+
+INSERT INTO products (
+    category_id,
+    name,
+    description,
+    price,
+    stock_quantity,
+    reorder_threshold
+)
+SELECT
+    category_id,
+    'Bluetooth Keyboard',
+    'Wireless Bluetooth keyboard',
+    1499.00,
+    15,
+    5
+FROM categories
+WHERE name = 'Electronics'
+  AND NOT EXISTS (
+      SELECT 1
+      FROM products
+      WHERE name = 'Bluetooth Keyboard'
+  )
+LIMIT 1;
+
+
+INSERT INTO products (
+    category_id,
+    name,
+    description,
+    price,
+    stock_quantity,
+    reorder_threshold
+)
+SELECT
+    category_id,
+    'Air Fryer',
+    'Digital air fryer for home use',
+    4999.00,
+    8,
+    5
+FROM categories
+WHERE name = 'Home Appliances'
+  AND NOT EXISTS (
+      SELECT 1
+      FROM products
+      WHERE name = 'Air Fryer'
+  )
+LIMIT 1;
+
+
+INSERT INTO products (
+    category_id,
+    name,
+    description,
+    price,
+    stock_quantity,
+    reorder_threshold
+)
+SELECT
+    category_id,
+    'Cloud Computing Basics',
+    'Introduction to cloud computing',
+    599.00,
+    12,
+    3
+FROM categories
+WHERE name = 'Books'
+  AND NOT EXISTS (
+      SELECT 1
+      FROM products
+      WHERE name = 'Cloud Computing Basics'
+  )
+LIMIT 1;
+
+
+-- =========================================================
+-- SAMPLE ORDER
+-- =========================================================
+
+INSERT INTO orders (
+    customer_id,
+    status,
+    total_amount
+)
+SELECT
+    customer_id,
+    'PENDING',
+    1598.00
+FROM customers
+WHERE email = 'rahul.sharma@example.com'
+  AND NOT EXISTS (
+      SELECT 1
+      FROM orders o
+      JOIN customers c
+        ON o.customer_id = c.customer_id
+      WHERE c.email = 'rahul.sharma@example.com'
+        AND o.total_amount = 1598.00
+  )
+LIMIT 1;
+
+
+-- =========================================================
+-- SAMPLE ORDER ITEMS
+-- =========================================================
+
+INSERT INTO order_items (
+    order_id,
+    product_id,
+    quantity,
+    unit_price
+)
+SELECT
+    o.order_id,
+    p.product_id,
+    2,
+    p.price
+FROM orders o
+JOIN customers c
+    ON o.customer_id = c.customer_id
+JOIN products p
+    ON p.name = 'Wireless Mouse'
+WHERE c.email = 'rahul.sharma@example.com'
+  AND o.status = 'PENDING'
+  AND o.total_amount = 1598.00
+  AND NOT EXISTS (
+      SELECT 1
+      FROM order_items oi
+      WHERE oi.order_id = o.order_id
+        AND oi.product_id = p.product_id
+  )
+LIMIT 1;
+
+
+-- =========================================================
+-- SAMPLE ORDER LOG
+-- =========================================================
+
+INSERT INTO order_logs (
+    order_id,
+    previous_status,
+    new_status,
+    changed_by,
+    note
+)
+SELECT
+    o.order_id,
+    NULL,
+    'PENDING',
+    'system',
+    'Sample order created'
+FROM orders o
+JOIN customers c
+    ON o.customer_id = c.customer_id
+WHERE c.email = 'rahul.sharma@example.com'
+  AND o.status = 'PENDING'
+  AND o.total_amount = 1598.00
+  AND NOT EXISTS (
+      SELECT 1
+      FROM order_logs ol
+      WHERE ol.order_id = o.order_id
+        AND ol.new_status = 'PENDING'
+        AND ol.changed_by = 'system'
+  )
+LIMIT 1;
+
+
+-- =========================================================
+-- VERIFICATION
+-- =========================================================
+
+SELECT 'TABLES' AS section;
+
+SHOW TABLES;
+
+
+SELECT
+    'PRODUCT SAMPLE DATA' AS section;
+
+SELECT
+    product_id,
+    category_id,
+    name,
+    price,
+    stock_quantity,
+    reorder_threshold
+FROM products
+ORDER BY product_id;
+
+
+SELECT
+    'CUSTOMER SAMPLE DATA' AS section;
+
+SELECT
+    customer_id,
+    name,
+    email,
+    address
+FROM customers
+ORDER BY customer_id;
+
+
+SELECT
+    'ORDER SAMPLE DATA' AS section;
+
+SELECT
+    order_id,
+    customer_id,
+    status,
+    total_amount,
+    order_date
+FROM orders
+ORDER BY order_id;
+
+
+SELECT
+    'ORDER ITEM SAMPLE DATA' AS section;
+
+SELECT
+    order_item_id,
+    order_id,
+    product_id,
+    quantity,
+    unit_price
+FROM order_items
+ORDER BY order_item_id;
+
+
+SELECT
+    'ORDER LOG SAMPLE DATA' AS section;
+
+SELECT
+    order_log_id,
+    order_id,
+    previous_status,
+    new_status,
+    changed_by,
+    note
+FROM order_logs
+ORDER BY order_log_id;
