@@ -87,7 +87,7 @@ Resources:
 
       Environment:
         Variables:
-          TOKEN_PARAMETER: !Ref AuthTokenParameter
+          AUTH_TOKEN_PARAMETER: !Ref AuthTokenParameter
 
       Code:
         ZipFile: |
@@ -97,93 +97,109 @@ Resources:
 
           ssm = boto3.client("ssm")
 
-          TOKEN_PARAMETER = os.environ["TOKEN_PARAMETER"]
+
+          def get_parameter(name):
+              response = ssm.get_parameter(
+                  Name=name,
+                  WithDecryption=True
+              )
+
+              return response["Parameter"]["Value"]
+
+
+          def generate_policy(principal_id, effect, resource):
+              return {
+                  "principalId": principal_id,
+                  "policyDocument": {
+                      "Version": "2012-10-17",
+                      "Statement": [
+                          {
+                              "Action": "execute-api:Invoke",
+                              "Effect": effect,
+                              "Resource": resource
+                          }
+                      ]
+                  }
+              }
 
 
           def lambda_handler(event, context):
 
-              headers = event.get("headers") or {}
-
-              authorization = (
-                  headers.get("Authorization")
-                  or headers.get("authorization")
-              )
-
-              # ------------------------------------------------
-              # Missing token
-              # ------------------------------------------------
-
-              if not authorization:
-                  return {
-                      "isAuthorized": False,
-                      "context": {
-                          "reason": "missing_token"
-                      }
-                  }
-
-              # ------------------------------------------------
-              # Invalid authorization format
-              # ------------------------------------------------
-
-              if not authorization.startswith("Bearer "):
-                  return {
-                      "isAuthorized": False,
-                      "context": {
-                          "reason": "invalid_authorization_format"
-                      }
-                  }
-
-              supplied_token = authorization[len("Bearer "):].strip()
-
-              # ------------------------------------------------
-              # Read token from SSM
-              # ------------------------------------------------
-
               try:
-                  response = ssm.get_parameter(
-                      Name=TOKEN_PARAMETER,
-                      WithDecryption=True
+
+                  token_parameter = os.environ["AUTH_TOKEN_PARAMETER"]
+
+                  expected_token = get_parameter(token_parameter)
+
+                  headers = event.get("headers") or {}
+
+                  authorization_header = (
+                      headers.get("Authorization")
+                      or headers.get("authorization")
                   )
 
-                  expected_token = response["Parameter"]["Value"]
+                  if not authorization_header:
 
-              except Exception as exc:
+                      print(json.dumps({
+                          "level": "INFO",
+                          "operation": "AUTHORIZE",
+                          "result": "DENY",
+                          "reason": "TOKEN_MISSING"
+                      }))
+
+                      return generate_policy(
+                          "unauthorized",
+                          "Deny",
+                          event["methodArn"]
+                      )
+
+                  token = authorization_header.strip()
+
+                  if token.startswith("Bearer "):
+                      token = token[len("Bearer "):].strip()
+
+                  if token != expected_token:
+
+                      print(json.dumps({
+                          "level": "INFO",
+                          "operation": "AUTHORIZE",
+                          "result": "DENY",
+                          "reason": "TOKEN_INVALID"
+                      }))
+
+                      return generate_policy(
+                          "unauthorized",
+                          "Deny",
+                          event["methodArn"]
+                      )
+
+                  print(json.dumps({
+                      "level": "INFO",
+                      "operation": "AUTHORIZE",
+                      "result": "ALLOW"
+                  }))
+
+                  return generate_policy(
+                      "authorized-user",
+                      "Allow",
+                      event["methodArn"]
+                  )
+
+              except Exception as error:
 
                   print(json.dumps({
                       "level": "ERROR",
-                      "message": "Unable to retrieve authorization token",
-                      "error": str(exc)
+                      "operation": "AUTHORIZE",
+                      "result": "ERROR",
+                      "error_type": type(error).__name__
                   }))
 
-                  return {
-                      "isAuthorized": False,
-                      "context": {
-                          "reason": "authorization_configuration_error"
-                      }
-                  }
+                  return generate_policy(
+                      "unauthorized",
+                      "Deny",
+                      event.get("methodArn", "*")
+                  )
 
-              # ------------------------------------------------
-              # Validate token
-              # ------------------------------------------------
-
-              if supplied_token != expected_token:
-                  return {
-                      "isAuthorized": False,
-                      "context": {
-                          "reason": "invalid_token"
-                      }
-                  }
-
-              # ------------------------------------------------
-              # Authorized
-              # ------------------------------------------------
-
-              return {
-                  "isAuthorized": True,
-                  "context": {
-                      "authenticated": "true"
-                  }
-              }
 
       Tags:
         - Key: Name
@@ -253,11 +269,6 @@ Resources:
       # ------------------------------------------------------
       # BOOTSTRAP CODE
       # ------------------------------------------------------
-      #
-      # This is intentionally a minimal bootstrap.
-      # GitHub Actions will later update the Lambda code
-      # with the packaged Python application and PyMySQL.
-      #
 
       Code:
         ZipFile: |
@@ -288,7 +299,7 @@ Resources:
 Outputs:
 
   # ----------------------------------------------------------
-  # Lambda Authorizer ARN
+  # LAMBDA AUTHORISER ARN
   # ----------------------------------------------------------
 
   LambdaAuthorizerArn:
@@ -300,7 +311,7 @@ Outputs:
 
 
   # ----------------------------------------------------------
-  # Lambda Authorizer Name
+  # LAMBDA AUTHORISER NAME
   # ----------------------------------------------------------
 
   LambdaAuthorizerName:
@@ -312,7 +323,7 @@ Outputs:
 
 
   # ----------------------------------------------------------
-  # Product Lambda ARN
+  # PRODUCT LAMBDA ARN
   # ----------------------------------------------------------
 
   ProductLambdaArn:
@@ -324,7 +335,7 @@ Outputs:
 
 
   # ----------------------------------------------------------
-  # Product Lambda Name
+  # PRODUCT LAMBDA NAME
   # ----------------------------------------------------------
 
   ProductLambdaName:
