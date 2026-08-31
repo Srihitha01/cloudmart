@@ -2,9 +2,9 @@ AWSTemplateFormatVersion: '2010-09-09'
 
 Description: >
   CloudMart Data-Storage Stack.
-  Creates the private RDS MySQL database,
-  S3 report bucket, and Lambda deployment
-  artifact bucket.
+  Creates the private RDS MySQL database and
+  S3 report bucket.
+  Uses the existing Lambda deployment artifact bucket.
 
 Parameters:
 
@@ -55,6 +55,16 @@ Parameters:
     Type: Number
     Default: 20
     Description: Initial RDS storage in GB
+
+
+  # ==========================================================
+  # EXISTING LAMBDA ARTIFACT BUCKET
+  # ==========================================================
+
+  LambdaArtifactBucket:
+    Type: String
+    Default: cloudmart-dev-artifacts
+    Description: Existing S3 bucket used for Lambda deployment artifacts
 
 
 Resources:
@@ -204,50 +214,6 @@ Resources:
           Value: !Ref Environment
 
 
-  # ==========================================================
-  # LAMBDA ARTIFACT BUCKET
-  # ==========================================================
-
-  CloudMartLambdaArtifactBucket:
-    Type: AWS::S3::Bucket
-
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
-
-    Properties:
-
-      BucketName:
-        !Sub cloudmart-${Environment}-artifacts
-
-      BucketEncryption:
-
-        ServerSideEncryptionConfiguration:
-
-          - ServerSideEncryptionByDefault:
-              SSEAlgorithm: AES256
-
-      PublicAccessBlockConfiguration:
-
-        BlockPublicAcls: true
-        BlockPublicPolicy: true
-        IgnorePublicAcls: true
-        RestrictPublicBuckets: true
-
-      VersioningConfiguration:
-        Status: Enabled
-
-      Tags:
-
-        - Key: Name
-          Value: !Sub cloudmart-${Environment}-artifacts
-
-        - Key: Project
-          Value: CloudMart
-
-        - Key: Environment
-          Value: !Ref Environment
-
-
 # ============================================================
 # OUTPUTS
 # ============================================================
@@ -346,13 +312,14 @@ Outputs:
 
   # ----------------------------------------------------------
   # LAMBDA ARTIFACT BUCKET NAME
+  # Existing bucket - NOT created by this stack
   # ----------------------------------------------------------
 
   LambdaArtifactBucketName:
-    Description: Lambda dependency artifact bucket name
+    Description: Existing S3 bucket used for Lambda deployment artifacts
 
     Value:
-      !Ref CloudMartLambdaArtifactBucket
+      !Ref LambdaArtifactBucket
 
     Export:
       Name:
@@ -361,13 +328,14 @@ Outputs:
 
   # ----------------------------------------------------------
   # LAMBDA ARTIFACT BUCKET ARN
+  # Existing bucket - NOT created by this stack
   # ----------------------------------------------------------
 
   LambdaArtifactBucketArn:
-    Description: Lambda dependency artifact bucket ARN
+    Description: ARN of the existing Lambda artifact bucket
 
     Value:
-      !GetAtt CloudMartLambdaArtifactBucket.Arn
+      !Sub arn:${AWS::Partition}:s3:::${LambdaArtifactBucket}
 
     Export:
       Name:
