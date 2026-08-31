@@ -33,6 +33,16 @@ env:
 
   LAMBDA_ARTIFACT_BUCKET: cloudmart-dev-artifacts
 
+  # ============================================================
+  # VERIFIED EXISTING ARTIFACTS
+  # ============================================================
+
+  PRODUCT_LAMBDA_S3_KEY: lambda/product/product-lambda-1c359937e7f4e8453f83e9b3f5a021ebdbd515e5.zip
+
+  PYMYSQL_LAYER_S3_KEY: layers/pymysql/pymysql-layer-1c359937e7f4e8453f83e9b3f5a021ebdbd515e5.zip
+
+  SCHEMA_S3_KEY: database/schema-1c359937e7f4e8453f83e9b3f5a021ebdbd515e5.sql
+
 
 jobs:
 
@@ -50,26 +60,21 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
-
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-
       - name: Verify AWS identity
         run: |
           aws sts get-caller-identity
-
 
       - name: Validate Network template
         run: |
           aws cloudformation validate-template \
             --template-body file://cloudformation/network-stack.yaml \
             --region "$AWS_REGION"
-
 
       - name: Deploy Network-Security Stack
         run: |
@@ -80,6 +85,14 @@ jobs:
               Environment="$ENVIRONMENT" \
             --region "$AWS_REGION" \
             --no-fail-on-empty-changeset
+
+      - name: Verify Network Stack
+        run: |
+          aws cloudformation describe-stacks \
+            --stack-name "$NETWORK_STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query 'Stacks[0].[StackName,StackStatus]' \
+            --output table
 
 
   # ============================================================
@@ -99,26 +112,21 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
-
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-
       - name: Verify AWS identity
         run: |
           aws sts get-caller-identity
-
 
       - name: Validate Data template
         run: |
           aws cloudformation validate-template \
             --template-body file://cloudformation/data-stack.yaml \
             --region "$AWS_REGION"
-
 
       - name: Deploy Data-Storage Stack
         run: |
@@ -136,7 +144,6 @@ jobs:
             --region "$AWS_REGION" \
             --no-fail-on-empty-changeset
 
-
       - name: Verify Data-Storage Stack
         run: |
           aws cloudformation describe-stacks \
@@ -144,7 +151,6 @@ jobs:
             --region "$AWS_REGION" \
             --query 'Stacks[0].[StackName,StackStatus]' \
             --output table
-
 
       - name: Show Data-Storage Outputs
         run: |
@@ -154,7 +160,6 @@ jobs:
             --query 'Stacks[0].Outputs[*].[OutputKey,OutputValue]' \
             --output table
 
-
       - name: Verify RDS
         run: |
           aws rds describe-db-instances \
@@ -162,7 +167,6 @@ jobs:
             --region "$AWS_REGION" \
             --query '[DBInstances[0].DBInstanceIdentifier,DBInstances[0].DBInstanceStatus,DBInstances[0].Endpoint.Address,DBInstances[0].Endpoint.Port,DBInstances[0].PubliclyAccessible]' \
             --output table
-
 
       - name: Verify Report Bucket
         run: |
@@ -172,6 +176,13 @@ jobs:
             --query "StackResources[?LogicalResourceId=='CloudMartReportBucket'].[LogicalResourceId,ResourceType,ResourceStatus,PhysicalResourceId]" \
             --output table
 
+      - name: Verify Lambda Artifact Configuration
+        run: |
+          aws cloudformation describe-stacks \
+            --stack-name "$DATA_STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query "Stacks[0].Outputs[?OutputKey=='LambdaArtifactBucketName'].[OutputKey,OutputValue]" \
+            --output table
 
       - name: Show Data-Storage Failure Details
         if: failure()
@@ -200,19 +211,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
-
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-
       - name: Verify AWS identity
         run: |
           aws sts get-caller-identity
-
 
       - name: Verify Data Stack
         run: |
@@ -222,13 +229,11 @@ jobs:
             --query 'Stacks[0].[StackName,StackStatus]' \
             --output table
 
-
       - name: Validate IAM template
         run: |
           aws cloudformation validate-template \
             --template-body file://cloudformation/iam-stack.yaml \
             --region "$AWS_REGION"
-
 
       - name: Deploy IAM Stack
         run: |
@@ -241,7 +246,6 @@ jobs:
             --region "$AWS_REGION" \
             --no-fail-on-empty-changeset
 
-
       - name: Verify IAM Stack
         run: |
           aws cloudformation describe-stacks \
@@ -250,7 +254,6 @@ jobs:
             --query 'Stacks[0].[StackName,StackStatus]' \
             --output table
 
-
       - name: Show IAM Outputs
         run: |
           aws cloudformation describe-stacks \
@@ -258,7 +261,6 @@ jobs:
             --region "$AWS_REGION" \
             --query 'Stacks[0].Outputs[*].[OutputKey,OutputValue]' \
             --output table
-
 
       - name: Show IAM Failure Details
         if: failure()
@@ -271,7 +273,8 @@ jobs:
 
 
   # ============================================================
-  # 4. APPLICATION EVENTS - SAM
+  # 4. APPLICATION EVENTS
+  #    PURE CLOUDFORMATION - NO SAM
   # ============================================================
 
   deploy-application-events:
@@ -287,29 +290,17 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-
-      - name: Setup AWS SAM
-        uses: aws-actions/setup-sam@v3
-
-        with:
-          use-installer: true
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
-
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
-
 
       - name: Verify AWS identity
         run: |
           aws sts get-caller-identity
 
-
-      - name: Verify IAM stack
+      - name: Verify IAM Stack
         run: |
           aws cloudformation describe-stacks \
             --stack-name "$IAM_STACK_NAME" \
@@ -317,62 +308,49 @@ jobs:
             --query 'Stacks[0].[StackName,StackStatus]' \
             --output table
 
-
-      - name: Validate SAM template
+      - name: Validate Application-Events template
         run: |
-          sam validate \
-            --template-file cloudformation/application-events-stack.yaml \
+          aws cloudformation validate-template \
+            --template-body file://cloudformation/application-events-stack.yaml \
             --region "$AWS_REGION"
 
-
       # ========================================================
-      # BUILD APPLICATION
+      # DEPLOY APPLICATION EVENTS
       # ========================================================
 
-      - name: SAM Build
+      - name: Deploy Application-Events Stack
         run: |
-          sam build \
+          aws cloudformation deploy \
             --template-file cloudformation/application-events-stack.yaml \
-            --use-container
-
-
-      # ========================================================
-      # DEPLOY APPLICATION
-      # ========================================================
-
-      - name: SAM Deploy
-        run: |
-          sam deploy \
-            --template-file .aws-sam/build/template.yaml \
             --stack-name "$APPLICATION_EVENTS_STACK_NAME" \
-            --region "$AWS_REGION" \
-            --s3-bucket "$LAMBDA_ARTIFACT_BUCKET" \
-            --s3-prefix "sam/$ENVIRONMENT" \
-            --no-confirm-changeset \
-            --no-fail-on-empty-changeset \
             --parameter-overrides \
               Environment="$ENVIRONMENT" \
+              LambdaArtifactBucket="$LAMBDA_ARTIFACT_BUCKET" \
+              PyMySQLLayerS3Key="$PYMYSQL_LAYER_S3_KEY" \
+              ProductLambdaS3Key="$PRODUCT_LAMBDA_S3_KEY" \
+              SchemaS3Key="$SCHEMA_S3_KEY" \
               DBName="/cloudmart/$ENVIRONMENT/db/name" \
               DBEndpoint="/cloudmart/$ENVIRONMENT/db/endpoint" \
               DBPort="/cloudmart/$ENVIRONMENT/db/port" \
               DBUsername="/cloudmart/$ENVIRONMENT/db/username" \
               DBPassword="/cloudmart/$ENVIRONMENT/db/password" \
               AuthTokenParameter="/cloudmart/$ENVIRONMENT/auth/token" \
-              AlertEmail="${{ secrets.CLOUDMART_ALERT_EMAIL }}"
-
+              AlertEmail="${{ secrets.CLOUDMART_ALERT_EMAIL }}" \
+            --region "$AWS_REGION" \
+            --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
+            --no-fail-on-empty-changeset
 
       # ========================================================
-      # VERIFY DEPLOYMENT
+      # VERIFY APPLICATION EVENTS
       # ========================================================
 
-      - name: Show Application-Events Status
+      - name: Verify Application-Events Stack
         run: |
           aws cloudformation describe-stacks \
             --stack-name "$APPLICATION_EVENTS_STACK_NAME" \
             --region "$AWS_REGION" \
             --query 'Stacks[0].[StackName,StackStatus]' \
             --output table
-
 
       - name: Show Application-Events Outputs
         run: |
@@ -382,7 +360,6 @@ jobs:
             --query 'Stacks[0].Outputs[*].[OutputKey,OutputValue]' \
             --output table
 
-
       - name: Verify Product Lambda
         run: |
           aws lambda get-function-configuration \
@@ -390,7 +367,6 @@ jobs:
             --region "$AWS_REGION" \
             --query '[FunctionName,Runtime,Handler,State,LastUpdateStatus]' \
             --output table
-
 
       - name: Verify Authorizer
         run: |
@@ -400,7 +376,6 @@ jobs:
             --query '[FunctionName,Runtime,Handler,State,LastUpdateStatus]' \
             --output table
 
-
       - name: Verify EventBridge
         run: |
           aws events describe-rule \
@@ -408,7 +383,6 @@ jobs:
             --region "$AWS_REGION" \
             --query '[Name,State]' \
             --output table
-
 
       - name: Show Application-Events Failure Details
         if: failure()
@@ -437,19 +411,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
-
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-
       - name: Verify AWS identity
         run: |
           aws sts get-caller-identity
-
 
       - name: Verify Application-Events Stack
         run: |
@@ -459,13 +429,11 @@ jobs:
             --query 'Stacks[0].[StackName,StackStatus]' \
             --output table
 
-
       - name: Validate API-Monitoring-EC2 template
         run: |
           aws cloudformation validate-template \
             --template-body file://cloudformation/api-monitoring-ec2-stack.yaml \
             --region "$AWS_REGION"
-
 
       - name: Deploy API-Monitoring-EC2 Stack
         run: |
@@ -477,7 +445,6 @@ jobs:
             --region "$AWS_REGION" \
             --no-fail-on-empty-changeset
 
-
       - name: Show API-Monitoring-EC2 Status
         run: |
           aws cloudformation describe-stacks \
@@ -485,7 +452,6 @@ jobs:
             --region "$AWS_REGION" \
             --query 'Stacks[0].[StackName,StackStatus]' \
             --output table
-
 
       - name: Show API-Monitoring-EC2 Outputs
         run: |
