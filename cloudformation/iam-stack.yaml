@@ -37,6 +37,7 @@ Resources:
         Version: '2012-10-17'
 
         Statement:
+
           - Effect: Allow
 
             Principal:
@@ -134,6 +135,7 @@ Resources:
         Version: '2012-10-17'
 
         Statement:
+
           - Effect: Allow
 
             Principal:
@@ -185,6 +187,27 @@ Resources:
 
                 Resource:
                   - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/db/*
+
+
+        # ------------------------------------------------------
+        # S3 SCHEMA ACCESS
+        # Used by Schema Initializer Lambda
+        # ------------------------------------------------------
+
+        - PolicyName: ProductLambdaSchemaS3
+
+          PolicyDocument:
+            Version: '2012-10-17'
+
+            Statement:
+
+              - Effect: Allow
+
+                Action:
+                  - s3:GetObject
+
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::cloudmart-${Environment}-artifacts/database/*
 
 
         # ------------------------------------------------------
@@ -250,6 +273,7 @@ Resources:
         Version: '2012-10-17'
 
         Statement:
+
           - Effect: Allow
 
             Principal:
@@ -347,6 +371,7 @@ Resources:
         Version: '2012-10-17'
 
         Statement:
+
           - Effect: Allow
 
             Principal:
@@ -463,6 +488,7 @@ Resources:
         Version: '2012-10-17'
 
         Statement:
+
           - Effect: Allow
 
             Principal:
