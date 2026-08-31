@@ -230,6 +230,27 @@ Resources:
 
 
         # ------------------------------------------------------
+        # EVENTBRIDGE
+        # Used to publish inventory change events
+        # ------------------------------------------------------
+
+        - PolicyName: ProductLambdaEventBridge
+
+          PolicyDocument:
+            Version: '2012-10-17'
+
+            Statement:
+
+              - Effect: Allow
+
+                Action:
+                  - events:PutEvents
+
+                Resource:
+                  - !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/default
+
+
+        # ------------------------------------------------------
         # VPC ACCESS
         # ------------------------------------------------------
 
