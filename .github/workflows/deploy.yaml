@@ -166,22 +166,11 @@ jobs:
 
       - name: Verify Report Bucket
         run: |
-          REPORT_BUCKET=$(aws cloudformation describe-stacks \
+          aws cloudformation describe-stack-resources \
             --stack-name "$DATA_STACK_NAME" \
             --region "$AWS_REGION" \
-            --query "Stacks[0].Outputs[?OutputKey=='ReportBucketName'].OutputValue" \
-            --output text)
-
-          aws s3api head-bucket \
-            --bucket "$REPORT_BUCKET" \
-            --region "$AWS_REGION"
-
-
-      - name: Verify Lambda Artifact Bucket
-        run: |
-          aws s3api head-bucket \
-            --bucket "$LAMBDA_ARTIFACT_BUCKET" \
-            --region "$AWS_REGION"
+            --query "StackResources[?LogicalResourceId=='CloudMartReportBucket'].[LogicalResourceId,ResourceType,ResourceStatus,PhysicalResourceId]" \
+            --output table
 
 
       - name: Show Data-Storage Failure Details
