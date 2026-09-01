@@ -23,6 +23,7 @@ DB_ENDPOINT_PARAMETER = os.environ["DB_ENDPOINT_PARAMETER"]
 DB_PORT_PARAMETER = os.environ["DB_PORT_PARAMETER"]
 DB_USERNAME_PARAMETER = os.environ["DB_USERNAME_PARAMETER"]
 DB_PASSWORD_PARAMETER = os.environ["DB_PASSWORD_PARAMETER"]
+EVENT_BUS_NAME = os.environ.get("EVENT_BUS_NAME", "cloudmart-dev-event-bus")
 
 
 # ==========================================================
@@ -143,6 +144,7 @@ def publish_order_event(
     result = events.put_events(
         Entries=[
             {
+                "EventBusName": EVENT_BUS_NAME,
                 "Source": "cloudmart.order",
                 "DetailType": detail_type,
                 "Detail": json.dumps(
@@ -329,6 +331,7 @@ def create_pending_order(
                 SELECT customer_id
                 FROM customers
                 WHERE customer_id = %s
+                  AND deleted_at IS NULL
                 """,
                 (customer_id,)
             )
@@ -558,6 +561,70 @@ def create_pending_order(
             connection.close()
 
 
+
+# ==========================================================
+# INVENTORY EVENT
+# ==========================================================
+
+def publish_inventory_event(
+    product_id,
+    product_name,
+    old_stock,
+    new_stock,
+    low_stock_threshold
+):
+    detail = {
+        "product_id": product_id,
+        "product_name": product_name,
+        "old_stock": old_stock,
+        "new_stock": new_stock,
+        "low_stock_threshold": low_stock_threshold,
+        "low_stock": new_stock <= low_stock_threshold
+    }
+
+    try:
+        result = events.put_events(
+            Entries=[
+                {
+                    "EventBusName": EVENT_BUS_NAME,
+                    "Source": "cloudmart.product",
+                    "DetailType": "Inventory Changed",
+                    "Detail": json.dumps(detail, default=str)
+                }
+            ]
+        )
+
+        if result.get("FailedEntryCount", 0) != 0:
+            log_event(
+                "ERROR",
+                "Inventory event publishing failed",
+                product_id=product_id,
+                event_result=result
+            )
+            return False
+
+        log_event(
+            "INFO",
+            "Inventory event published",
+            product_id=product_id,
+            old_stock=old_stock,
+            new_stock=new_stock,
+            low_stock=detail["low_stock"]
+        )
+        return True
+
+    except Exception as exc:
+        log_event(
+            "ERROR",
+            "Inventory event publishing exception",
+            product_id=product_id,
+            error_type=type(exc).__name__,
+            error=str(exc)
+        )
+        return False
+
+
+
 # ==========================================================
 # CONFIRM ORDER
 # ==========================================================
@@ -648,6 +715,9 @@ def confirm_order(
                     {
                         "product_id":
                             product_id,
+
+                        "product_name":
+                            product.get("name"),
 
                         "quantity":
                             quantity,
@@ -771,6 +841,18 @@ def confirm_order(
             status="CONFIRMED",
             total_amount=total_amount
         )
+
+        for product in locked_products:
+            publish_inventory_event(
+                product_id=product["product_id"],
+                product_name=product.get("product_name"),
+                old_stock=product["stock_quantity"],
+                new_stock=(
+                    product["stock_quantity"]
+                    - product["quantity"]
+                ),
+                low_stock_threshold=product["reorder_threshold"]
+            )
 
         return {
             "order_id": order_id,

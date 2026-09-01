@@ -11,6 +11,7 @@ import pymysql
 
 ssm = boto3.client("ssm")
 lambda_client = boto3.client("lambda")
+events = boto3.client("events")
 
 
 # ==========================================================
@@ -604,6 +605,355 @@ def get_customer_orders(
             connection.close()
 
 
+
+# ==========================================================
+# EVENTBRIDGE
+# ==========================================================
+
+def publish_order_event(
+    detail_type,
+    order_id,
+    customer_id,
+    status,
+    total_amount=None,
+    reason=None
+):
+    detail = {
+        "order_id": order_id,
+        "customer_id": customer_id,
+        "status": status
+    }
+
+    if total_amount is not None:
+        detail["total_amount"] = total_amount
+
+    if reason is not None:
+        detail["reason"] = reason
+
+    try:
+        result = events.put_events(
+            Entries=[
+                {
+                    "Source": "cloudmart.order",
+                    "DetailType": detail_type,
+                    "Detail": json.dumps(detail, default=str)
+                }
+            ]
+        )
+
+        if result.get("FailedEntryCount", 0) != 0:
+            log_event(
+                "ERROR",
+                "Order event publishing failed",
+                order_id=order_id,
+                detail_type=detail_type,
+                event_result=result
+            )
+            return False
+
+        log_event(
+            "INFO",
+            "Order event published",
+            order_id=order_id,
+            detail_type=detail_type
+        )
+        return True
+
+    except Exception as exc:
+        log_event(
+            "ERROR",
+            "Order event publishing exception",
+            order_id=order_id,
+            detail_type=detail_type,
+            error_type=type(exc).__name__,
+            error=str(exc)
+        )
+        return False
+
+
+# ==========================================================
+# PATCH /orders/{id}/status
+# ==========================================================
+
+def update_order_status(event, context):
+
+    path_parameters = event.get("pathParameters") or {}
+    order_id = path_parameters.get("id")
+
+    if order_id is None:
+        return response(400, {"message": "Order id is required"})
+
+    try:
+        order_id = int(order_id)
+    except (TypeError, ValueError):
+        return response(400, {"message": "Order id must be an integer"})
+
+    if order_id <= 0:
+        return response(400, {"message": "Order id must be greater than zero"})
+
+    body = parse_body(event)
+    requested_status = str(body.get("status", "")).strip().upper()
+
+    if requested_status not in {"DELIVERED", "CANCELLED"}:
+        return response(
+            400,
+            {
+                "message": "status must be DELIVERED or CANCELLED"
+            }
+        )
+
+    connection = None
+    inventory_events = []
+    order = None
+
+    try:
+        connection = get_db_connection()
+
+        with connection.cursor() as cursor:
+
+            cursor.execute(
+                """
+                SELECT
+                    order_id,
+                    customer_id,
+                    status,
+                    total_amount
+                FROM orders
+                WHERE order_id = %s
+                FOR UPDATE
+                """,
+                (order_id,)
+            )
+
+            order = cursor.fetchone()
+
+            if order is None:
+                return response(404, {"message": "Order not found"})
+
+            current_status = order["status"]
+
+            if current_status != "CONFIRMED":
+                return response(
+                    409,
+                    {
+                        "message": (
+                            f"Order {order_id} cannot be changed from "
+                            f"{current_status} to {requested_status}"
+                        ),
+                        "current_status": current_status
+                    }
+                )
+
+            if requested_status == "CANCELLED":
+
+                cursor.execute(
+                    """
+                    SELECT
+                        product_id,
+                        quantity
+                    FROM order_items
+                    WHERE order_id = %s
+                    ORDER BY order_item_id
+                    """,
+                    (order_id,)
+                )
+
+                items = cursor.fetchall()
+
+                for item in items:
+                    cursor.execute(
+                        """
+                        SELECT
+                            product_id,
+                            name,
+                            stock_quantity,
+                            low_stock_threshold
+                        FROM products
+                        WHERE product_id = %s
+                        FOR UPDATE
+                        """,
+                        (item["product_id"],)
+                    )
+
+                    product = cursor.fetchone()
+
+                    if product is None:
+                        raise ValueError(
+                            f"Product {item['product_id']} not found"
+                        )
+
+                    old_stock = int(product["stock_quantity"])
+                    quantity = int(item["quantity"])
+                    new_stock = old_stock + quantity
+
+                    cursor.execute(
+                        """
+                        UPDATE products
+                        SET stock_quantity = %s
+                        WHERE product_id = %s
+                          AND deleted_at IS NULL
+                        """,
+                        (new_stock, item["product_id"])
+                    )
+
+                    if cursor.rowcount != 1:
+                        raise ValueError(
+                            f"Product {item['product_id']} is deleted"
+                        )
+
+                    inventory_events.append(
+                        {
+                            "product_id": int(product["product_id"]),
+                            "product_name": product["name"],
+                            "old_stock": old_stock,
+                            "new_stock": new_stock,
+                            "low_stock_threshold": int(
+                                product["low_stock_threshold"]
+                            ),
+                            "low_stock": (
+                                new_stock
+                                <= int(product["low_stock_threshold"])
+                            )
+                        }
+                    )
+
+                note = "Order cancelled and inventory restored"
+
+            else:
+                note = "Order marked as delivered"
+
+            cursor.execute(
+                """
+                UPDATE orders
+                SET status = %s
+                WHERE order_id = %s
+                  AND status = %s
+                """,
+                (
+                    requested_status,
+                    order_id,
+                    "CONFIRMED"
+                )
+            )
+
+            if cursor.rowcount != 1:
+                raise ValueError("Order status update failed")
+
+            cursor.execute(
+                """
+                INSERT INTO order_logs (
+                    order_id,
+                    previous_status,
+                    new_status,
+                    changed_by,
+                    note
+                )
+                VALUES (
+                    %s,
+                    %s,
+                    %s,
+                    %s,
+                    %s
+                )
+                """,
+                (
+                    order_id,
+                    "CONFIRMED",
+                    requested_status,
+                    "system",
+                    note
+                )
+            )
+
+        connection.commit()
+
+        detail_type = (
+            "OrderDelivered"
+            if requested_status == "DELIVERED"
+            else "OrderCancelled"
+        )
+
+        publish_order_event(
+            detail_type=detail_type,
+            order_id=order_id,
+            customer_id=order["customer_id"],
+            status=requested_status,
+            total_amount=order["total_amount"],
+            reason=note
+        )
+
+        # Publish inventory changes created by cancellation.
+        if requested_status == "CANCELLED":
+            for inventory in inventory_events:
+                try:
+                    events.put_events(
+                        Entries=[
+                            {
+                                "Source": "cloudmart.product",
+                                "DetailType": "Inventory Changed",
+                                "Detail": json.dumps(
+                                    inventory,
+                                    default=str
+                                )
+                            }
+                        ]
+                    )
+                except Exception as exc:
+                    log_event(
+                        "ERROR",
+                        "Inventory event publishing failed",
+                        order_id=order_id,
+                        product_id=inventory["product_id"],
+                        error_type=type(exc).__name__,
+                        error=str(exc)
+                    )
+
+        return response(
+            200,
+            {
+                "message": f"Order {requested_status.lower()} successfully",
+                "order_id": order_id,
+                "customer_id": order["customer_id"],
+                "status": requested_status,
+                "total_amount": order["total_amount"]
+            }
+        )
+
+    except ValueError as exc:
+        if connection is not None:
+            connection.rollback()
+
+        return response(
+            400,
+            {"message": str(exc)}
+        )
+
+    except Exception as exc:
+        if connection is not None:
+            connection.rollback()
+
+        log_event(
+            "ERROR",
+            "Order status update failed",
+            request_id=context.aws_request_id,
+            order_id=order_id,
+            error_type=type(exc).__name__,
+            error=str(exc)
+        )
+
+        return response(
+            500,
+            {
+                "message": "Internal server error",
+                "request_id": context.aws_request_id
+            }
+        )
+
+    finally:
+        if connection is not None:
+            connection.close()
+
+
 # ==========================================================
 # MAIN LAMBDA HANDLER
 # ==========================================================
@@ -691,6 +1041,20 @@ def lambda_handler(
         ):
 
             return get_customer_orders(
+                event,
+                context
+            )
+
+        # ------------------------------------------------------
+        # PATCH /orders/{id}/status
+        # ------------------------------------------------------
+
+        if (
+            http_method == "PATCH"
+            and resource == "/orders/{id}/status"
+        ):
+
+            return update_order_status(
                 event,
                 context
             )

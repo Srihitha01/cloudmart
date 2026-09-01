@@ -1,25 +1,24 @@
 name: CloudMart Application Test
 
 on:
-
   workflow_dispatch:
 
   push:
     branches:
-      - main
+      - feature/order-flow
     paths:
       - 'cloudformation/application-events-stack.yaml'
+      - 'cloudformation/api-monitoring-ec2-stack.yaml'
       - 'cloudformation/iam-stack.yaml'
+      - 'lambda/**'
+      - 'database/**'
       - '.github/workflows/test.yaml'
-
 
 permissions:
   id-token: write
   contents: read
 
-
 env:
-
   AWS_REGION: ap-south-1
   ENVIRONMENT: dev
 
@@ -27,14 +26,18 @@ env:
   DATA_STACK_NAME: cloudmart-data-storage-dev
   IAM_STACK_NAME: cloudmart-iam-dev
   APPLICATION_EVENTS_STACK_NAME: cloudmart-application-events-dev
+  API_STACK_NAME: cloudmart-api-monitoring-ec2-dev
 
+  LAMBDA_ARTIFACT_BUCKET: cloudmart-dev-artifacts
+
+  API_ID: 7ots9heb4c
+
+  # IMPORTANT: All CloudMart EventBridge rules use this custom bus.
+  EVENT_BUS_NAME: cloudmart-dev-event-bus
 
 jobs:
-
   test-application-events:
-
-    name: Validate Application-Events
-
+    name: Validate CloudMart Application
     runs-on: ubuntu-latest
 
     steps:
@@ -44,7 +47,40 @@ jobs:
       # ======================================================
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+
+
+      # ======================================================
+      # PROVE THE WORKFLOW VERSION BEING EXECUTED
+      # ======================================================
+
+      - name: Verify workflow uses custom EventBridge bus
+        run: |
+          echo "Commit being tested:"
+          git rev-parse HEAD
+
+          echo "Branch:"
+          git branch --show-current
+
+          echo "Expected EventBridge bus:"
+          echo "$EVENT_BUS_NAME"
+
+          echo "Checking workflow file checked out by GitHub Actions:"
+          grep -n -- "--event-bus-name" .github/workflows/test.yaml
+
+          echo "Checking custom bus declaration:"
+          grep -n "EVENT_BUS_NAME:" .github/workflows/test.yaml
+
+
+      # ======================================================
+      # SETUP AWS SAM
+      # ======================================================
+
+      - name: Setup AWS SAM
+        uses: aws-actions/setup-sam@v3
+        with:
+          use-installer: true
+          token: ${{ secrets.GITHUB_TOKEN }}
 
 
       # ======================================================
@@ -52,8 +88,7 @@ jobs:
       # ======================================================
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
@@ -108,6 +143,32 @@ jobs:
 
 
       # ======================================================
+      # VERIFY APPLICATION-EVENTS STACK
+      # ======================================================
+
+      - name: Verify Application-Events Stack
+        run: |
+          aws cloudformation describe-stacks \
+            --stack-name "$APPLICATION_EVENTS_STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query 'Stacks[0].[StackName,StackStatus]' \
+            --output table
+
+
+      # ======================================================
+      # VERIFY API STACK
+      # ======================================================
+
+      - name: Verify API-Monitoring-EC2 Stack
+        run: |
+          aws cloudformation describe-stacks \
+            --stack-name "$API_STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query 'Stacks[0].[StackName,StackStatus]' \
+            --output table
+
+
+      # ======================================================
       # VERIFY AUTH TOKEN PARAMETER
       # ======================================================
 
@@ -121,52 +182,50 @@ jobs:
 
 
       # ======================================================
-      # VALIDATE TEMPLATE
+      # VERIFY ARTIFACT BUCKET
       # ======================================================
 
-      - name: Validate Application-Events Template
+      - name: Verify Lambda Artifact Bucket
         run: |
-          aws cloudformation validate-template \
-            --template-body file://cloudformation/application-events-stack.yaml \
+          aws s3api head-bucket \
+            --bucket "$LAMBDA_ARTIFACT_BUCKET" \
             --region "$AWS_REGION"
 
 
       # ======================================================
-      # DEPLOY APPLICATION-EVENTS
+      # VALIDATE SAM TEMPLATE
       # ======================================================
 
-      - name: Deploy Application-Events Stack
+      - name: Validate Application-Events SAM Template
         run: |
-          aws cloudformation deploy \
+          sam validate \
             --template-file cloudformation/application-events-stack.yaml \
-            --stack-name "$APPLICATION_EVENTS_STACK_NAME" \
-            --parameter-overrides \
-              Environment="$ENVIRONMENT" \
-              DBName="/cloudmart/$ENVIRONMENT/db/name" \
-              DBEndpoint="/cloudmart/$ENVIRONMENT/db/endpoint" \
-              DBPort="/cloudmart/$ENVIRONMENT/db/port" \
-              DBUsername="/cloudmart/$ENVIRONMENT/db/username" \
-              DBPassword="/cloudmart/$ENVIRONMENT/db/password" \
-              AuthTokenParameter="/cloudmart/$ENVIRONMENT/auth/token" \
-            --region "$AWS_REGION" \
-            --no-fail-on-empty-changeset
+            --region "$AWS_REGION"
 
 
       # ======================================================
-      # VERIFY APPLICATION-EVENTS
+      # BUILD SAM APPLICATION
       # ======================================================
 
-      - name: Verify Application-Events Stack
+      - name: Build Application-Events SAM
         run: |
-          aws cloudformation describe-stacks \
-            --stack-name "$APPLICATION_EVENTS_STACK_NAME" \
-            --region "$AWS_REGION" \
-            --query 'Stacks[0].[StackName,StackStatus]' \
-            --output table
+          sam build \
+            --template-file cloudformation/application-events-stack.yaml \
+            --use-container
 
 
       # ======================================================
-      # VERIFY AUTHORISER
+      # VERIFY SAM BUILD
+      # ======================================================
+
+      - name: Verify SAM Build
+        run: |
+          test -f .aws-sam/build/template.yaml
+          echo "SAM build completed successfully."
+
+
+      # ======================================================
+      # VERIFY LAMBDA AUTHORIZER
       # ======================================================
 
       - name: Verify Lambda Authorizer
@@ -202,3 +261,314 @@ jobs:
             --region "$AWS_REGION" \
             --query '[VpcConfig.SubnetIds,VpcConfig.SecurityGroupIds]' \
             --output json
+
+
+      # ======================================================
+      # VERIFY ORDER LAMBDA
+      # ======================================================
+
+      - name: Verify Order Lambda
+        run: |
+          aws lambda get-function-configuration \
+            --function-name "cloudmart-${ENVIRONMENT}-order-lambda" \
+            --region "$AWS_REGION" \
+            --query '[FunctionName,Runtime,Handler,State,LastUpdateStatus]' \
+            --output table
+
+
+      # ======================================================
+      # VERIFY ORDER LAMBDA VPC
+      # ======================================================
+
+      - name: Verify Order Lambda VPC
+        run: |
+          aws lambda get-function-configuration \
+            --function-name "cloudmart-${ENVIRONMENT}-order-lambda" \
+            --region "$AWS_REGION" \
+            --query '[VpcConfig.SubnetIds,VpcConfig.SecurityGroupIds]' \
+            --output json
+
+
+      # ======================================================
+      # VERIFY ORDER PROCESSOR LAMBDA
+      # ======================================================
+
+      - name: Verify Order Processor Lambda
+        run: |
+          aws lambda get-function-configuration \
+            --function-name "cloudmart-${ENVIRONMENT}-order-processor" \
+            --region "$AWS_REGION" \
+            --query '[FunctionName,Runtime,Handler,State,LastUpdateStatus]' \
+            --output table
+
+
+      # ======================================================
+      # VERIFY ORDER PROCESSOR VPC
+      # ======================================================
+
+      - name: Verify Order Processor VPC
+        run: |
+          aws lambda get-function-configuration \
+            --function-name "cloudmart-${ENVIRONMENT}-order-processor" \
+            --region "$AWS_REGION" \
+            --query '[VpcConfig.SubnetIds,VpcConfig.SecurityGroupIds]' \
+            --output json
+
+
+      # ======================================================
+      # VERIFY API GATEWAY
+      # ======================================================
+
+      - name: Verify API Gateway
+        run: |
+          aws apigateway get-rest-api \
+            --rest-api-id "$API_ID" \
+            --region "$AWS_REGION" \
+            --query '[id,name,endpointConfiguration.types]' \
+            --output table
+
+
+      # ======================================================
+      # VERIFY API AUTHORIZER
+      # ======================================================
+
+      - name: Verify API Gateway Authorizer
+        run: |
+          aws apigateway get-authorizers \
+            --rest-api-id "$API_ID" \
+            --region "$AWS_REGION" \
+            --query 'items[*].[id,name,type,identitySource]' \
+            --output table
+
+
+      # ======================================================
+      # VERIFY ORDER API RESOURCES AND METHODS
+      # ======================================================
+
+      - name: Verify Order API Resources And Methods
+        run: |
+          ORDER_RESOURCE_ID=$(aws apigateway get-resources \
+            --rest-api-id "$API_ID" \
+            --region "$AWS_REGION" \
+            --query "items[?path=='/orders'].id | [0]" \
+            --output text)
+
+          ORDER_ID_RESOURCE_ID=$(aws apigateway get-resources \
+            --rest-api-id "$API_ID" \
+            --region "$AWS_REGION" \
+            --query "items[?path=='/orders/{id}'].id | [0]" \
+            --output text)
+
+          STATUS_RESOURCE_ID=$(aws apigateway get-resources \
+            --rest-api-id "$API_ID" \
+            --region "$AWS_REGION" \
+            --query "items[?path=='/orders/{id}/status'].id | [0]" \
+            --output text)
+
+          echo "Orders resource: $ORDER_RESOURCE_ID"
+          echo "Order ID resource: $ORDER_ID_RESOURCE_ID"
+          echo "Status resource: $STATUS_RESOURCE_ID"
+
+          test -n "$ORDER_RESOURCE_ID"
+          test "$ORDER_RESOURCE_ID" != "None"
+
+          test -n "$ORDER_ID_RESOURCE_ID"
+          test "$ORDER_ID_RESOURCE_ID" != "None"
+
+          test -n "$STATUS_RESOURCE_ID"
+          test "$STATUS_RESOURCE_ID" != "None"
+
+          echo "--- POST /orders ---"
+          aws apigateway get-method \
+            --rest-api-id "$API_ID" \
+            --resource-id "$ORDER_RESOURCE_ID" \
+            --http-method POST \
+            --region "$AWS_REGION" \
+            --query '[httpMethod,authorizationType,authorizerId]' \
+            --output table
+
+          echo "--- GET /orders ---"
+          aws apigateway get-method \
+            --rest-api-id "$API_ID" \
+            --resource-id "$ORDER_RESOURCE_ID" \
+            --http-method GET \
+            --region "$AWS_REGION" \
+            --query '[httpMethod,authorizationType,authorizerId]' \
+            --output table
+
+          echo "--- GET /orders/{id} ---"
+          aws apigateway get-method \
+            --rest-api-id "$API_ID" \
+            --resource-id "$ORDER_ID_RESOURCE_ID" \
+            --http-method GET \
+            --region "$AWS_REGION" \
+            --query '[httpMethod,authorizationType,authorizerId]' \
+            --output table
+
+          echo "--- PATCH /orders/{id}/status ---"
+          aws apigateway get-method \
+            --rest-api-id "$API_ID" \
+            --resource-id "$STATUS_RESOURCE_ID" \
+            --http-method PATCH \
+            --region "$AWS_REGION" \
+            --query '[httpMethod,authorizationType,authorizerId]' \
+            --output table
+
+
+      # ======================================================
+      # VERIFY EVENTBRIDGE CUSTOM BUS
+      # ======================================================
+
+      - name: Verify CloudMart EventBridge Custom Bus
+        run: |
+          echo "Checking EventBridge custom bus: $EVENT_BUS_NAME"
+
+          aws events describe-event-bus \
+            --name "$EVENT_BUS_NAME" \
+            --region "$AWS_REGION" \
+            --query '[Name,Arn,State]' \
+            --output table
+
+
+      # ======================================================
+      # VERIFY ALL EVENTBRIDGE RULES ON CUSTOM BUS
+      # ======================================================
+
+      - name: Verify EventBridge Rules
+        run: |
+          RULES=(
+            "cloudmart-${ENVIRONMENT}-order-placed-rule"
+            "cloudmart-${ENVIRONMENT}-order-confirmed-rule"
+            "cloudmart-${ENVIRONMENT}-order-failed-rule"
+            "cloudmart-${ENVIRONMENT}-order-delivered-rule"
+            "cloudmart-${ENVIRONMENT}-order-cancelled-rule"
+            "cloudmart-${ENVIRONMENT}-low-stock-rule"
+          )
+
+          for RULE in "${RULES[@]}"
+          do
+            echo ""
+            echo "======================================================"
+            echo "VERIFYING RULE: $RULE"
+            echo "EVENT BUS: $EVENT_BUS_NAME"
+            echo "======================================================"
+
+            aws events describe-rule \
+              --name "$RULE" \
+              --event-bus-name "$EVENT_BUS_NAME" \
+              --region "$AWS_REGION" \
+              --query '[Name,State,EventBusName,EventPattern]' \
+              --output json
+
+            echo ""
+            echo "Targets for $RULE:"
+
+            aws events list-targets-by-rule \
+              --rule "$RULE" \
+              --event-bus-name "$EVENT_BUS_NAME" \
+              --region "$AWS_REGION" \
+              --query 'Targets[*].[Id,Arn]' \
+              --output table
+          done
+
+
+      # ======================================================
+      # VERIFY ORDER SNS
+      # ======================================================
+
+      - name: Verify Order Confirmation SNS Topic
+        run: |
+          TOPIC_ARN=$(aws cloudformation describe-stacks \
+            --stack-name "$APPLICATION_EVENTS_STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query "Stacks[0].Outputs[?OutputKey=='OrderConfirmationTopicArn'].OutputValue | [0]" \
+            --output text)
+
+          echo "Order Confirmation SNS Topic: $TOPIC_ARN"
+
+          test -n "$TOPIC_ARN"
+          test "$TOPIC_ARN" != "None"
+
+          aws sns get-topic-attributes \
+            --topic-arn "$TOPIC_ARN" \
+            --region "$AWS_REGION" \
+            --query 'Attributes.[TopicArn,SubscriptionsConfirmed,SubscriptionsPending]' \
+            --output table
+
+
+      # ======================================================
+      # VERIFY LOW STOCK SNS
+      # ======================================================
+
+      - name: Verify Low Stock SNS Topic
+        run: |
+          TOPIC_ARN=$(aws cloudformation describe-stacks \
+            --stack-name "$APPLICATION_EVENTS_STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query "Stacks[0].Outputs[?OutputKey=='LowStockTopicArn'].OutputValue | [0]" \
+            --output text)
+
+          echo "Low Stock SNS Topic: $TOPIC_ARN"
+
+          test -n "$TOPIC_ARN"
+          test "$TOPIC_ARN" != "None"
+
+          aws sns get-topic-attributes \
+            --topic-arn "$TOPIC_ARN" \
+            --region "$AWS_REGION" \
+            --query 'Attributes.[TopicArn,SubscriptionsConfirmed,SubscriptionsPending]' \
+            --output table
+
+
+      # ======================================================
+      # SHOW DEPLOYMENT OUTPUTS
+      # ======================================================
+
+      - name: Show Application-Events Outputs
+        run: |
+          aws cloudformation describe-stacks \
+            --stack-name "$APPLICATION_EVENTS_STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query 'Stacks[0].Outputs[*].[OutputKey,OutputValue]' \
+            --output table
+
+
+      # ======================================================
+      # SHOW API STACK OUTPUTS
+      # ======================================================
+
+      - name: Show API Stack Outputs
+        run: |
+          aws cloudformation describe-stacks \
+            --stack-name "$API_STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query 'Stacks[0].Outputs[*].[OutputKey,OutputValue]' \
+            --output table
+
+
+      # ======================================================
+      # FAILURE DETAILS - APPLICATION EVENTS
+      # ======================================================
+
+      - name: Show Application-Events Failure Details
+        if: failure()
+        run: |
+          aws cloudformation describe-stack-events \
+            --stack-name "$APPLICATION_EVENTS_STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query "StackEvents[?ResourceStatus=='CREATE_FAILED' || ResourceStatus=='UPDATE_FAILED' || ResourceStatus=='DELETE_FAILED'].[Timestamp,LogicalResourceId,ResourceType,ResourceStatus,ResourceStatusReason]" \
+            --output table
+
+
+      # ======================================================
+      # FAILURE DETAILS - API STACK
+      # ======================================================
+
+      - name: Show API Stack Failure Details
+        if: failure()
+        run: |
+          aws cloudformation describe-stack-events \
+            --stack-name "$API_STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query "StackEvents[?ResourceStatus=='CREATE_FAILED' || ResourceStatus=='UPDATE_FAILED' || ResourceStatus=='DELETE_FAILED'].[Timestamp,LogicalResourceId,ResourceType,ResourceStatus,ResourceStatusReason]" \
+            --output table

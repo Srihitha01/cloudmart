@@ -23,6 +23,7 @@ DB_ENDPOINT_PARAMETER = os.environ["DB_ENDPOINT_PARAMETER"]
 DB_PORT_PARAMETER = os.environ["DB_PORT_PARAMETER"]
 DB_USERNAME_PARAMETER = os.environ["DB_USERNAME_PARAMETER"]
 DB_PASSWORD_PARAMETER = os.environ["DB_PASSWORD_PARAMETER"]
+EVENT_BUS_NAME = os.environ.get("EVENT_BUS_NAME", "cloudmart-dev-event-bus")
 
 
 # ==========================================================
@@ -896,7 +897,7 @@ def update_product(
 
         low_stock = (
             new_stock_quantity
-            < new_reorder_threshold
+            <= new_reorder_threshold
         )
 
         event_published = False
@@ -908,36 +909,23 @@ def update_product(
         if stock_changed:
 
             event_detail = {
-
-                "product_id":
-                    product_id,
-
-                "previous_stock_quantity":
-                    old_stock_quantity,
-
-                "stock_quantity":
-                    new_stock_quantity,
-
-                "reorder_threshold":
-                    new_reorder_threshold,
-
-                "low_stock":
-                    low_stock
+                "product_id": product_id,
+                "product_name": existing_product["name"],
+                "old_stock": old_stock_quantity,
+                "new_stock": new_stock_quantity,
+                "low_stock_threshold": new_reorder_threshold,
+                "low_stock": low_stock
             }
 
             event_result = events.put_events(
                 Entries=[
                     {
-                        "Source":
-                            "cloudmart.product",
-
-                        "DetailType":
-                            "Inventory Stock Changed",
-
-                        "Detail":
-                            json.dumps(
-                                event_detail
-                            )
+                        "EventBusName": EVENT_BUS_NAME,
+                        "Source": "cloudmart.product",
+                        "DetailType": "Inventory Changed",
+                        "Detail": json.dumps(
+                            event_detail
+                        )
                     }
                 ]
             )

@@ -5,7 +5,7 @@ on:
   push:
     branches:
       - main
-       -feature/order-flow
+      - feature/order-flow
 
     paths:
       - 'cloudformation/**'
@@ -33,6 +33,8 @@ env:
   API_MONITORING_EC2_STACK_NAME: cloudmart-api-monitoring-ec2-dev
 
   LAMBDA_ARTIFACT_BUCKET: cloudmart-dev-artifacts
+
+  EVENT_BUS_NAME: cloudmart-dev-event-bus
 
   # ============================================================
   # EXISTING ARTIFACTS
@@ -475,16 +477,59 @@ jobs:
             --output table
 
       # ========================================================
-      # VERIFY EXISTING EVENTBRIDGE
+      # VERIFY CUSTOM EVENTBRIDGE BUS
       # ========================================================
 
-      - name: Verify EventBridge
+      - name: Verify CloudMart EventBridge Custom Bus
         run: |
-          aws events describe-rule \
-            --name "cloudmart-${ENVIRONMENT}-low-stock-rule" \
+          echo "EventBridge custom bus: $EVENT_BUS_NAME"
+
+          aws events describe-event-bus \
+            --name "$EVENT_BUS_NAME" \
             --region "$AWS_REGION" \
-            --query '[Name,State]' \
+            --query '[Name,Arn,State]' \
             --output table
+
+      # ========================================================
+      # VERIFY CUSTOM EVENTBRIDGE RULES
+      # ========================================================
+
+      - name: Verify EventBridge Rules
+        run: |
+          RULES=(
+            "cloudmart-${ENVIRONMENT}-order-placed-rule"
+            "cloudmart-${ENVIRONMENT}-order-confirmed-rule"
+            "cloudmart-${ENVIRONMENT}-order-failed-rule"
+            "cloudmart-${ENVIRONMENT}-order-delivered-rule"
+            "cloudmart-${ENVIRONMENT}-order-cancelled-rule"
+            "cloudmart-${ENVIRONMENT}-low-stock-rule"
+          )
+
+          for RULE in "${RULES[@]}"
+          do
+            echo ""
+            echo "======================================================"
+            echo "Rule: $RULE"
+            echo "Event Bus: $EVENT_BUS_NAME"
+            echo "======================================================"
+
+            aws events describe-rule \
+              --name "$RULE" \
+              --event-bus-name "$EVENT_BUS_NAME" \
+              --region "$AWS_REGION" \
+              --query '[Name,State,EventBusName,EventPattern]' \
+              --output json
+
+            echo ""
+            echo "Targets:"
+
+            aws events list-targets-by-rule \
+              --rule "$RULE" \
+              --event-bus-name "$EVENT_BUS_NAME" \
+              --region "$AWS_REGION" \
+              --query 'Targets[*].[Id,Arn]' \
+              --output table
+          done
 
       - name: Show Application-Events Failure Details
         if: failure()

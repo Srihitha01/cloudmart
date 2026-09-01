@@ -4,7 +4,7 @@ Description: >
   CloudMart Application-Events Stack.
   Creates Lambda Authorizer, PyMySQL layer, Product Lambda,
   Order Lambda, Order Processor Lambda, Schema Initializer,
-  EventBridge order events, EventBridge low-stock rule,
+  EventBridge order lifecycle events, EventBridge low-stock rule,
   and SNS alerts.
 
 Parameters:
@@ -105,6 +105,23 @@ Parameters:
 # ============================================================
 
 Resources:
+
+  # ==========================================================
+  # CUSTOM EVENTBRIDGE EVENT BUS
+  # ==========================================================
+
+  CloudMartEventBus:
+    Type: AWS::Events::EventBus
+    Properties:
+      Name: !Sub cloudmart-${Environment}-event-bus
+
+      Tags:
+        - Key: Name
+          Value: !Sub cloudmart-${Environment}-event-bus
+        - Key: Project
+          Value: CloudMart
+        - Key: Environment
+          Value: !Ref Environment
 
   # ==========================================================
   # LAMBDA AUTHORISER
@@ -1197,6 +1214,9 @@ Resources:
       State:
         ENABLED
 
+      EventBusName:
+        !Ref CloudMartEventBus
+
       EventPattern:
 
         source:
@@ -1243,10 +1263,13 @@ Resources:
         !Sub cloudmart-${Environment}-order-placed-rule
 
       Description:
-        !Sub CloudMart ${Environment} order placed event rule
+        !Sub CloudMart ${Environment} order placed notification rule
 
       State:
         ENABLED
+
+      EventBusName:
+        !Ref CloudMartEventBus
 
       EventPattern:
 
@@ -1259,32 +1282,26 @@ Resources:
       Targets:
 
         - Id:
-            OrderPlacedEventTarget
+            OrderPlacedSnsTarget
 
           Arn:
-            !GetAtt OrderProcessorLambda.Arn
+            !Ref OrderConfirmationTopic
 
+          InputTransformer:
 
-  # ==========================================================
-  # EVENTBRIDGE -> ORDER PROCESSOR PERMISSION
-  # ==========================================================
+            InputPathsMap:
 
-  OrderPlacedEventInvokePermission:
-    Type: AWS::Lambda::Permission
+              order_id:
+                $.detail.order_id
 
-    Properties:
+              customer_id:
+                $.detail.customer_id
 
-      FunctionName:
-        !Ref OrderProcessorLambda
+              status:
+                $.detail.status
 
-      Action:
-        lambda:InvokeFunction
-
-      Principal:
-        events.amazonaws.com
-
-      SourceArn:
-        !GetAtt OrderPlacedEventRule.Arn
+            InputTemplate: |
+              "CloudMart Order Created\n\nOrder ID: <order_id>\nCustomer ID: <customer_id>\nStatus: <status>\n\nYour order has been created successfully."
 
 
   # ==========================================================
@@ -1300,10 +1317,13 @@ Resources:
         !Sub cloudmart-${Environment}-order-failed-rule
 
       Description:
-        !Sub CloudMart ${Environment} order failure event rule
+        !Sub CloudMart ${Environment} order failure notification rule
 
       State:
         ENABLED
+
+      EventBusName:
+        !Ref CloudMartEventBus
 
       EventPattern:
 
@@ -1316,32 +1336,26 @@ Resources:
       Targets:
 
         - Id:
-            OrderFailedLogTarget
+            OrderFailedSnsTarget
 
           Arn:
-            !GetAtt OrderProcessorLambda.Arn
+            !Ref OrderConfirmationTopic
 
+          InputTransformer:
 
-  # ==========================================================
-  # ORDER PROCESSOR PERMISSION FOR FAILED EVENT RULE
-  # ==========================================================
+            InputPathsMap:
 
-  OrderFailedEventInvokePermission:
-    Type: AWS::Lambda::Permission
+              order_id:
+                $.detail.order_id
 
-    Properties:
+              customer_id:
+                $.detail.customer_id
 
-      FunctionName:
-        !Ref OrderProcessorLambda
+              error:
+                $.detail.error
 
-      Action:
-        lambda:InvokeFunction
-
-      Principal:
-        events.amazonaws.com
-
-      SourceArn:
-        !GetAtt OrderFailedEventRule.Arn
+            InputTemplate: |
+              "CloudMart Order Failed\n\nOrder ID: <order_id>\nCustomer ID: <customer_id>\nError: <error>\n\nThe order could not be completed and inventory was not deducted."
 
 
   # ==========================================================
@@ -1444,13 +1458,16 @@ Resources:
       State:
         ENABLED
 
+      EventBusName:
+        !Ref CloudMartEventBus
+
       EventPattern:
 
         source:
           - cloudmart.product
 
         detail-type:
-          - Inventory Stock Changed
+          - Inventory Changed
 
         detail:
 
@@ -1472,17 +1489,131 @@ Resources:
               product_id:
                 $.detail.product_id
 
-              previous_stock_quantity:
-                $.detail.previous_stock_quantity
+              product_name:
+                $.detail.product_name
 
-              stock_quantity:
-                $.detail.stock_quantity
+              old_stock:
+                $.detail.old_stock
 
-              reorder_threshold:
-                $.detail.reorder_threshold
+              new_stock:
+                $.detail.new_stock
+
+              low_stock_threshold:
+                $.detail.low_stock_threshold
 
             InputTemplate: |
-              "🚨 CloudMart Low Stock Alert\n\nProduct ID: <product_id>\nPrevious Stock Quantity: <previous_stock_quantity>\nCurrent Stock Quantity: <stock_quantity>\nReorder Threshold: <reorder_threshold>\n\nThe product stock is below the reorder threshold."
+              "CloudMart Low Stock Alert\n\nProduct ID: <product_id>\nProduct: <product_name>\nPrevious Stock: <old_stock>\nCurrent Stock: <new_stock>\nLow Stock Threshold: <low_stock_threshold>\n\nThe product stock is at or below the low-stock threshold."
+
+
+  # ==========================================================
+  # EVENTBRIDGE - ORDER DELIVERED
+  # ==========================================================
+
+  OrderDeliveredEventRule:
+    Type: AWS::Events::Rule
+
+    Properties:
+
+      Name:
+        !Sub cloudmart-${Environment}-order-delivered-rule
+
+      Description:
+        !Sub CloudMart ${Environment} order delivered notification rule
+
+      State:
+        ENABLED
+
+      EventBusName:
+        !Ref CloudMartEventBus
+
+      EventPattern:
+
+        source:
+          - cloudmart.order
+
+        detail-type:
+          - OrderDelivered
+
+      Targets:
+
+        - Id:
+            OrderDeliveredSnsTarget
+
+          Arn:
+            !Ref OrderConfirmationTopic
+
+          InputTransformer:
+
+            InputPathsMap:
+
+              order_id:
+                $.detail.order_id
+
+              customer_id:
+                $.detail.customer_id
+
+              status:
+                $.detail.status
+
+            InputTemplate: |
+              "CloudMart Order Delivered\n\nOrder ID: <order_id>\nCustomer ID: <customer_id>\nStatus: <status>\n\nYour order has been delivered successfully."
+
+
+  # ==========================================================
+  # EVENTBRIDGE - ORDER CANCELLED
+  # ==========================================================
+
+  OrderCancelledEventRule:
+    Type: AWS::Events::Rule
+
+    Properties:
+
+      Name:
+        !Sub cloudmart-${Environment}-order-cancelled-rule
+
+      Description:
+        !Sub CloudMart ${Environment} order cancelled notification rule
+
+      State:
+        ENABLED
+
+      EventBusName:
+        !Ref CloudMartEventBus
+
+      EventPattern:
+
+        source:
+          - cloudmart.order
+
+        detail-type:
+          - OrderCancelled
+
+      Targets:
+
+        - Id:
+            OrderCancelledSnsTarget
+
+          Arn:
+            !Ref OrderConfirmationTopic
+
+          InputTransformer:
+
+            InputPathsMap:
+
+              order_id:
+                $.detail.order_id
+
+              customer_id:
+                $.detail.customer_id
+
+              status:
+                $.detail.status
+
+              note:
+                $.detail.note
+
+            InputTemplate: |
+              "CloudMart Order Cancelled\n\nOrder ID: <order_id>\nCustomer ID: <customer_id>\nStatus: <status>\nNote: <note>\n\nThe order was cancelled. Inventory was restored where applicable."
 
 
 # ============================================================
@@ -1732,6 +1863,36 @@ Outputs:
 
 
   # ==========================================================
+  # CUSTOM EVENTBRIDGE EVENT BUS
+  # ==========================================================
+
+  CloudMartEventBusArn:
+
+    Description:
+      CloudMart custom EventBridge event bus ARN
+
+    Value:
+      !GetAtt CloudMartEventBus.Arn
+
+    Export:
+      Name:
+        !Sub cloudmart-${Environment}-EventBusArn
+
+
+  CloudMartEventBusName:
+
+    Description:
+      CloudMart custom EventBridge event bus name
+
+    Value:
+      !Ref CloudMartEventBus
+
+    Export:
+      Name:
+        !Sub cloudmart-${Environment}-EventBusName
+
+
+  # ==========================================================
   # ORDER EVENTBRIDGE RULE OUTPUTS
   # ==========================================================
 
@@ -1772,3 +1933,28 @@ Outputs:
     Export:
       Name:
         !Sub cloudmart-${Environment}-OrderFailedEventRuleArn
+
+  OrderDeliveredEventRuleArn:
+
+    Description:
+      EventBridge OrderDelivered rule ARN
+
+    Value:
+      !GetAtt OrderDeliveredEventRule.Arn
+
+    Export:
+      Name:
+        !Sub cloudmart-${Environment}-OrderDeliveredEventRuleArn
+
+
+  OrderCancelledEventRuleArn:
+
+    Description:
+      EventBridge OrderCancelled rule ARN
+
+    Value:
+      !GetAtt OrderCancelledEventRule.Arn
+
+    Export:
+      Name:
+        !Sub cloudmart-${Environment}-OrderCancelledEventRuleArn
