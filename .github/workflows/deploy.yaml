@@ -5,7 +5,7 @@ on:
   push:
     branches:
       - main
-      -feature/order-flow
+       -feature/order-flow
 
     paths:
       - 'cloudformation/**'
