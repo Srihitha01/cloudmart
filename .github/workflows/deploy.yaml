@@ -34,7 +34,7 @@ env:
   LAMBDA_ARTIFACT_BUCKET: cloudmart-dev-artifacts
 
   # ============================================================
-  # VERIFIED EXISTING ARTIFACTS
+  # EXISTING ARTIFACTS
   # ============================================================
 
   PRODUCT_LAMBDA_S3_KEY: lambda/product/product-lambda-1c359937e7f4e8453f83e9b3f5a021ebdbd515e5.zip
@@ -274,7 +274,6 @@ jobs:
 
   # ============================================================
   # 4. APPLICATION EVENTS
-  #    PURE CLOUDFORMATION - NO SAM
   # ============================================================
 
   deploy-application-events:
@@ -300,6 +299,58 @@ jobs:
         run: |
           aws sts get-caller-identity
 
+      # ========================================================
+      # PACKAGE ORDER LAMBDA
+      # ========================================================
+
+      - name: Package Order Lambda
+        run: |
+          cd lambda/order
+          zip -r ../../order-lambda.zip .
+          cd ../..
+
+      # ========================================================
+      # PACKAGE ORDER PROCESSOR LAMBDA
+      # ========================================================
+
+      - name: Package Order Processor Lambda
+        run: |
+          cd lambda/order-processor
+          zip -r ../../order-processor-lambda.zip .
+          cd ../..
+
+      # ========================================================
+      # UPLOAD ORDER LAMBDA
+      # ========================================================
+
+      - name: Upload Order Lambda artifact
+        run: |
+          aws s3 cp \
+            order-lambda.zip \
+            "s3://${LAMBDA_ARTIFACT_BUCKET}/lambda/order/order-lambda-${GITHUB_SHA}.zip"
+
+      # ========================================================
+      # UPLOAD ORDER PROCESSOR
+      # ========================================================
+
+      - name: Upload Order Processor Lambda artifact
+        run: |
+          aws s3 cp \
+            order-processor-lambda.zip \
+            "s3://${LAMBDA_ARTIFACT_BUCKET}/lambda/order-processor/order-processor-lambda-${GITHUB_SHA}.zip"
+
+      # ========================================================
+      # SET ARTIFACT KEYS
+      # ========================================================
+
+      - name: Set Order Lambda artifact key
+        run: |
+          echo "ORDER_LAMBDA_S3_KEY=lambda/order/order-lambda-${GITHUB_SHA}.zip" >> "$GITHUB_ENV"
+
+      - name: Set Order Processor artifact key
+        run: |
+          echo "ORDER_PROCESSOR_LAMBDA_S3_KEY=lambda/order-processor/order-processor-lambda-${GITHUB_SHA}.zip" >> "$GITHUB_ENV"
+
       - name: Verify IAM Stack
         run: |
           aws cloudformation describe-stacks \
@@ -307,6 +358,26 @@ jobs:
             --region "$AWS_REGION" \
             --query 'Stacks[0].[StackName,StackStatus]' \
             --output table
+
+      # ========================================================
+      # VERIFY ARTIFACTS
+      # ========================================================
+
+      - name: Verify Order Lambda artifact
+        run: |
+          aws s3api head-object \
+            --bucket "$LAMBDA_ARTIFACT_BUCKET" \
+            --key "$ORDER_LAMBDA_S3_KEY"
+
+      - name: Verify Order Processor artifact
+        run: |
+          aws s3api head-object \
+            --bucket "$LAMBDA_ARTIFACT_BUCKET" \
+            --key "$ORDER_PROCESSOR_LAMBDA_S3_KEY"
+
+      # ========================================================
+      # VALIDATE TEMPLATE
+      # ========================================================
 
       - name: Validate Application-Events template
         run: |
@@ -328,6 +399,8 @@ jobs:
               LambdaArtifactBucket="$LAMBDA_ARTIFACT_BUCKET" \
               PyMySQLLayerS3Key="$PYMYSQL_LAYER_S3_KEY" \
               ProductLambdaS3Key="$PRODUCT_LAMBDA_S3_KEY" \
+              OrderLambdaS3Key="$ORDER_LAMBDA_S3_KEY" \
+              OrderProcessorLambdaS3Key="$ORDER_PROCESSOR_LAMBDA_S3_KEY" \
               SchemaS3Key="$SCHEMA_S3_KEY" \
               DBName="/cloudmart/$ENVIRONMENT/db/name" \
               DBEndpoint="/cloudmart/$ENVIRONMENT/db/endpoint" \
@@ -360,6 +433,30 @@ jobs:
             --query 'Stacks[0].Outputs[*].[OutputKey,OutputValue]' \
             --output table
 
+      # ========================================================
+      # VERIFY ORDER LAMBDAS
+      # ========================================================
+
+      - name: Verify Order Lambda
+        run: |
+          aws lambda get-function-configuration \
+            --function-name "cloudmart-${ENVIRONMENT}-order-lambda" \
+            --region "$AWS_REGION" \
+            --query '[FunctionName,Runtime,Handler,State,LastUpdateStatus]' \
+            --output table
+
+      - name: Verify Order Processor Lambda
+        run: |
+          aws lambda get-function-configuration \
+            --function-name "cloudmart-${ENVIRONMENT}-order-processor" \
+            --region "$AWS_REGION" \
+            --query '[FunctionName,Runtime,Handler,State,LastUpdateStatus]' \
+            --output table
+
+      # ========================================================
+      # VERIFY EXISTING LAMBDAS
+      # ========================================================
+
       - name: Verify Product Lambda
         run: |
           aws lambda get-function-configuration \
@@ -375,6 +472,10 @@ jobs:
             --region "$AWS_REGION" \
             --query '[FunctionName,Runtime,Handler,State,LastUpdateStatus]' \
             --output table
+
+      # ========================================================
+      # VERIFY EXISTING EVENTBRIDGE
+      # ========================================================
 
       - name: Verify EventBridge
         run: |

@@ -7,10 +7,6 @@ Description: >
 
 Parameters:
 
-  # ==========================================================
-  # ENVIRONMENT
-  # ==========================================================
-
   Environment:
     Type: String
     Default: dev
@@ -31,9 +27,11 @@ Resources:
 
     Properties:
 
-      RoleName: !Sub cloudmart-${Environment}-lambda-authorizer-role
+      RoleName:
+        !Sub cloudmart-${Environment}-lambda-authorizer-role
 
       AssumeRolePolicyDocument:
+
         Version: '2012-10-17'
 
         Statement:
@@ -49,13 +47,10 @@ Resources:
 
       Policies:
 
-        # ------------------------------------------------------
-        # CLOUDWATCH LOGGING
-        # ------------------------------------------------------
-
         - PolicyName: LambdaAuthorizerLogging
 
           PolicyDocument:
+
             Version: '2012-10-17'
 
             Statement:
@@ -63,6 +58,7 @@ Resources:
               - Effect: Allow
 
                 Action:
+
                   - logs:CreateLogGroup
                   - logs:CreateLogStream
                   - logs:PutLogEvents
@@ -70,13 +66,10 @@ Resources:
                 Resource: '*'
 
 
-        # ------------------------------------------------------
-        # SSM AUTH TOKEN
-        # ------------------------------------------------------
-
         - PolicyName: LambdaAuthorizerSSM
 
           PolicyDocument:
+
             Version: '2012-10-17'
 
             Statement:
@@ -84,20 +77,19 @@ Resources:
               - Effect: Allow
 
                 Action:
+
                   - ssm:GetParameter
                   - ssm:GetParameters
 
                 Resource:
+
                   - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/auth/*
 
-
-        # ------------------------------------------------------
-        # VPC ACCESS
-        # ------------------------------------------------------
 
         - PolicyName: LambdaAuthorizerVPCAccess
 
           PolicyDocument:
+
             Version: '2012-10-17'
 
             Statement:
@@ -105,6 +97,7 @@ Resources:
               - Effect: Allow
 
                 Action:
+
                   - ec2:CreateNetworkInterface
                   - ec2:DescribeNetworkInterfaces
                   - ec2:DescribeSubnets
@@ -117,7 +110,8 @@ Resources:
       Tags:
 
         - Key: Name
-          Value: !Sub cloudmart-${Environment}-lambda-authorizer-role
+          Value:
+            !Sub cloudmart-${Environment}-lambda-authorizer-role
 
 
   # ==========================================================
@@ -129,9 +123,11 @@ Resources:
 
     Properties:
 
-      RoleName: !Sub cloudmart-${Environment}-product-lambda-role
+      RoleName:
+        !Sub cloudmart-${Environment}-product-lambda-role
 
       AssumeRolePolicyDocument:
+
         Version: '2012-10-17'
 
         Statement:
@@ -147,13 +143,10 @@ Resources:
 
       Policies:
 
-        # ------------------------------------------------------
-        # CLOUDWATCH LOGGING
-        # ------------------------------------------------------
-
         - PolicyName: ProductLambdaLogging
 
           PolicyDocument:
+
             Version: '2012-10-17'
 
             Statement:
@@ -161,6 +154,7 @@ Resources:
               - Effect: Allow
 
                 Action:
+
                   - logs:CreateLogGroup
                   - logs:CreateLogStream
                   - logs:PutLogEvents
@@ -168,13 +162,10 @@ Resources:
                 Resource: '*'
 
 
-        # ------------------------------------------------------
-        # SSM DATABASE PARAMETERS
-        # ------------------------------------------------------
-
         - PolicyName: ProductLambdaSSM
 
           PolicyDocument:
+
             Version: '2012-10-17'
 
             Statement:
@@ -182,21 +173,19 @@ Resources:
               - Effect: Allow
 
                 Action:
+
                   - ssm:GetParameter
                   - ssm:GetParameters
 
                 Resource:
+
                   - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/db/*
 
-
-        # ------------------------------------------------------
-        # S3 SCHEMA ACCESS
-        # Used by Schema Initializer Lambda
-        # ------------------------------------------------------
 
         - PolicyName: ProductLambdaSchemaS3
 
           PolicyDocument:
+
             Version: '2012-10-17'
 
             Statement:
@@ -204,19 +193,18 @@ Resources:
               - Effect: Allow
 
                 Action:
+
                   - s3:GetObject
 
                 Resource:
+
                   - !Sub arn:${AWS::Partition}:s3:::cloudmart-${Environment}-artifacts/database/*
 
-
-        # ------------------------------------------------------
-        # SNS
-        # ------------------------------------------------------
 
         - PolicyName: ProductLambdaSNS
 
           PolicyDocument:
+
             Version: '2012-10-17'
 
             Statement:
@@ -224,19 +212,16 @@ Resources:
               - Effect: Allow
 
                 Action:
+
                   - sns:Publish
 
                 Resource: '*'
 
 
-        # ------------------------------------------------------
-        # EVENTBRIDGE
-        # Used to publish inventory change events
-        # ------------------------------------------------------
-
         - PolicyName: ProductLambdaEventBridge
 
           PolicyDocument:
+
             Version: '2012-10-17'
 
             Statement:
@@ -244,19 +229,18 @@ Resources:
               - Effect: Allow
 
                 Action:
+
                   - events:PutEvents
 
                 Resource:
+
                   - !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/default
 
-
-        # ------------------------------------------------------
-        # VPC ACCESS
-        # ------------------------------------------------------
 
         - PolicyName: ProductLambdaVPCAccess
 
           PolicyDocument:
+
             Version: '2012-10-17'
 
             Statement:
@@ -264,6 +248,7 @@ Resources:
               - Effect: Allow
 
                 Action:
+
                   - ec2:CreateNetworkInterface
                   - ec2:DescribeNetworkInterfaces
                   - ec2:DescribeSubnets
@@ -276,7 +261,8 @@ Resources:
       Tags:
 
         - Key: Name
-          Value: !Sub cloudmart-${Environment}-product-lambda-role
+          Value:
+            !Sub cloudmart-${Environment}-product-lambda-role
 
 
   # ==========================================================
@@ -288,9 +274,11 @@ Resources:
 
     Properties:
 
-      RoleName: !Sub cloudmart-${Environment}-order-lambda-role
+      RoleName:
+        !Sub cloudmart-${Environment}-order-lambda-role
 
       AssumeRolePolicyDocument:
+
         Version: '2012-10-17'
 
         Statement:
@@ -306,13 +294,10 @@ Resources:
 
       Policies:
 
-        # ------------------------------------------------------
-        # CLOUDWATCH LOGGING
-        # ------------------------------------------------------
-
         - PolicyName: OrderLambdaLogging
 
           PolicyDocument:
+
             Version: '2012-10-17'
 
             Statement:
@@ -320,6 +305,7 @@ Resources:
               - Effect: Allow
 
                 Action:
+
                   - logs:CreateLogGroup
                   - logs:CreateLogStream
                   - logs:PutLogEvents
@@ -327,13 +313,10 @@ Resources:
                 Resource: '*'
 
 
-        # ------------------------------------------------------
-        # SSM DATABASE PARAMETERS
-        # ------------------------------------------------------
-
         - PolicyName: OrderLambdaSSM
 
           PolicyDocument:
+
             Version: '2012-10-17'
 
             Statement:
@@ -341,20 +324,23 @@ Resources:
               - Effect: Allow
 
                 Action:
+
                   - ssm:GetParameter
                   - ssm:GetParameters
 
                 Resource:
+
                   - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/db/*
 
 
-        # ------------------------------------------------------
-        # VPC ACCESS
-        # ------------------------------------------------------
+        # ======================================================
+        # ORDER LAMBDA -> ORDER PROCESSOR
+        # ======================================================
 
-        - PolicyName: OrderLambdaVPCAccess
+        - PolicyName: OrderLambdaInvokeProcessor
 
           PolicyDocument:
+
             Version: '2012-10-17'
 
             Statement:
@@ -362,6 +348,26 @@ Resources:
               - Effect: Allow
 
                 Action:
+
+                  - lambda:InvokeFunction
+
+                Resource:
+
+                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:cloudmart-${Environment}-order-processor
+
+
+        - PolicyName: OrderLambdaVPCAccess
+
+          PolicyDocument:
+
+            Version: '2012-10-17'
+
+            Statement:
+
+              - Effect: Allow
+
+                Action:
+
                   - ec2:CreateNetworkInterface
                   - ec2:DescribeNetworkInterfaces
                   - ec2:DescribeSubnets
@@ -374,7 +380,8 @@ Resources:
       Tags:
 
         - Key: Name
-          Value: !Sub cloudmart-${Environment}-order-lambda-role
+          Value:
+            !Sub cloudmart-${Environment}-order-lambda-role
 
 
   # ==========================================================
@@ -386,9 +393,11 @@ Resources:
 
     Properties:
 
-      RoleName: !Sub cloudmart-${Environment}-order-processor-role
+      RoleName:
+        !Sub cloudmart-${Environment}-order-processor-role
 
       AssumeRolePolicyDocument:
+
         Version: '2012-10-17'
 
         Statement:
@@ -404,13 +413,10 @@ Resources:
 
       Policies:
 
-        # ------------------------------------------------------
-        # CLOUDWATCH LOGGING
-        # ------------------------------------------------------
-
         - PolicyName: OrderProcessorLogging
 
           PolicyDocument:
+
             Version: '2012-10-17'
 
             Statement:
@@ -418,6 +424,7 @@ Resources:
               - Effect: Allow
 
                 Action:
+
                   - logs:CreateLogGroup
                   - logs:CreateLogStream
                   - logs:PutLogEvents
@@ -425,13 +432,10 @@ Resources:
                 Resource: '*'
 
 
-        # ------------------------------------------------------
-        # SSM DATABASE PARAMETERS
-        # ------------------------------------------------------
-
         - PolicyName: OrderProcessorSSM
 
           PolicyDocument:
+
             Version: '2012-10-17'
 
             Statement:
@@ -439,20 +443,19 @@ Resources:
               - Effect: Allow
 
                 Action:
+
                   - ssm:GetParameter
                   - ssm:GetParameters
 
                 Resource:
+
                   - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/db/*
 
-
-        # ------------------------------------------------------
-        # SNS
-        # ------------------------------------------------------
 
         - PolicyName: OrderProcessorSNS
 
           PolicyDocument:
+
             Version: '2012-10-17'
 
             Statement:
@@ -460,18 +463,20 @@ Resources:
               - Effect: Allow
 
                 Action:
+
                   - sns:Publish
 
                 Resource: '*'
 
 
-        # ------------------------------------------------------
-        # VPC ACCESS
-        # ------------------------------------------------------
+        # ======================================================
+        # ORDER PROCESSOR -> EVENTBRIDGE
+        # ======================================================
 
-        - PolicyName: OrderProcessorVPCAccess
+        - PolicyName: OrderProcessorEventBridge
 
           PolicyDocument:
+
             Version: '2012-10-17'
 
             Statement:
@@ -479,6 +484,26 @@ Resources:
               - Effect: Allow
 
                 Action:
+
+                  - events:PutEvents
+
+                Resource:
+
+                  - !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/default
+
+
+        - PolicyName: OrderProcessorVPCAccess
+
+          PolicyDocument:
+
+            Version: '2012-10-17'
+
+            Statement:
+
+              - Effect: Allow
+
+                Action:
+
                   - ec2:CreateNetworkInterface
                   - ec2:DescribeNetworkInterfaces
                   - ec2:DescribeSubnets
@@ -491,7 +516,8 @@ Resources:
       Tags:
 
         - Key: Name
-          Value: !Sub cloudmart-${Environment}-order-processor-role
+          Value:
+            !Sub cloudmart-${Environment}-order-processor-role
 
 
   # ==========================================================
@@ -503,9 +529,11 @@ Resources:
 
     Properties:
 
-      RoleName: !Sub cloudmart-${Environment}-report-lambda-role
+      RoleName:
+        !Sub cloudmart-${Environment}-report-lambda-role
 
       AssumeRolePolicyDocument:
+
         Version: '2012-10-17'
 
         Statement:
@@ -521,13 +549,10 @@ Resources:
 
       Policies:
 
-        # ------------------------------------------------------
-        # CLOUDWATCH LOGGING
-        # ------------------------------------------------------
-
         - PolicyName: ReportLambdaLogging
 
           PolicyDocument:
+
             Version: '2012-10-17'
 
             Statement:
@@ -535,6 +560,7 @@ Resources:
               - Effect: Allow
 
                 Action:
+
                   - logs:CreateLogGroup
                   - logs:CreateLogStream
                   - logs:PutLogEvents
@@ -542,13 +568,10 @@ Resources:
                 Resource: '*'
 
 
-        # ------------------------------------------------------
-        # SSM DATABASE PARAMETERS
-        # ------------------------------------------------------
-
         - PolicyName: ReportLambdaSSM
 
           PolicyDocument:
+
             Version: '2012-10-17'
 
             Statement:
@@ -556,35 +579,31 @@ Resources:
               - Effect: Allow
 
                 Action:
+
                   - ssm:GetParameter
                   - ssm:GetParameters
 
                 Resource:
+
                   - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/db/*
 
-
-        # ------------------------------------------------------
-        # S3 REPORT BUCKET
-        # Uses the report bucket created by Data Stack
-        # ------------------------------------------------------
 
         - PolicyName: ReportLambdaS3
 
           PolicyDocument:
+
             Version: '2012-10-17'
 
             Statement:
 
-              # ------------------------------------------------
-              # LIST REPORT BUCKET
-              # ------------------------------------------------
-
               - Effect: Allow
 
                 Action:
+
                   - s3:ListBucket
 
                 Resource:
+
                   - !Sub
                       - arn:${AWS::Partition}:s3:::${ReportBucketName}
                       - ReportBucketName:
@@ -592,17 +611,15 @@ Resources:
                             !Sub cloudmart-${Environment}-ReportBucketName
 
 
-              # ------------------------------------------------
-              # READ / WRITE REPORT OBJECTS
-              # ------------------------------------------------
-
               - Effect: Allow
 
                 Action:
+
                   - s3:GetObject
                   - s3:PutObject
 
                 Resource:
+
                   - !Sub
                       - arn:${AWS::Partition}:s3:::${ReportBucketName}/*
                       - ReportBucketName:
@@ -610,13 +627,10 @@ Resources:
                             !Sub cloudmart-${Environment}-ReportBucketName
 
 
-        # ------------------------------------------------------
-        # VPC ACCESS
-        # ------------------------------------------------------
-
         - PolicyName: ReportLambdaVPCAccess
 
           PolicyDocument:
+
             Version: '2012-10-17'
 
             Statement:
@@ -624,6 +638,7 @@ Resources:
               - Effect: Allow
 
                 Action:
+
                   - ec2:CreateNetworkInterface
                   - ec2:DescribeNetworkInterfaces
                   - ec2:DescribeSubnets
@@ -636,7 +651,8 @@ Resources:
       Tags:
 
         - Key: Name
-          Value: !Sub cloudmart-${Environment}-report-lambda-role
+          Value:
+            !Sub cloudmart-${Environment}-report-lambda-role
 
 
 # ============================================================
@@ -645,12 +661,10 @@ Resources:
 
 Outputs:
 
-  # ----------------------------------------------------------
-  # LAMBDA AUTHORIZER ROLE ARN
-  # ----------------------------------------------------------
-
   LambdaAuthorizerRoleArn:
-    Description: Lambda Authorizer execution role ARN
+
+    Description:
+      Lambda Authorizer execution role ARN
 
     Value:
       !GetAtt LambdaAuthorizerRole.Arn
@@ -660,12 +674,10 @@ Outputs:
         !Sub cloudmart-${Environment}-LambdaAuthorizerRoleArn
 
 
-  # ----------------------------------------------------------
-  # PRODUCT LAMBDA ROLE ARN
-  # ----------------------------------------------------------
-
   ProductLambdaRoleArn:
-    Description: Product Lambda execution role ARN
+
+    Description:
+      Product Lambda execution role ARN
 
     Value:
       !GetAtt ProductLambdaRole.Arn
@@ -675,12 +687,10 @@ Outputs:
         !Sub cloudmart-${Environment}-ProductLambdaRoleArn
 
 
-  # ----------------------------------------------------------
-  # ORDER LAMBDA ROLE ARN
-  # ----------------------------------------------------------
-
   OrderLambdaRoleArn:
-    Description: Order Lambda execution role ARN
+
+    Description:
+      Order Lambda execution role ARN
 
     Value:
       !GetAtt OrderLambdaRole.Arn
@@ -690,12 +700,10 @@ Outputs:
         !Sub cloudmart-${Environment}-OrderLambdaRoleArn
 
 
-  # ----------------------------------------------------------
-  # ORDER PROCESSOR LAMBDA ROLE ARN
-  # ----------------------------------------------------------
-
   OrderProcessorLambdaRoleArn:
-    Description: Order Processor Lambda execution role ARN
+
+    Description:
+      Order Processor Lambda execution role ARN
 
     Value:
       !GetAtt OrderProcessorLambdaRole.Arn
@@ -705,12 +713,10 @@ Outputs:
         !Sub cloudmart-${Environment}-OrderProcessorLambdaRoleArn
 
 
-  # ----------------------------------------------------------
-  # REPORT LAMBDA ROLE ARN
-  # ----------------------------------------------------------
-
   ReportLambdaRoleArn:
-    Description: Report Lambda execution role ARN
+
+    Description:
+      Report Lambda execution role ARN
 
     Value:
       !GetAtt ReportLambdaRole.Arn
