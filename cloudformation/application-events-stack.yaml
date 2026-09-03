@@ -155,9 +155,13 @@ Resources:
           - Fn::ImportValue:
               Fn::Sub: cloudmart-${Environment}-LambdaSecurityGroupId
 
-      SubnetIds:
+        SubnetIds:
           - Fn::ImportValue:
-              Fn::Sub: cloudmart-${Environment}-PublicSubnetId
+              Fn::Sub: cloudmart-${Environment}-PrivateSubnetId
+
+          - Fn::ImportValue:
+              Fn::Sub: cloudmart-${Environment}-SecondaryPrivateSubnetId
+
       Environment:
 
         Variables:
