@@ -33,9 +33,14 @@ CREATE TABLE IF NOT EXISTS customers (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
         ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at DATETIME NULL,
+    deleted_by VARCHAR(150) NULL,
+    delete_reason VARCHAR(500) NULL,
 
     CONSTRAINT uq_customers_email
-        UNIQUE (email)
+        UNIQUE (email),
+
+    INDEX idx_customers_deleted_at (deleted_at)
 );
 
 
