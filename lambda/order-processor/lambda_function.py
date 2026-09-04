@@ -532,7 +532,7 @@ def create_pending_order(
         # ------------------------------------------------------
 
         publish_order_event(
-            detail_type="OrderCreated",
+            detail_type="OrderPlaced",
             order_id=order_id,
             customer_id=customer_id,
             status="PENDING",

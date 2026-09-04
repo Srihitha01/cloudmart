@@ -1263,16 +1263,16 @@ Resources:
   # EVENTBRIDGE - ORDER PLACED
   # ==========================================================
 
-  OrderCreatedEventRule:
+  OrderPlacedEventRule:
     Type: AWS::Events::Rule
 
     Properties:
 
       Name:
-        !Sub cloudmart-${Environment}-order-created-rule
+        !Sub cloudmart-${Environment}-order-placed-rule
 
       Description:
-        !Sub CloudMart ${Environment} order created notification rule
+        !Sub CloudMart ${Environment} order placed notification rule
 
       State:
         ENABLED
@@ -1286,12 +1286,12 @@ Resources:
           - cloudmart.orders
 
         detail-type:
-          - OrderCreated
+          - OrderPlaced
 
       Targets:
 
         - Id:
-            OrderCreatedSnsTarget
+            OrderPlacedSnsTarget
 
           Arn:
             !Ref OrderConfirmationTopic
@@ -1310,7 +1310,7 @@ Resources:
                 $.detail.status
 
             InputTemplate: |
-              "CloudMart Order Created\n\nOrder ID: <order_id>\nCustomer ID: <customer_id>\nStatus: <status>\n\nYour order has been created successfully."
+              "CloudMart Order Placed\n\nOrder ID: <order_id>\nCustomer ID: <customer_id>\nStatus: <status>\n\nYour order has been created successfully."
 
 
   # ==========================================================
@@ -1905,17 +1905,17 @@ Outputs:
   # ORDER EVENTBRIDGE RULE OUTPUTS
   # ==========================================================
 
-  OrderCreatedEventRuleArn:
+  OrderPlacedEventRuleArn:
 
     Description:
-      EventBridge OrderCreated rule ARN
+      EventBridge OrderPlaced rule ARN
 
     Value:
-      !GetAtt OrderCreatedEventRule.Arn
+      !GetAtt OrderPlacedEventRule.Arn
 
     Export:
       Name:
-        !Sub cloudmart-${Environment}-OrderCreatedEventRuleArn
+        !Sub cloudmart-${Environment}-OrderPlacedEventRuleArn
 
 
   OrderConfirmedEventRuleArn:
