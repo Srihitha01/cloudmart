@@ -1,7 +1,6 @@
 name: CloudMart Infrastructure Deployment
 
 on:
-
   push:
     branches:
       - main
@@ -39,8 +38,6 @@ env:
   # ============================================================
   # EXISTING ARTIFACTS
   # ============================================================
-
-  PRODUCT_LAMBDA_S3_KEY: lambda/product/product-lambda-1c359937e7f4e8453f83e9b3f5a021ebdbd515e5.zip
 
   PYMYSQL_LAYER_S3_KEY: layers/pymysql/pymysql-layer-1c359937e7f4e8453f83e9b3f5a021ebdbd515e5.zip
 
@@ -303,6 +300,16 @@ jobs:
           aws sts get-caller-identity
 
       # ========================================================
+      # PACKAGE PRODUCT LAMBDA
+      # ========================================================
+
+      - name: Package Product Lambda
+        run: |
+          cd lambda/product
+          zip -r ../../product-lambda.zip .
+          cd ../..
+
+      # ========================================================
       # PACKAGE ORDER LAMBDA
       # ========================================================
 
@@ -321,6 +328,16 @@ jobs:
           cd lambda/order-processor
           zip -r ../../order-processor-lambda.zip .
           cd ../..
+
+      # ========================================================
+      # UPLOAD PRODUCT LAMBDA
+      # ========================================================
+
+      - name: Upload Product Lambda artifact
+        run: |
+          aws s3 cp \
+            product-lambda.zip \
+            "s3://${LAMBDA_ARTIFACT_BUCKET}/lambda/product/product-lambda-${GITHUB_SHA}.zip"
 
       # ========================================================
       # UPLOAD ORDER LAMBDA
@@ -346,6 +363,10 @@ jobs:
       # SET ARTIFACT KEYS
       # ========================================================
 
+      - name: Set Product Lambda artifact key
+        run: |
+          echo "PRODUCT_LAMBDA_S3_KEY=lambda/product/product-lambda-${GITHUB_SHA}.zip" >> "$GITHUB_ENV"
+
       - name: Set Order Lambda artifact key
         run: |
           echo "ORDER_LAMBDA_S3_KEY=lambda/order/order-lambda-${GITHUB_SHA}.zip" >> "$GITHUB_ENV"
@@ -365,6 +386,12 @@ jobs:
       # ========================================================
       # VERIFY ARTIFACTS
       # ========================================================
+
+      - name: Verify Product Lambda artifact
+        run: |
+          aws s3api head-object \
+            --bucket "$LAMBDA_ARTIFACT_BUCKET" \
+            --key "$PRODUCT_LAMBDA_S3_KEY"
 
       - name: Verify Order Lambda artifact
         run: |
