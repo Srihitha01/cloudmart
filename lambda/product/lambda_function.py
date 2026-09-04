@@ -1135,7 +1135,9 @@ def delete_product(
             cursor.execute(
                 """
                 UPDATE products
-                SET deleted_at = NOW()
+                SET
+                    deleted_at = NOW(),
+                    status = 'INACTIVE'
                 WHERE product_id = %s
                   AND deleted_at IS NULL
                 """,
