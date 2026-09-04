@@ -23,6 +23,7 @@ DB_ENDPOINT_PARAMETER = os.environ["DB_ENDPOINT_PARAMETER"]
 DB_PORT_PARAMETER = os.environ["DB_PORT_PARAMETER"]
 DB_USERNAME_PARAMETER = os.environ["DB_USERNAME_PARAMETER"]
 DB_PASSWORD_PARAMETER = os.environ["DB_PASSWORD_PARAMETER"]
+EVENT_BUS_NAME = os.environ["EVENT_BUS_NAME"]
 
 ORDER_PROCESSOR_FUNCTION_NAME = os.environ[
     "ORDER_PROCESSOR_FUNCTION_NAME"
@@ -634,7 +635,8 @@ def publish_order_event(
         result = events.put_events(
             Entries=[
                 {
-                    "Source": "cloudmart.order",
+                    "EventBusName": EVENT_BUS_NAME,
+                    "Source": "cloudmart.orders",
                     "DetailType": detail_type,
                     "Detail": json.dumps(detail, default=str)
                 }
@@ -767,7 +769,7 @@ def update_order_status(event, context):
                             product_id,
                             name,
                             stock_quantity,
-                            low_stock_threshold
+                            reorder_threshold
                         FROM products
                         WHERE product_id = %s
                         FOR UPDATE
@@ -807,12 +809,12 @@ def update_order_status(event, context):
                             "product_name": product["name"],
                             "old_stock": old_stock,
                             "new_stock": new_stock,
-                            "low_stock_threshold": int(
-                                product["low_stock_threshold"]
+                            "reorder_threshold": int(
+                                product["reorder_threshold"]
                             ),
                             "low_stock": (
                                 new_stock
-                                <= int(product["low_stock_threshold"])
+                                <= int(product["reorder_threshold"])
                             )
                         }
                     )
@@ -889,6 +891,7 @@ def update_order_status(event, context):
                     events.put_events(
                         Entries=[
                             {
+                                "EventBusName": EVENT_BUS_NAME,
                                 "Source": "cloudmart.product",
                                 "DetailType": "Inventory Changed",
                                 "Detail": json.dumps(

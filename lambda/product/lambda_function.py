@@ -23,6 +23,7 @@ DB_ENDPOINT_PARAMETER = os.environ["DB_ENDPOINT_PARAMETER"]
 DB_PORT_PARAMETER = os.environ["DB_PORT_PARAMETER"]
 DB_USERNAME_PARAMETER = os.environ["DB_USERNAME_PARAMETER"]
 DB_PASSWORD_PARAMETER = os.environ["DB_PASSWORD_PARAMETER"]
+EVENT_BUS_NAME = os.environ["EVENT_BUS_NAME"]
 EVENT_BUS_NAME = os.environ.get("EVENT_BUS_NAME", "cloudmart-dev-event-bus")
 
 
@@ -38,7 +39,7 @@ def log_event(level, message, **details):
         **details
     }
 
-    print(json.dumps(record))
+    print(json.dumps(record, default=str))
 
 
 # ==========================================================

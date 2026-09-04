@@ -201,22 +201,6 @@ Resources:
                   - !Sub arn:${AWS::Partition}:s3:::cloudmart-${Environment}-artifacts/database/*
 
 
-        - PolicyName: ProductLambdaSNS
-
-          PolicyDocument:
-
-            Version: '2012-10-17'
-
-            Statement:
-
-              - Effect: Allow
-
-                Action:
-
-                  - sns:Publish
-
-                Resource: '*'
-
 
         - PolicyName: ProductLambdaEventBridge
 
@@ -451,27 +435,6 @@ Resources:
 
                   - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/db/*
 
-
-        - PolicyName: OrderProcessorSNS
-
-          PolicyDocument:
-
-            Version: '2012-10-17'
-
-            Statement:
-
-              - Effect: Allow
-
-                Action:
-
-                  - sns:Publish
-
-                Resource: '*'
-
-
-        # ======================================================
-        # ORDER PROCESSOR -> EVENTBRIDGE
-        # ======================================================
 
         - PolicyName: OrderProcessorEventBridge
 

@@ -541,6 +541,9 @@ Resources:
           DB_PASSWORD_PARAMETER:
             !Ref DBPassword
 
+          EVENT_BUS_NAME:
+            !Ref CloudMartEventBus
+
       Code:
 
         S3Bucket:
@@ -622,6 +625,9 @@ Resources:
 
           DB_PASSWORD_PARAMETER:
             !Ref DBPassword
+
+          EVENT_BUS_NAME:
+            !Ref CloudMartEventBus
 
           ORDER_PROCESSOR_FUNCTION_NAME:
             !Ref OrderProcessorLambda
@@ -707,6 +713,9 @@ Resources:
 
           DB_PASSWORD_PARAMETER:
             !Ref DBPassword
+
+          EVENT_BUS_NAME:
+            !Ref CloudMartEventBus
 
       Code:
 
@@ -1220,7 +1229,7 @@ Resources:
       EventPattern:
 
         source:
-          - cloudmart.order
+          - cloudmart.orders
 
         detail-type:
           - OrderConfirmed
@@ -1254,16 +1263,16 @@ Resources:
   # EVENTBRIDGE - ORDER PLACED
   # ==========================================================
 
-  OrderPlacedEventRule:
+  OrderCreatedEventRule:
     Type: AWS::Events::Rule
 
     Properties:
 
       Name:
-        !Sub cloudmart-${Environment}-order-placed-rule
+        !Sub cloudmart-${Environment}-order-created-rule
 
       Description:
-        !Sub CloudMart ${Environment} order placed notification rule
+        !Sub CloudMart ${Environment} order created notification rule
 
       State:
         ENABLED
@@ -1274,15 +1283,15 @@ Resources:
       EventPattern:
 
         source:
-          - cloudmart.order
+          - cloudmart.orders
 
         detail-type:
-          - OrderPlaced
+          - OrderCreated
 
       Targets:
 
         - Id:
-            OrderPlacedSnsTarget
+            OrderCreatedSnsTarget
 
           Arn:
             !Ref OrderConfirmationTopic
@@ -1328,7 +1337,7 @@ Resources:
       EventPattern:
 
         source:
-          - cloudmart.order
+          - cloudmart.orders
 
         detail-type:
           - OrderFailed
@@ -1529,7 +1538,7 @@ Resources:
       EventPattern:
 
         source:
-          - cloudmart.order
+          - cloudmart.orders
 
         detail-type:
           - OrderDelivered
@@ -1583,7 +1592,7 @@ Resources:
       EventPattern:
 
         source:
-          - cloudmart.order
+          - cloudmart.orders
 
         detail-type:
           - OrderCancelled
@@ -1896,17 +1905,17 @@ Outputs:
   # ORDER EVENTBRIDGE RULE OUTPUTS
   # ==========================================================
 
-  OrderPlacedEventRuleArn:
+  OrderCreatedEventRuleArn:
 
     Description:
-      EventBridge OrderPlaced rule ARN
+      EventBridge OrderCreated rule ARN
 
     Value:
-      !GetAtt OrderPlacedEventRule.Arn
+      !GetAtt OrderCreatedEventRule.Arn
 
     Export:
       Name:
-        !Sub cloudmart-${Environment}-OrderPlacedEventRuleArn
+        !Sub cloudmart-${Environment}-OrderCreatedEventRuleArn
 
 
   OrderConfirmedEventRuleArn:

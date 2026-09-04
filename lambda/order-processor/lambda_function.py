@@ -23,7 +23,7 @@ DB_ENDPOINT_PARAMETER = os.environ["DB_ENDPOINT_PARAMETER"]
 DB_PORT_PARAMETER = os.environ["DB_PORT_PARAMETER"]
 DB_USERNAME_PARAMETER = os.environ["DB_USERNAME_PARAMETER"]
 DB_PASSWORD_PARAMETER = os.environ["DB_PASSWORD_PARAMETER"]
-EVENT_BUS_NAME = os.environ.get("EVENT_BUS_NAME", "cloudmart-dev-event-bus")
+EVENT_BUS_NAME = os.environ["EVENT_BUS_NAME"]
 
 
 # ==========================================================
@@ -145,7 +145,7 @@ def publish_order_event(
         Entries=[
             {
                 "EventBusName": EVENT_BUS_NAME,
-                "Source": "cloudmart.order",
+                "Source": "cloudmart.orders",
                 "DetailType": detail_type,
                 "Detail": json.dumps(
                     detail,
@@ -511,7 +511,7 @@ def create_pending_order(
                     None,
                     "PENDING",
                     "system",
-                    "Order placed"
+                    "Order created"
                 )
             )
 
@@ -519,7 +519,7 @@ def create_pending_order(
 
         log_event(
             "INFO",
-            "Order placed successfully",
+            "Order created successfully",
             request_id=context.aws_request_id,
             order_id=order_id,
             customer_id=customer_id,
@@ -532,7 +532,7 @@ def create_pending_order(
         # ------------------------------------------------------
 
         publish_order_event(
-            detail_type="OrderPlaced",
+            detail_type="OrderCreated",
             order_id=order_id,
             customer_id=customer_id,
             status="PENDING",
