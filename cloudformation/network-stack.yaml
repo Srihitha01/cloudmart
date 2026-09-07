@@ -16,6 +16,9 @@ Parameters:
   Environment:
     Type: String
     Default: dev
+    AllowedValues:
+      - dev
+      - prod
     Description: Deployment environment
 
 
@@ -49,12 +52,6 @@ Parameters:
     Description: EC2 instance type for database client
 
 
-  DatabaseClientAMI:
-    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
-    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
-    Description: Latest Amazon Linux 2023 AMI
-
-
 # ==========================================================
 # RESOURCES
 # ==========================================================
@@ -70,14 +67,23 @@ Resources:
     Type: AWS::EC2::VPC
 
     Properties:
+
       CidrBlock: !Ref VPCCidr
 
       EnableDnsSupport: true
+
       EnableDnsHostnames: true
 
       Tags:
+
         - Key: Name
           Value: !Sub cloudmart-${Environment}-vpc
+
+        - Key: Project
+          Value: CloudMart
+
+        - Key: Environment
+          Value: !Ref Environment
 
 
   # ==========================================================
@@ -88,7 +94,9 @@ Resources:
     Type: AWS::EC2::InternetGateway
 
     Properties:
+
       Tags:
+
         - Key: Name
           Value: !Sub cloudmart-${Environment}-igw
 
@@ -97,7 +105,9 @@ Resources:
     Type: AWS::EC2::VPCGatewayAttachment
 
     Properties:
+
       VpcId: !Ref CloudMartVPC
+
       InternetGatewayId: !Ref InternetGateway
 
 
@@ -109,6 +119,7 @@ Resources:
     Type: AWS::EC2::Subnet
 
     Properties:
+
       VpcId: !Ref CloudMartVPC
 
       CidrBlock: !Ref PublicSubnetCidr
@@ -120,6 +131,7 @@ Resources:
       MapPublicIpOnLaunch: true
 
       Tags:
+
         - Key: Name
           Value: !Sub cloudmart-${Environment}-public-subnet
 
@@ -132,6 +144,7 @@ Resources:
     Type: AWS::EC2::Subnet
 
     Properties:
+
       VpcId: !Ref CloudMartVPC
 
       CidrBlock: !Ref PrivateSubnetCidr
@@ -143,8 +156,9 @@ Resources:
       MapPublicIpOnLaunch: false
 
       Tags:
+
         - Key: Name
-          Value: !Sub cloudmart-${Environment}-private-subnet-1
+          Value: !Sub cloudmart-${Environment}-private-subnet
 
 
   # ==========================================================
@@ -155,6 +169,7 @@ Resources:
     Type: AWS::EC2::Subnet
 
     Properties:
+
       VpcId: !Ref CloudMartVPC
 
       CidrBlock: !Ref SecondaryPrivateSubnetCidr
@@ -166,8 +181,9 @@ Resources:
       MapPublicIpOnLaunch: false
 
       Tags:
+
         - Key: Name
-          Value: !Sub cloudmart-${Environment}-private-subnet-2
+          Value: !Sub cloudmart-${Environment}-secondary-private-subnet
 
 
   # ==========================================================
@@ -178,9 +194,11 @@ Resources:
     Type: AWS::EC2::RouteTable
 
     Properties:
+
       VpcId: !Ref CloudMartVPC
 
       Tags:
+
         - Key: Name
           Value: !Sub cloudmart-${Environment}-public-route-table
 
@@ -192,6 +210,7 @@ Resources:
       - InternetGatewayAttachment
 
     Properties:
+
       RouteTableId: !Ref PublicRouteTable
 
       DestinationCidrBlock: 0.0.0.0/0
@@ -203,7 +222,9 @@ Resources:
     Type: AWS::EC2::SubnetRouteTableAssociation
 
     Properties:
+
       RouteTableId: !Ref PublicRouteTable
+
       SubnetId: !Ref PublicSubnet
 
 
@@ -215,9 +236,11 @@ Resources:
     Type: AWS::EC2::RouteTable
 
     Properties:
+
       VpcId: !Ref CloudMartVPC
 
       Tags:
+
         - Key: Name
           Value: !Sub cloudmart-${Environment}-private-route-table
 
@@ -226,7 +249,9 @@ Resources:
     Type: AWS::EC2::SubnetRouteTableAssociation
 
     Properties:
+
       RouteTableId: !Ref PrivateRouteTable
+
       SubnetId: !Ref PrivateSubnet
 
 
@@ -234,7 +259,9 @@ Resources:
     Type: AWS::EC2::SubnetRouteTableAssociation
 
     Properties:
+
       RouteTableId: !Ref PrivateRouteTable
+
       SubnetId: !Ref SecondaryPrivateSubnet
 
 
@@ -246,15 +273,18 @@ Resources:
     Type: AWS::EC2::SecurityGroup
 
     Properties:
+
       GroupDescription: Security group for CloudMart private Lambda functions
 
       VpcId: !Ref CloudMartVPC
 
       SecurityGroupEgress:
+
         - IpProtocol: -1
           CidrIp: 0.0.0.0/0
 
       Tags:
+
         - Key: Name
           Value: !Sub cloudmart-${Environment}-lambda-sg
 
@@ -267,15 +297,18 @@ Resources:
     Type: AWS::EC2::SecurityGroup
 
     Properties:
+
       GroupDescription: Security group for CloudMart database client EC2
 
       VpcId: !Ref CloudMartVPC
 
       SecurityGroupEgress:
+
         - IpProtocol: -1
           CidrIp: 0.0.0.0/0
 
       Tags:
+
         - Key: Name
           Value: !Sub cloudmart-${Environment}-database-client-sg
 
@@ -288,32 +321,30 @@ Resources:
     Type: AWS::EC2::SecurityGroup
 
     Properties:
+
       GroupDescription: MySQL access from Lambda and Database Client EC2
 
       VpcId: !Ref CloudMartVPC
 
       SecurityGroupIngress:
 
-        # Lambda to RDS MySQL
         - IpProtocol: tcp
           FromPort: 3306
           ToPort: 3306
           SourceSecurityGroupId: !Ref LambdaSecurityGroup
 
-
-        # Database Client EC2 to RDS MySQL
         - IpProtocol: tcp
           FromPort: 3306
           ToPort: 3306
           SourceSecurityGroupId: !Ref DatabaseClientSecurityGroup
 
-
       SecurityGroupEgress:
+
         - IpProtocol: -1
           CidrIp: 0.0.0.0/0
 
-
       Tags:
+
         - Key: Name
           Value: !Sub cloudmart-${Environment}-rds-sg
 
@@ -326,16 +357,18 @@ Resources:
     Type: AWS::EC2::SecurityGroup
 
     Properties:
-      GroupDescription: Security group for CloudMart Flask dashboard
+
+      GroupDescription: Security group for CloudMart dashboard EC2
 
       VpcId: !Ref CloudMartVPC
 
       SecurityGroupEgress:
+
         - IpProtocol: -1
           CidrIp: 0.0.0.0/0
 
-
       Tags:
+
         - Key: Name
           Value: !Sub cloudmart-${Environment}-ec2-sg
 
@@ -348,6 +381,7 @@ Resources:
     Type: AWS::EC2::SecurityGroup
 
     Properties:
+
       GroupDescription: Security group for CloudMart VPC interface endpoints
 
       VpcId: !Ref CloudMartVPC
@@ -359,19 +393,20 @@ Resources:
           ToPort: 443
           SourceSecurityGroupId: !Ref LambdaSecurityGroup
 
-
       SecurityGroupEgress:
+
         - IpProtocol: -1
           CidrIp: 0.0.0.0/0
 
-
       Tags:
+
         - Key: Name
           Value: !Sub cloudmart-${Environment}-vpc-endpoint-sg
 
 
   # ==========================================================
   # DATABASE CLIENT EC2
+  # NO KEY PAIR
   # ==========================================================
 
   DatabaseClientEC2:
@@ -383,17 +418,18 @@ Resources:
 
     Properties:
 
-      ImageId: !Ref DatabaseClientAMI
+      ImageId: '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64}}'
 
       InstanceType: !Ref DatabaseClientInstanceType
 
       SubnetId: !Ref PublicSubnet
 
       SecurityGroupIds:
+
         - !Ref DatabaseClientSecurityGroup
 
-
       Tags:
+
         - Key: Name
           Value: !Sub cloudmart-${Environment}-database-client
 
@@ -412,6 +448,7 @@ Resources:
     Type: AWS::EC2::VPCEndpoint
 
     Properties:
+
       VpcId: !Ref CloudMartVPC
 
       VpcEndpointType: Gateway
@@ -419,6 +456,7 @@ Resources:
       ServiceName: !Sub com.amazonaws.${AWS::Region}.s3
 
       RouteTableIds:
+
         - !Ref PrivateRouteTable
 
 
@@ -430,6 +468,7 @@ Resources:
     Type: AWS::EC2::VPCEndpoint
 
     Properties:
+
       VpcId: !Ref CloudMartVPC
 
       VpcEndpointType: Interface
@@ -439,21 +478,25 @@ Resources:
       PrivateDnsEnabled: true
 
       SubnetIds:
+
         - !Ref PrivateSubnet
+
         - !Ref SecondaryPrivateSubnet
 
       SecurityGroupIds:
+
         - !Ref VPCEndpointSecurityGroup
 
 
   # ==========================================================
-  # SSM MESSAGES INTERFACE ENDPOINT
+  # SSM MESSAGES ENDPOINT
   # ==========================================================
 
   SSMMessagesEndpoint:
     Type: AWS::EC2::VPCEndpoint
 
     Properties:
+
       VpcId: !Ref CloudMartVPC
 
       VpcEndpointType: Interface
@@ -463,21 +506,25 @@ Resources:
       PrivateDnsEnabled: true
 
       SubnetIds:
+
         - !Ref PrivateSubnet
+
         - !Ref SecondaryPrivateSubnet
 
       SecurityGroupIds:
+
         - !Ref VPCEndpointSecurityGroup
 
 
   # ==========================================================
-  # EC2 MESSAGES INTERFACE ENDPOINT
+  # EC2 MESSAGES ENDPOINT
   # ==========================================================
 
   EC2MessagesEndpoint:
     Type: AWS::EC2::VPCEndpoint
 
     Properties:
+
       VpcId: !Ref CloudMartVPC
 
       VpcEndpointType: Interface
@@ -487,21 +534,25 @@ Resources:
       PrivateDnsEnabled: true
 
       SubnetIds:
+
         - !Ref PrivateSubnet
+
         - !Ref SecondaryPrivateSubnet
 
       SecurityGroupIds:
+
         - !Ref VPCEndpointSecurityGroup
 
 
   # ==========================================================
-  # EVENTBRIDGE INTERFACE ENDPOINT
+  # EVENTBRIDGE ENDPOINT
   # ==========================================================
 
   EventBridgeEndpoint:
     Type: AWS::EC2::VPCEndpoint
 
     Properties:
+
       VpcId: !Ref CloudMartVPC
 
       VpcEndpointType: Interface
@@ -511,21 +562,25 @@ Resources:
       PrivateDnsEnabled: true
 
       SubnetIds:
+
         - !Ref PrivateSubnet
+
         - !Ref SecondaryPrivateSubnet
 
       SecurityGroupIds:
+
         - !Ref VPCEndpointSecurityGroup
 
 
   # ==========================================================
-  # SNS INTERFACE ENDPOINT
+  # SNS ENDPOINT
   # ==========================================================
 
   SNSEndpoint:
     Type: AWS::EC2::VPCEndpoint
 
     Properties:
+
       VpcId: !Ref CloudMartVPC
 
       VpcEndpointType: Interface
@@ -535,21 +590,25 @@ Resources:
       PrivateDnsEnabled: true
 
       SubnetIds:
+
         - !Ref PrivateSubnet
+
         - !Ref SecondaryPrivateSubnet
 
       SecurityGroupIds:
+
         - !Ref VPCEndpointSecurityGroup
 
 
   # ==========================================================
-  # LAMBDA INTERFACE ENDPOINT
+  # LAMBDA ENDPOINT
   # ==========================================================
 
   LambdaVPCEndpoint:
     Type: AWS::EC2::VPCEndpoint
 
     Properties:
+
       VpcId: !Ref CloudMartVPC
 
       VpcEndpointType: Interface
@@ -559,10 +618,13 @@ Resources:
       PrivateDnsEnabled: true
 
       SubnetIds:
+
         - !Ref PrivateSubnet
+
         - !Ref SecondaryPrivateSubnet
 
       SecurityGroupIds:
+
         - !Ref VPCEndpointSecurityGroup
 
 
@@ -573,22 +635,14 @@ Resources:
 Outputs:
 
 
-  # ==========================================================
-  # VPC
-  # ==========================================================
-
-  VpcId:
+  VPCId:
     Description: CloudMart VPC ID
 
     Value: !Ref CloudMartVPC
 
     Export:
-      Name: !Sub cloudmart-${Environment}-VpcId
+      Name: !Sub cloudmart-${Environment}-VPCId
 
-
-  # ==========================================================
-  # PUBLIC SUBNET
-  # ==========================================================
 
   PublicSubnetId:
     Description: Public subnet ID
@@ -599,10 +653,6 @@ Outputs:
       Name: !Sub cloudmart-${Environment}-PublicSubnetId
 
 
-  # ==========================================================
-  # PRIMARY PRIVATE SUBNET
-  # ==========================================================
-
   PrivateSubnetId:
     Description: Primary private subnet ID
 
@@ -611,10 +661,6 @@ Outputs:
     Export:
       Name: !Sub cloudmart-${Environment}-PrivateSubnetId
 
-
-  # ==========================================================
-  # SECONDARY PRIVATE SUBNET
-  # ==========================================================
 
   SecondaryPrivateSubnetId:
     Description: Secondary private subnet ID
@@ -625,10 +671,6 @@ Outputs:
       Name: !Sub cloudmart-${Environment}-SecondaryPrivateSubnetId
 
 
-  # ==========================================================
-  # LAMBDA SECURITY GROUP
-  # ==========================================================
-
   LambdaSecurityGroupId:
     Description: Lambda security group ID
 
@@ -637,10 +679,6 @@ Outputs:
     Export:
       Name: !Sub cloudmart-${Environment}-LambdaSecurityGroupId
 
-
-  # ==========================================================
-  # RDS SECURITY GROUP
-  # ==========================================================
 
   RDSSecurityGroupId:
     Description: RDS security group ID
@@ -651,12 +689,8 @@ Outputs:
       Name: !Sub cloudmart-${Environment}-RDSSecurityGroupId
 
 
-  # ==========================================================
-  # EC2 DASHBOARD SECURITY GROUP
-  # ==========================================================
-
   EC2SecurityGroupId:
-    Description: EC2 dashboard security group ID
+    Description: Dashboard EC2 security group ID
 
     Value: !Ref EC2SecurityGroup
 
@@ -664,49 +698,14 @@ Outputs:
       Name: !Sub cloudmart-${Environment}-EC2SecurityGroupId
 
 
-  # ==========================================================
-  # DATABASE CLIENT EC2
-  # ==========================================================
-
-  DatabaseClientInstanceId:
-    Description: Database Client EC2 Instance ID
-
-    Value: !Ref DatabaseClientEC2
-
-    Export:
-      Name: !Sub cloudmart-${Environment}-DatabaseClientInstanceId
-
-
-  DatabaseClientPublicIp:
-    Description: Database Client EC2 Public IP
-
-    Value: !GetAtt DatabaseClientEC2.PublicIp
-
-    Export:
-      Name: !Sub cloudmart-${Environment}-DatabaseClientPublicIp
-
-
-  DatabaseClientPublicDns:
-    Description: Database Client EC2 Public DNS
-
-    Value: !GetAtt DatabaseClientEC2.PublicDnsName
-
-    Export:
-      Name: !Sub cloudmart-${Environment}-DatabaseClientPublicDns
-
-
   DatabaseClientSecurityGroupId:
-    Description: Database Client EC2 Security Group ID
+    Description: Database client EC2 security group ID
 
     Value: !Ref DatabaseClientSecurityGroup
 
     Export:
       Name: !Sub cloudmart-${Environment}-DatabaseClientSecurityGroupId
 
-
-  # ==========================================================
-  # VPC ENDPOINT SECURITY GROUP
-  # ==========================================================
 
   VPCEndpointSecurityGroupId:
     Description: VPC endpoint security group ID
@@ -717,12 +716,35 @@ Outputs:
       Name: !Sub cloudmart-${Environment}-VPCEndpointSecurityGroupId
 
 
-  # ==========================================================
-  # S3 ENDPOINT
-  # ==========================================================
+  DatabaseClientInstanceId:
+    Description: Database Client EC2 instance ID
+
+    Value: !Ref DatabaseClientEC2
+
+    Export:
+      Name: !Sub cloudmart-${Environment}-DatabaseClientInstanceId
+
+
+  DatabaseClientPublicIp:
+    Description: Database Client EC2 public IP
+
+    Value: !GetAtt DatabaseClientEC2.PublicIp
+
+    Export:
+      Name: !Sub cloudmart-${Environment}-DatabaseClientPublicIp
+
+
+  DatabaseClientPublicDns:
+    Description: Database Client EC2 public DNS
+
+    Value: !GetAtt DatabaseClientEC2.PublicDnsName
+
+    Export:
+      Name: !Sub cloudmart-${Environment}-DatabaseClientPublicDns
+
 
   S3EndpointId:
-    Description: S3 gateway endpoint ID
+    Description: S3 Gateway Endpoint ID
 
     Value: !Ref S3GatewayEndpoint
 
@@ -730,12 +752,8 @@ Outputs:
       Name: !Sub cloudmart-${Environment}-S3EndpointId
 
 
-  # ==========================================================
-  # SSM ENDPOINT
-  # ==========================================================
-
   SSMEndpointId:
-    Description: SSM interface endpoint ID
+    Description: SSM Interface Endpoint ID
 
     Value: !Ref SSMEndpoint
 
@@ -744,7 +762,7 @@ Outputs:
 
 
   SSMMessagesEndpointId:
-    Description: SSM Messages interface endpoint ID
+    Description: SSM Messages Interface Endpoint ID
 
     Value: !Ref SSMMessagesEndpoint
 
@@ -753,7 +771,7 @@ Outputs:
 
 
   EC2MessagesEndpointId:
-    Description: EC2 Messages interface endpoint ID
+    Description: EC2 Messages Interface Endpoint ID
 
     Value: !Ref EC2MessagesEndpoint
 
@@ -761,12 +779,8 @@ Outputs:
       Name: !Sub cloudmart-${Environment}-EC2MessagesEndpointId
 
 
-  # ==========================================================
-  # EVENTBRIDGE ENDPOINT
-  # ==========================================================
-
   EventBridgeEndpointId:
-    Description: EventBridge interface endpoint ID
+    Description: EventBridge Interface Endpoint ID
 
     Value: !Ref EventBridgeEndpoint
 
@@ -774,12 +788,8 @@ Outputs:
       Name: !Sub cloudmart-${Environment}-EventBridgeEndpointId
 
 
-  # ==========================================================
-  # SNS ENDPOINT
-  # ==========================================================
-
   SNSEndpointId:
-    Description: SNS interface endpoint ID
+    Description: SNS Interface Endpoint ID
 
     Value: !Ref SNSEndpoint
 
@@ -787,12 +797,8 @@ Outputs:
       Name: !Sub cloudmart-${Environment}-SNSEndpointId
 
 
-  # ==========================================================
-  # LAMBDA ENDPOINT
-  # ==========================================================
-
   LambdaVPCEndpointId:
-    Description: Lambda interface endpoint ID
+    Description: Lambda Interface Endpoint ID
 
     Value: !Ref LambdaVPCEndpoint
 
