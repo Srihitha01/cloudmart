@@ -14,9 +14,11 @@ on:
 
   workflow_dispatch:
 
+
 permissions:
   id-token: write
   contents: read
+
 
 env:
   AWS_REGION: ap-south-1
@@ -30,6 +32,9 @@ env:
 
   LAMBDA_ARTIFACT_BUCKET: cloudmart-dev-artifacts
 
+  PYMYSQL_LAYER_S3_KEY: layers/pymysql/pymysql-layer-1c359937e7f4e8453f83e9b3f5a021ebdbd515e5.zip
+
+
 jobs:
 
   # ============================================================
@@ -39,28 +44,35 @@ jobs:
   deploy-network:
 
     name: Deploy Network-Security Stack
+
     runs-on: ubuntu-latest
+
 
     steps:
 
       - name: Checkout repository
         uses: actions/checkout@v5
 
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
+
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
+
       - name: Verify AWS identity
         run: |
           aws sts get-caller-identity
+
 
       - name: Validate Network template
         run: |
           aws cloudformation validate-template \
             --template-body file://cloudformation/network-stack.yaml \
             --region "$AWS_REGION"
+
 
       - name: Deploy Network-Security Stack
         run: |
@@ -71,6 +83,7 @@ jobs:
               Environment="$ENVIRONMENT" \
             --region "$AWS_REGION" \
             --no-fail-on-empty-changeset
+
 
       - name: Verify Network Stack
         run: |
@@ -88,31 +101,38 @@ jobs:
   deploy-data:
 
     name: Deploy Data-Storage Stack
+
     runs-on: ubuntu-latest
 
     needs:
       - deploy-network
+
 
     steps:
 
       - name: Checkout repository
         uses: actions/checkout@v5
 
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
+
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
+
       - name: Verify AWS identity
         run: |
           aws sts get-caller-identity
+
 
       - name: Validate Data template
         run: |
           aws cloudformation validate-template \
             --template-body file://cloudformation/data-stack.yaml \
             --region "$AWS_REGION"
+
 
       - name: Deploy Data-Storage Stack
         run: |
@@ -121,8 +141,10 @@ jobs:
             --stack-name "$DATA_STACK_NAME" \
             --parameter-overrides \
               Environment="$ENVIRONMENT" \
+              DBPassword="${{ secrets.DB_PASSWORD }}" \
             --region "$AWS_REGION" \
             --no-fail-on-empty-changeset
+
 
       - name: Verify Data Stack
         run: |
@@ -140,32 +162,39 @@ jobs:
   deploy-iam:
 
     name: Deploy IAM Stack
+
     runs-on: ubuntu-latest
 
     needs:
       - deploy-network
       - deploy-data
 
+
     steps:
 
       - name: Checkout repository
         uses: actions/checkout@v5
 
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
+
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
+
       - name: Verify AWS identity
         run: |
           aws sts get-caller-identity
+
 
       - name: Validate IAM template
         run: |
           aws cloudformation validate-template \
             --template-body file://cloudformation/iam-stack.yaml \
             --region "$AWS_REGION"
+
 
       - name: Deploy IAM Stack
         run: |
@@ -177,6 +206,7 @@ jobs:
             --region "$AWS_REGION" \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --no-fail-on-empty-changeset
+
 
       - name: Verify IAM Stack
         run: |
@@ -194,6 +224,7 @@ jobs:
   deploy-application-events:
 
     name: Deploy Application-Events Stack
+
     runs-on: ubuntu-latest
 
     needs:
@@ -201,16 +232,20 @@ jobs:
       - deploy-data
       - deploy-iam
 
+
     steps:
 
       - name: Checkout repository
         uses: actions/checkout@v5
 
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
+
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+
 
       - name: Verify AWS identity
         run: |
@@ -291,17 +326,19 @@ jobs:
         run: |
           echo "PRODUCT_LAMBDA_S3_KEY=lambda/product/product-lambda-${GITHUB_SHA}.zip" >> "$GITHUB_ENV"
 
+
       - name: Set Order Lambda artifact key
         run: |
           echo "ORDER_LAMBDA_S3_KEY=lambda/order/order-lambda-${GITHUB_SHA}.zip" >> "$GITHUB_ENV"
 
-      - name: Set Order Processor artifact key
+
+      - name: Set Order Processor Lambda artifact key
         run: |
           echo "ORDER_PROCESSOR_LAMBDA_S3_KEY=lambda/order-processor/order-processor-lambda-${GITHUB_SHA}.zip" >> "$GITHUB_ENV"
 
 
       # ========================================================
-      # VERIFY IAM
+      # VERIFY IAM STACK
       # ========================================================
 
       - name: Verify IAM Stack
@@ -321,7 +358,8 @@ jobs:
         run: |
           aws s3api head-object \
             --bucket "$LAMBDA_ARTIFACT_BUCKET" \
-            --key "layers/pymysql/pymysql-layer-1c359937e7f4e8453f83e9b3f5a021ebdbd515e5.zip"
+            --key "$PYMYSQL_LAYER_S3_KEY"
+
 
       - name: Verify Product Lambda artifact
         run: |
@@ -329,13 +367,15 @@ jobs:
             --bucket "$LAMBDA_ARTIFACT_BUCKET" \
             --key "$PRODUCT_LAMBDA_S3_KEY"
 
+
       - name: Verify Order Lambda artifact
         run: |
           aws s3api head-object \
             --bucket "$LAMBDA_ARTIFACT_BUCKET" \
             --key "$ORDER_LAMBDA_S3_KEY"
 
-      - name: Verify Order Processor artifact
+
+      - name: Verify Order Processor Lambda artifact
         run: |
           aws s3api head-object \
             --bucket "$LAMBDA_ARTIFACT_BUCKET" \
@@ -365,7 +405,7 @@ jobs:
             --parameter-overrides \
               Environment="$ENVIRONMENT" \
               LambdaArtifactBucket="$LAMBDA_ARTIFACT_BUCKET" \
-              PyMySQLLayerS3Key="layers/pymysql/pymysql-layer-1c359937e7f4e8453f83e9b3f5a021ebdbd515e5.zip" \
+              PyMySQLLayerS3Key="$PYMYSQL_LAYER_S3_KEY" \
               ProductLambdaS3Key="$PRODUCT_LAMBDA_S3_KEY" \
               OrderLambdaS3Key="$ORDER_LAMBDA_S3_KEY" \
               OrderProcessorLambdaS3Key="$ORDER_PROCESSOR_LAMBDA_S3_KEY" \
@@ -393,6 +433,7 @@ jobs:
             --query 'Stacks[0].[StackName,StackStatus]' \
             --output table
 
+
       - name: Show Application-Events Outputs
         run: |
           aws cloudformation describe-stacks \
@@ -400,6 +441,11 @@ jobs:
             --region "$AWS_REGION" \
             --query 'Stacks[0].Outputs[*].[OutputKey,OutputValue]' \
             --output table
+
+
+      # ========================================================
+      # VERIFY LAMBDAS
+      # ========================================================
 
       - name: Verify Product Lambda
         run: |
@@ -409,6 +455,7 @@ jobs:
             --query '[FunctionName,Runtime,Handler,State,LastUpdateStatus]' \
             --output table
 
+
       - name: Verify Order Lambda
         run: |
           aws lambda get-function-configuration \
@@ -417,6 +464,7 @@ jobs:
             --query '[FunctionName,Runtime,Handler,State,LastUpdateStatus]' \
             --output table
 
+
       - name: Verify Order Processor Lambda
         run: |
           aws lambda get-function-configuration \
@@ -424,6 +472,7 @@ jobs:
             --region "$AWS_REGION" \
             --query '[FunctionName,Runtime,Handler,State,LastUpdateStatus]' \
             --output table
+
 
       - name: Verify Lambda Authorizer
         run: |
@@ -441,33 +490,45 @@ jobs:
   deploy-api-monitoring-ec2:
 
     name: Deploy API Monitoring and EC2 Stack
+
     runs-on: ubuntu-latest
 
     needs:
       - deploy-network
       - deploy-data
+      - deploy-iam
       - deploy-application-events
+
 
     steps:
 
       - name: Checkout repository
         uses: actions/checkout@v5
 
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
+
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
+
       - name: Verify AWS identity
         run: |
           aws sts get-caller-identity
+
 
       - name: Validate API Monitoring EC2 template
         run: |
           aws cloudformation validate-template \
             --template-body file://cloudformation/api-monitoring-ec2-stack.yaml \
             --region "$AWS_REGION"
+
+
+      # ========================================================
+      # DEPLOY WITHOUT KEY PAIR
+      # ========================================================
 
       - name: Deploy API Monitoring EC2 Stack
         run: |
@@ -479,6 +540,7 @@ jobs:
             --region "$AWS_REGION" \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --no-fail-on-empty-changeset
+
 
       - name: Verify API Monitoring EC2 Stack
         run: |

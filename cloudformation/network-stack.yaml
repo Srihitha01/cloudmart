@@ -4,7 +4,7 @@ Description: >
   CloudMart Network and Security Infrastructure.
   Creates VPC, public and private subnets, Internet Gateway,
   route tables, security groups, VPC endpoints, and a separate
-  EC2 database client for SSH access and RDS connectivity.
+  EC2 database client for RDS connectivity.
 
 
 # ==========================================================
@@ -43,11 +43,6 @@ Parameters:
     Description: CIDR block for secondary private subnet
 
 
-  DatabaseClientKeyName:
-    Type: AWS::EC2::KeyPair::KeyName
-    Description: Existing EC2 Key Pair name for SSH access
-
-
   DatabaseClientInstanceType:
     Type: String
     Default: t3.micro
@@ -58,12 +53,6 @@ Parameters:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
     Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
     Description: Latest Amazon Linux 2023 AMI
-
-
-  AllowedSSHCidr:
-    Type: String
-    Default: 0.0.0.0/0
-    Description: CIDR block allowed to SSH into Database Client EC2
 
 
 # ==========================================================
@@ -282,21 +271,9 @@ Resources:
 
       VpcId: !Ref CloudMartVPC
 
-      SecurityGroupIngress:
-
-        # SSH from your laptop
-        - IpProtocol: tcp
-          FromPort: 22
-          ToPort: 22
-          CidrIp: !Ref AllowedSSHCidr
-
-
       SecurityGroupEgress:
-
-        # Allow outbound connectivity
         - IpProtocol: -1
           CidrIp: 0.0.0.0/0
-
 
       Tags:
         - Key: Name
@@ -410,8 +387,6 @@ Resources:
 
       InstanceType: !Ref DatabaseClientInstanceType
 
-      KeyName: !Ref DatabaseClientKeyName
-
       SubnetId: !Ref PublicSubnet
 
       SecurityGroupIds:
@@ -421,6 +396,12 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub cloudmart-${Environment}-database-client
+
+        - Key: Project
+          Value: CloudMart
+
+        - Key: Environment
+          Value: !Ref Environment
 
 
   # ==========================================================
@@ -671,7 +652,7 @@ Outputs:
 
 
   # ==========================================================
-  # EXISTING EC2 DASHBOARD SECURITY GROUP
+  # EC2 DASHBOARD SECURITY GROUP
   # ==========================================================
 
   EC2SecurityGroupId:
