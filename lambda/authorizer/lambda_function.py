@@ -24,7 +24,7 @@ def log_event(level, message, **details):
         **details
     }
 
-    print(json.dumps(record))
+    print(json.dumps(record, default=str))
 
 
 def get_parameter(name):
@@ -37,13 +37,18 @@ def get_parameter(name):
     return response["Parameter"]["Value"]
 
 
+# ==========================================================
+# GENERATE IAM POLICY
+# ==========================================================
+
 def generate_policy(
     principal_id,
     effect,
-    resource
+    resource,
+    context=None
 ):
 
-    return {
+    policy = {
         "principalId": principal_id,
 
         "policyDocument": {
@@ -51,57 +56,243 @@ def generate_policy(
 
             "Statement": [
                 {
-                    "Action":
-                        "execute-api:Invoke",
-
-                    "Effect":
-                        effect,
-
-                    "Resource":
-                        resource
+                    "Action": "execute-api:Invoke",
+                    "Effect": effect,
+                    "Resource": resource
                 }
             ]
         }
     }
 
+    # ------------------------------------------------------
+    # CONTEXT PASSED TO BACKEND LAMBDA
+    # ------------------------------------------------------
 
-def get_stage_wildcard(method_arn):
+    if context:
+
+        policy["context"] = context
+
+    return policy
+
+
+# ==========================================================
+# GET API DETAILS FROM METHOD ARN
+# ==========================================================
+
+def get_request_details(method_arn):
 
     """
-    Convert:
+    Example:
 
-    arn:aws:execute-api:region:account:api-id/stage/METHOD/path
+    arn:aws:execute-api:ap-south-1:ACCOUNT:API_ID/dev/GET/orders/10
 
-    into:
+    Returns:
 
-    arn:aws:execute-api:region:account:api-id/stage/*/*
+    {
+        "http_method": "GET",
+        "resource_path": "/orders/10"
+    }
     """
 
-    parts = method_arn.split(":")
+    try:
 
-    if len(parts) < 6:
+        arn_parts = method_arn.split(":")
 
-        return method_arn
+        api_gateway_part = arn_parts[5]
 
-    api_gateway_resource = parts[5]
+        parts = api_gateway_part.split("/")
 
-    resource_parts = api_gateway_resource.split("/")
+        # parts:
+        # [api-id, stage, HTTP_METHOD, path...]
 
-    if len(resource_parts) < 2:
+        http_method = (
+            parts[2]
+            if len(parts) > 2
+            else ""
+        )
 
-        return method_arn
+        resource_path = (
+            "/"
+            + "/".join(parts[3:])
+            if len(parts) > 3
+            else "/"
+        )
 
-    api_id = resource_parts[0]
-    stage = resource_parts[1]
+        return {
+            "http_method": http_method,
+            "resource_path": resource_path
+        }
 
-    return (
-        ":".join(parts[:5])
-        + ":"
-        + api_id
-        + "/"
-        + stage
-        + "/*/*"
+    except Exception:
+
+        return {
+            "http_method": "",
+            "resource_path": ""
+        }
+
+
+# ==========================================================
+# NORMALIZE RESOURCE PATH
+# ==========================================================
+
+def normalize_resource_path(path):
+
+    """
+    Convert actual paths into API resource patterns.
+
+    Examples:
+
+    /products
+        -> /products
+
+    /products/10
+        -> /products/{id}
+
+    /orders
+        -> /orders
+
+    /orders/10
+        -> /orders/{id}
+
+    /orders/10/status
+        -> /orders/{id}/status
+    """
+
+    parts = [
+        part
+        for part in path.split("/")
+        if part
+    ]
+
+    # ------------------------------------------------------
+    # /products/{id}
+    # ------------------------------------------------------
+
+    if (
+        len(parts) == 2
+        and parts[0] == "products"
+    ):
+
+        return "/products/{id}"
+
+    # ------------------------------------------------------
+    # /orders/{id}
+    # ------------------------------------------------------
+
+    if (
+        len(parts) == 2
+        and parts[0] == "orders"
+    ):
+
+        return "/orders/{id}"
+
+    # ------------------------------------------------------
+    # /orders/{id}/status
+    # ------------------------------------------------------
+
+    if (
+        len(parts) == 3
+        and parts[0] == "orders"
+        and parts[2] == "status"
+    ):
+
+        return "/orders/{id}/status"
+
+    # ------------------------------------------------------
+    # BASE PATH
+    # ------------------------------------------------------
+
+    if not parts:
+
+        return "/"
+
+    return "/" + "/".join(parts)
+
+
+# ==========================================================
+# CUSTOMER AUTHORIZATION
+# ==========================================================
+
+def customer_is_allowed(
+    http_method,
+    resource_path
+):
+
+    normalized_path = (
+        normalize_resource_path(
+            resource_path
+        )
     )
+
+    # ------------------------------------------------------
+    # PRODUCTS
+    #
+    # Customer can only VIEW products
+    # ------------------------------------------------------
+
+    if (
+        http_method == "GET"
+        and normalized_path == "/products"
+    ):
+
+        return True
+
+    if (
+        http_method == "GET"
+        and normalized_path == "/products/{id}"
+    ):
+
+        return True
+
+    # ------------------------------------------------------
+    # ORDERS
+    #
+    # Customer can create own order
+    # ------------------------------------------------------
+
+    if (
+        http_method == "POST"
+        and normalized_path == "/orders"
+    ):
+
+        return True
+
+    # ------------------------------------------------------
+    # Customer can view own orders
+    #
+    # Ownership will be checked by Order Lambda
+    # ------------------------------------------------------
+
+    if (
+        http_method == "GET"
+        and normalized_path == "/orders"
+    ):
+
+        return True
+
+    if (
+        http_method == "GET"
+        and normalized_path == "/orders/{id}"
+    ):
+
+        return True
+
+    # ------------------------------------------------------
+    # Customer can request order cancellation
+    #
+    # Exact status value will be checked
+    # by Order Lambda because the authorizer
+    # does not receive the request body.
+    # ------------------------------------------------------
+
+    if (
+        http_method == "PATCH"
+        and normalized_path == "/orders/{id}/status"
+    ):
+
+        return True
+
+    return False
 
 
 # ==========================================================
@@ -125,24 +316,9 @@ def lambda_handler(event, context):
             request_id=request_id
         )
 
-        # --------------------------------------------------
-        # Get configured SSM parameter
-        # --------------------------------------------------
-
-        token_parameter = os.environ[
-            "AUTH_TOKEN_PARAMETER"
-        ]
-
-        expected_token = get_parameter(
-            token_parameter
-        )
-
-        # --------------------------------------------------
-        # TOKEN authorizer event
-        #
-        # API Gateway TOKEN authorizers receive the
-        # Authorization header value in authorizationToken.
-        # --------------------------------------------------
+        # ==================================================
+        # GET AUTHORIZATION HEADER
+        # ==================================================
 
         authorization_header = event.get(
             "authorizationToken",
@@ -150,7 +326,7 @@ def lambda_handler(event, context):
         )
 
         # --------------------------------------------------
-        # Fallback for direct/local invocation
+        # FALLBACK FOR DIRECT INVOCATION
         # --------------------------------------------------
 
         if not authorization_header:
@@ -166,9 +342,9 @@ def lambda_handler(event, context):
                 or ""
             )
 
-        # --------------------------------------------------
-        # Validate presence
-        # --------------------------------------------------
+        # ==================================================
+        # VALIDATE HEADER
+        # ==================================================
 
         if not authorization_header:
 
@@ -184,29 +360,21 @@ def lambda_handler(event, context):
                 method_arn
             )
 
-        # --------------------------------------------------
-        # Accept:
-        #
-        # Bearer <token>
-        #
-        # or direct token
-        # --------------------------------------------------
+        # ==================================================
+        # EXTRACT BEARER TOKEN
+        # ==================================================
 
         provided_token = (
             authorization_header.strip()
         )
 
-        if provided_token.startswith(
-            "Bearer "
+        if provided_token.lower().startswith(
+            "bearer "
         ):
 
             provided_token = provided_token[
                 len("Bearer "):
             ].strip()
-
-        # --------------------------------------------------
-        # Validate token
-        # --------------------------------------------------
 
         if not provided_token:
 
@@ -222,7 +390,88 @@ def lambda_handler(event, context):
                 method_arn
             )
 
-        if provided_token != expected_token:
+        # ==================================================
+        # GET SSM PARAMETERS
+        # ==================================================
+
+        admin_token_parameter = os.environ[
+            "ADMIN_TOKEN_PARAMETER"
+        ]
+
+        customer_tokens_parameter = os.environ[
+            "CUSTOMER_TOKENS_PARAMETER"
+        ]
+
+        admin_token = get_parameter(
+            admin_token_parameter
+        )
+
+        customer_tokens_json = get_parameter(
+            customer_tokens_parameter
+        )
+
+        customer_tokens = json.loads(
+            customer_tokens_json
+        )
+
+        # ==================================================
+        # GET METHOD + RESOURCE
+        # ==================================================
+
+        request_details = get_request_details(
+            method_arn
+        )
+
+        http_method = request_details[
+            "http_method"
+        ]
+
+        resource_path = request_details[
+            "resource_path"
+        ]
+
+        normalized_path = (
+            normalize_resource_path(
+                resource_path
+            )
+        )
+
+        # ==================================================
+        # ADMIN AUTHENTICATION
+        # ==================================================
+
+        if provided_token == admin_token:
+
+            log_event(
+                "INFO",
+                "Admin authorization successful",
+                request_id=request_id,
+                http_method=http_method,
+                resource=normalized_path
+            )
+
+            return generate_policy(
+                principal_id="admin",
+
+                effect="Allow",
+
+                resource=method_arn,
+
+                context={
+                    "role": "ADMIN",
+                    "customer_id": ""
+                }
+            )
+
+        # ==================================================
+        # CUSTOMER AUTHENTICATION
+        # ==================================================
+
+        customer_id = customer_tokens.get(
+            provided_token
+        )
+
+        if customer_id is None:
 
             log_event(
                 "WARN",
@@ -236,28 +485,66 @@ def lambda_handler(event, context):
                 method_arn
             )
 
-        # --------------------------------------------------
-        # Valid token
-        #
-        # Allow all methods/resources within this API stage.
-        # This avoids an exact methodArn policy being reused
-        # incorrectly between GET/POST/PUT/DELETE requests.
-        # --------------------------------------------------
-
-        policy_resource = get_stage_wildcard(
-            method_arn
+        customer_id = int(
+            customer_id
         )
+
+        # ==================================================
+        # CUSTOMER METHOD + ENDPOINT AUTHORIZATION
+        # ==================================================
+
+        if not customer_is_allowed(
+            http_method,
+            resource_path
+        ):
+
+            log_event(
+                "WARN",
+                "Customer access denied",
+                request_id=request_id,
+                customer_id=customer_id,
+                http_method=http_method,
+                resource=normalized_path
+            )
+
+            return generate_policy(
+                principal_id=(
+                    f"customer-{customer_id}"
+                ),
+
+                effect="Deny",
+
+                resource=method_arn
+            )
+
+        # ==================================================
+        # CUSTOMER AUTHORIZED
+        # ==================================================
 
         log_event(
             "INFO",
-            "Authorization successful",
-            request_id=request_id
+            "Customer authorization successful",
+            request_id=request_id,
+            customer_id=customer_id,
+            http_method=http_method,
+            resource=normalized_path
         )
 
         return generate_policy(
-            "authorized-user",
-            "Allow",
-            policy_resource
+            principal_id=(
+                f"customer-{customer_id}"
+            ),
+
+            effect="Allow",
+
+            resource=method_arn,
+
+            context={
+                "role": "CUSTOMER",
+                "customer_id": str(
+                    customer_id
+                )
+            }
         )
 
     except Exception as error:

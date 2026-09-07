@@ -60,7 +60,10 @@ Parameters:
     Type: String
     Default: /cloudmart/dev/auth/token
     Description: SSM SecureString containing authentication token
-
+  CustomerTokensParameter:
+    Type: String
+    Default: /cloudmart/dev/auth/customer-tokens
+    Description: SSM SecureString containing customer authentication tokens
 
   # ==========================================================
   # LAMBDA ARTIFACTS
@@ -118,308 +121,356 @@ Resources:
   # LAMBDA AUTHORISER
   # ==========================================================
 
-  LambdaAuthorizer:
-    Type: AWS::Lambda::Function
+  # ==========================================================
+# LAMBDA AUTHORIZER
+# ==========================================================
 
-    Properties:
+LambdaAuthorizer:
+  Type: AWS::Lambda::Function
 
-      FunctionName:
-        !Sub cloudmart-${Environment}-lambda-authorizer
+  Properties:
 
-      Runtime:
-        python3.12
+    FunctionName: !Sub cloudmart-${Environment}-lambda-authorizer
 
-      Handler:
-        index.lambda_handler
+    Runtime: python3.12
 
-      Role:
-        Fn::ImportValue:
-          Fn::Sub: cloudmart-${Environment}-LambdaAuthorizerRoleArn
+    Handler: index.lambda_handler
 
-      Timeout: 10
+    Role:
+      Fn::ImportValue:
+        Fn::Sub: cloudmart-${Environment}-LambdaAuthorizerRoleArn
 
-      MemorySize: 128
+    Timeout: 10
 
-      VpcConfig:
+    MemorySize: 128
 
-        SecurityGroupIds:
-          - Fn::ImportValue:
-              Fn::Sub: cloudmart-${Environment}-LambdaSecurityGroupId
+    VpcConfig:
 
-        SubnetIds:
-          - Fn::ImportValue:
-              Fn::Sub: cloudmart-${Environment}-PrivateSubnetId
+      SecurityGroupIds:
+        - Fn::ImportValue:
+            Fn::Sub: cloudmart-${Environment}-LambdaSecurityGroupId
 
-          - Fn::ImportValue:
-              Fn::Sub: cloudmart-${Environment}-SecondaryPrivateSubnetId
+      SubnetIds:
+        - Fn::ImportValue:
+            Fn::Sub: cloudmart-${Environment}-PrivateSubnetId
 
-      Environment:
+        - Fn::ImportValue:
+            Fn::Sub: cloudmart-${Environment}-SecondaryPrivateSubnetId
 
-        Variables:
+    Environment:
 
-          AUTH_TOKEN_PARAMETER:
-            !Ref AuthTokenParameter
+      Variables:
 
-      Code:
+        ADMIN_TOKEN_PARAMETER: !Ref AuthTokenParameter
 
-        ZipFile: |
-          import json
-          import os
+        CUSTOMER_TOKENS_PARAMETER: !Ref CustomerTokensParameter
 
-          import boto3
+    Code:
 
+      ZipFile: |
 
-          ssm = boto3.client("ssm")
+        import json
+        import os
+        import boto3
 
 
-          TOKEN_PARAMETER = os.environ[
-              "AUTH_TOKEN_PARAMETER"
-          ]
+        ssm = boto3.client("ssm")
 
 
-          def log_event(level, message, **details):
+        def get_parameter(parameter_name):
 
-              record = {
-                  "level": level,
-                  "service": "cloudmart-lambda-authorizer",
-                  "message": message,
-                  **details
-              }
+            response = ssm.get_parameter(
+                Name=parameter_name,
+                WithDecryption=True
+            )
 
-              print(
-                  json.dumps(record)
-              )
+            return response["Parameter"]["Value"]
 
 
-          def get_expected_token():
+        def generate_policy(
+            principal_id,
+            effect,
+            resource,
+            auth_context=None
+        ):
 
-              response = ssm.get_parameter(
-                  Name=TOKEN_PARAMETER,
-                  WithDecryption=True
-              )
+            policy = {
+                "principalId": principal_id,
+                "policyDocument": {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Action": "execute-api:Invoke",
+                            "Effect": effect,
+                            "Resource": resource
+                        }
+                    ]
+                }
+            }
 
-              return response[
-                  "Parameter"
-              ][
-                  "Value"
-              ]
+            if auth_context:
+                policy["context"] = auth_context
 
+            return policy
 
-          def generate_policy(
-              principal_id,
-              effect,
-              resource
-          ):
 
-              return {
-                  "principalId": principal_id,
+        def get_request_details(method_arn):
 
-                  "policyDocument": {
-                      "Version": "2012-10-17",
+            try:
 
-                      "Statement": [
-                          {
-                              "Action":
-                                  "execute-api:Invoke",
-
-                              "Effect":
-                                  effect,
-
-                              "Resource":
-                                  resource
-                          }
-                      ]
-                  }
-              }
-
-
-          def get_stage_resource(method_arn):
-
-              parts = method_arn.split(":")
-
-              if len(parts) < 6:
-                  return method_arn
-
-              api_gateway_part = parts[5]
-
-              api_parts = (
-                  api_gateway_part.split("/")
-              )
-
-              if len(api_parts) < 2:
-                  return method_arn
-
-              api_id = api_parts[0]
-
-              stage = api_parts[1]
-
-              return (
-                  ":".join(parts[:5])
-                  + ":"
-                  + api_id
-                  + "/"
-                  + stage
-                  + "/*/*"
-              )
-
-
-          def lambda_handler(event, context):
-
-              request_id = (
-                  context.aws_request_id
-              )
-
-              method_arn = event.get(
-                  "methodArn",
-                  "*"
-              )
-
-              try:
-
-                  log_event(
-                      "INFO",
-                      "Authorization request received",
-                      request_id=request_id
-                  )
-
-                  authorization_token = event.get(
-                      "authorizationToken",
-                      ""
-                  )
-
-                  if not authorization_token:
-
-                      headers = (
-                          event.get(
-                              "headers",
-                              {}
-                          )
-                          or {}
-                      )
-
-                      authorization_token = (
-                          headers.get(
-                              "Authorization"
-                          )
-                          or
-                          headers.get(
-                              "authorization"
-                          )
-                          or
-                          ""
-                      )
-
-                  if not authorization_token:
-
-                      log_event(
-                          "WARN",
-                          "Authorization token missing",
-                          request_id=request_id
-                      )
-
-                      return generate_policy(
-                          "unauthorized",
-                          "Deny",
-                          method_arn
-                      )
-
-                  provided_token = (
-                      authorization_token.strip()
-                  )
-
-                  if provided_token.startswith(
-                      "Bearer "
-                  ):
-
-                      provided_token = (
-                          provided_token[
-                              len("Bearer "):
-                          ]
-                          .strip()
-                      )
-
-                  if not provided_token:
-
-                      log_event(
-                          "WARN",
-                          "Authorization token empty",
-                          request_id=request_id
-                      )
-
-                      return generate_policy(
-                          "unauthorized",
-                          "Deny",
-                          method_arn
-                      )
-
-                  expected_token = (
-                      get_expected_token()
-                  )
-
-                  if (
-                      provided_token
-                      !=
-                      expected_token
-                  ):
-
-                      log_event(
-                          "WARN",
-                          "Authorization token invalid",
-                          request_id=request_id
-                      )
-
-                      return generate_policy(
-                          "unauthorized",
-                          "Deny",
-                          method_arn
-                      )
-
-                  stage_resource = (
-                      get_stage_resource(
-                          method_arn
-                      )
-                  )
-
-                  log_event(
-                      "INFO",
-                      "Authorization successful",
-                      request_id=request_id
-                  )
-
-                  return generate_policy(
-                      "authorized-user",
-                      "Allow",
-                      stage_resource
-                  )
-
-              except Exception as error:
-
-                  log_event(
-                      "ERROR",
-                      "Authorization failed",
-                      request_id=request_id,
-                      error_type=type(error).__name__,
-                      error=str(error)
-                  )
-
-                  return generate_policy(
-                      "unauthorized",
-                      "Deny",
-                      method_arn
-                  )
-
-
-      Tags:
-
-        - Key: Name
-          Value:
-            !Sub cloudmart-${Environment}-lambda-authorizer
-
-        - Key: Project
-          Value: CloudMart
-
-        - Key: Environment
-          Value: !Ref Environment
+                execute_api_part = method_arn.split(":")[5]
+
+                parts = execute_api_part.split("/")
+
+                http_method = (
+                    parts[2]
+                    if len(parts) > 2
+                    else ""
+                )
+
+                resource_path = (
+                    "/"
+                    + "/".join(parts[3:])
+                    if len(parts) > 3
+                    else "/"
+                )
+
+                return http_method, resource_path
+
+            except Exception:
+
+                return "", ""
+
+
+        def normalize_path(resource_path):
+
+            parts = [
+                part
+                for part in resource_path.split("/")
+                if part
+            ]
+
+
+            if len(parts) == 1:
+
+                if parts[0] == "products":
+                    return "/products"
+
+                if parts[0] == "orders":
+                    return "/orders"
+
+
+            if (
+                len(parts) == 2
+                and parts[0] == "products"
+            ):
+                return "/products/{id}"
+
+
+            if (
+                len(parts) == 2
+                and parts[0] == "orders"
+            ):
+                return "/orders/{id}"
+
+
+            if (
+                len(parts) == 3
+                and parts[0] == "orders"
+                and parts[2] == "status"
+            ):
+                return "/orders/{id}/status"
+
+
+            return resource_path
+
+
+        def customer_is_allowed(
+            http_method,
+            resource_path
+        ):
+
+            normalized_path = normalize_path(
+                resource_path
+            )
+
+            allowed_routes = {
+
+                ("GET", "/products"),
+
+                ("GET", "/products/{id}"),
+
+                ("POST", "/orders"),
+
+                ("GET", "/orders"),
+
+                ("GET", "/orders/{id}"),
+
+                (
+                    "PATCH",
+                    "/orders/{id}/status"
+                )
+            }
+
+            return (
+                http_method,
+                normalized_path
+            ) in allowed_routes
+
+
+        def lambda_handler(event, context):
+
+            method_arn = event.get(
+                "methodArn",
+                "*"
+            )
+
+
+            try:
+
+                authorization_header = event.get(
+                    "authorizationToken",
+                    ""
+                )
+
+
+                if not authorization_header:
+
+                    return generate_policy(
+                        "unauthorized",
+                        "Deny",
+                        method_arn
+                    )
+
+
+                provided_token = (
+                    authorization_header.strip()
+                )
+
+
+                if provided_token.lower().startswith(
+                    "bearer "
+                ):
+
+                    provided_token = (
+                        provided_token[7:].strip()
+                    )
+
+
+                if not provided_token:
+
+                    return generate_policy(
+                        "unauthorized",
+                        "Deny",
+                        method_arn
+                    )
+
+
+                admin_parameter = os.environ[
+                    "ADMIN_TOKEN_PARAMETER"
+                ]
+
+                customer_parameter = os.environ[
+                    "CUSTOMER_TOKENS_PARAMETER"
+                ]
+
+
+                admin_token = get_parameter(
+                    admin_parameter
+                )
+
+                customer_tokens_value = get_parameter(
+                    customer_parameter
+                )
+
+
+                customer_tokens = json.loads(
+                    customer_tokens_value
+                )
+
+
+                (
+                    http_method,
+                    resource_path
+                ) = get_request_details(
+                    method_arn
+                )
+
+
+                # ADMIN
+
+                if provided_token == admin_token:
+
+                    return generate_policy(
+                        "admin",
+                        "Allow",
+                        method_arn,
+                        {
+                            "role": "ADMIN",
+                            "customer_id": ""
+                        }
+                    )
+
+
+                # CUSTOMER
+
+                customer_id = customer_tokens.get(
+                    provided_token
+                )
+
+
+                if customer_id is None:
+
+                    return generate_policy(
+                        "unauthorized",
+                        "Deny",
+                        method_arn
+                    )
+
+
+                customer_id = int(customer_id)
+
+
+                if not customer_is_allowed(
+                    http_method,
+                    resource_path
+                ):
+
+                    return generate_policy(
+                        f"customer-{customer_id}",
+                        "Deny",
+                        method_arn
+                    )
+
+
+                return generate_policy(
+                    f"customer-{customer_id}",
+                    "Allow",
+                    method_arn,
+                    {
+                        "role": "CUSTOMER",
+                        "customer_id": str(customer_id)
+                    }
+                )
+
+
+            except Exception as exc:
+
+                print(
+                    json.dumps(
+                        {
+                            "error_type": type(exc).__name__,
+                            "error": str(exc)
+                        }
+                    )
+                )
+
+
+                return generate_policy(
+                    "unauthorized",
+                    "Deny",
+                    method_arn
+                )
 
 
   # ==========================================================
