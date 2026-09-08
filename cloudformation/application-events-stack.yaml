@@ -943,7 +943,7 @@ Resources:
 
       Role:
         Fn::ImportValue:
-          Fn::Sub: cloudmart-${Environment}-SchemaInitializerRoleArn
+          Fn::Sub: cloudmart-${Environment}-OrderLambdaRoleArn
 
       Timeout: 30
 

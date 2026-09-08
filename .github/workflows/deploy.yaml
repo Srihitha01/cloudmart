@@ -500,7 +500,7 @@ jobs:
               ProductLambdaS3Key="$PRODUCT_LAMBDA_S3_KEY" \
               OrderLambdaS3Key="$ORDER_LAMBDA_S3_KEY" \
               OrderProcessorLambdaS3Key="$ORDER_PROCESSOR_LAMBDA_S3_KEY" \
-              AuthorizerLambdaS3Key="$AUTHORIZER_LAMBDA_S3_KEY" \
+              
               SchemaS3Key="$SCHEMA_S3_KEY" \
               DBName="/cloudmart/$ENVIRONMENT/db/name" \
               DBEndpoint="/cloudmart/$ENVIRONMENT/db/endpoint" \
