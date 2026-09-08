@@ -1,11 +1,11 @@
 AWSTemplateFormatVersion: '2010-09-09'
 
 Description: >
-  CloudMart Application-Events Stack.
-  Creates Lambda Authorizer, PyMySQL layer, Product Lambda,
-  Order Lambda, Order Processor Lambda, Schema Initializer Lambda,
-  one custom EventBridge bus, order lifecycle events,
-  low-stock alerts, and SNS notifications.
+  CloudMart Application Events Stack.
+  Creates Lambda Authorizer, PyMySQL Layer, Product Lambda,
+  Order Lambda, Order Processor Lambda, Schema Initializer,
+  EventBridge event bus, order lifecycle notifications,
+  low stock alerts, and SNS notifications.
 
 Parameters:
 
@@ -77,9 +77,11 @@ Resources:
     Type: AWS::Events::EventBus
 
     Properties:
+
       Name: !Sub cloudmart-${Environment}-event-bus
 
       Tags:
+
         - Key: Name
           Value: !Sub cloudmart-${Environment}-event-bus
 
@@ -116,7 +118,9 @@ Resources:
       Environment:
 
         Variables:
+
           ADMIN_TOKEN_PARAMETER: !Ref AuthTokenParameter
+
           CUSTOMER_TOKENS_PARAMETER: !Ref CustomerTokensParameter
 
       Code:
@@ -378,9 +382,7 @@ Resources:
                       )
 
 
-                  customer_id = int(
-                      customer_id
-                  )
+                  customer_id = int(customer_id)
 
 
                   if not customer_is_allowed(
@@ -401,9 +403,7 @@ Resources:
                       method_arn,
                       {
                           "role": "CUSTOMER",
-                          "customer_id": str(
-                              customer_id
-                          )
+                          "customer_id": str(customer_id)
                       }
                   )
 
@@ -520,7 +520,7 @@ Resources:
 
 
   # ==========================================================
-  # ORDER LAMBDA
+  # ORDER LAMBDA - FIXED
   # ==========================================================
 
   OrderLambda:
@@ -563,9 +563,22 @@ Resources:
 
         Variables:
 
+          # DATABASE SSM PARAMETERS
+          DB_NAME_PARAMETER: !Ref DBName
+
+          DB_ENDPOINT_PARAMETER: !Ref DBEndpoint
+
+          DB_PORT_PARAMETER: !Ref DBPort
+
+          DB_USERNAME_PARAMETER: !Ref DBUsername
+
+          DB_PASSWORD_PARAMETER: !Ref DBPassword
+
+          # ORDER PROCESSOR
           ORDER_PROCESSOR_FUNCTION_NAME:
             !Ref OrderProcessorLambda
 
+          # EVENTBRIDGE
           EVENT_BUS_NAME:
             !Ref CloudMartEventBus
 
@@ -620,35 +633,27 @@ Resources:
 
         Variables:
 
-          DB_NAME_PARAMETER:
-            !Ref DBName
+          DB_NAME_PARAMETER: !Ref DBName
 
-          DB_ENDPOINT_PARAMETER:
-            !Ref DBEndpoint
+          DB_ENDPOINT_PARAMETER: !Ref DBEndpoint
 
-          DB_PORT_PARAMETER:
-            !Ref DBPort
+          DB_PORT_PARAMETER: !Ref DBPort
 
-          DB_USERNAME_PARAMETER:
-            !Ref DBUsername
+          DB_USERNAME_PARAMETER: !Ref DBUsername
 
-          DB_PASSWORD_PARAMETER:
-            !Ref DBPassword
+          DB_PASSWORD_PARAMETER: !Ref DBPassword
 
-          EVENT_BUS_NAME:
-            !Ref CloudMartEventBus
+          EVENT_BUS_NAME: !Ref CloudMartEventBus
 
       Code:
 
-        S3Bucket:
-          !Ref LambdaArtifactBucket
+        S3Bucket: !Ref LambdaArtifactBucket
 
-        S3Key:
-          !Ref OrderProcessorLambdaS3Key
+        S3Key: !Ref OrderProcessorLambdaS3Key
 
 
   # ==========================================================
-  # ORDER LAMBDA -> ORDER PROCESSOR PERMISSION
+  # ORDER LAMBDA INVOKE PERMISSION
   # ==========================================================
 
   OrderProcessorInvokePermission:
@@ -656,17 +661,13 @@ Resources:
 
     Properties:
 
-      FunctionName:
-        !Ref OrderProcessorLambda
+      FunctionName: !Ref OrderProcessorLambda
 
-      Action:
-        lambda:InvokeFunction
+      Action: lambda:InvokeFunction
 
-      Principal:
-        lambda.amazonaws.com
+      Principal: lambda.amazonaws.com
 
-      SourceArn:
-        !GetAtt OrderLambda.Arn
+      SourceArn: !GetAtt OrderLambda.Arn
 
 
   # ==========================================================
@@ -713,47 +714,24 @@ Resources:
 
         Variables:
 
-          DB_NAME_PARAMETER:
-            !Ref DBName
+          DB_NAME_PARAMETER: !Ref DBName
 
-          DB_ENDPOINT_PARAMETER:
-            !Ref DBEndpoint
+          DB_ENDPOINT_PARAMETER: !Ref DBEndpoint
 
-          DB_PORT_PARAMETER:
-            !Ref DBPort
+          DB_PORT_PARAMETER: !Ref DBPort
 
-          DB_USERNAME_PARAMETER:
-            !Ref DBUsername
+          DB_USERNAME_PARAMETER: !Ref DBUsername
 
-          DB_PASSWORD_PARAMETER:
-            !Ref DBPassword
+          DB_PASSWORD_PARAMETER: !Ref DBPassword
 
-          SCHEMA_S3_BUCKET:
-            !Ref LambdaArtifactBucket
+          SCHEMA_S3_BUCKET: !Ref LambdaArtifactBucket
 
-          SCHEMA_S3_KEY:
-            !Ref SchemaS3Key
+          SCHEMA_S3_KEY: !Ref SchemaS3Key
 
       Code:
 
         ZipFile: |
           import json
-          import os
-          import boto3
-
-
-          ssm = boto3.client("ssm")
-          s3 = boto3.client("s3")
-
-
-          def get_parameter(name):
-
-              response = ssm.get_parameter(
-                  Name=name,
-                  WithDecryption=True
-              )
-
-              return response["Parameter"]["Value"]
 
 
           def lambda_handler(event, context):
@@ -794,14 +772,11 @@ Resources:
 
     Properties:
 
-      TopicArn:
-        !Ref OrderConfirmationTopic
+      TopicArn: !Ref OrderConfirmationTopic
 
-      Protocol:
-        email
+      Protocol: email
 
-      Endpoint:
-        !Ref AlertEmail
+      Endpoint: !Ref AlertEmail
 
 
   # ==========================================================
@@ -851,8 +826,7 @@ Resources:
 
       State: ENABLED
 
-      EventBusName:
-        !Ref CloudMartEventBus
+      EventBusName: !Ref CloudMartEventBus
 
       EventPattern:
 
@@ -886,8 +860,7 @@ Resources:
 
       State: ENABLED
 
-      EventBusName:
-        !Ref CloudMartEventBus
+      EventBusName: !Ref CloudMartEventBus
 
       EventPattern:
 
@@ -921,8 +894,7 @@ Resources:
 
       State: ENABLED
 
-      EventBusName:
-        !Ref CloudMartEventBus
+      EventBusName: !Ref CloudMartEventBus
 
       EventPattern:
 
@@ -956,8 +928,7 @@ Resources:
 
       State: ENABLED
 
-      EventBusName:
-        !Ref CloudMartEventBus
+      EventBusName: !Ref CloudMartEventBus
 
       EventPattern:
 
@@ -991,8 +962,7 @@ Resources:
 
       State: ENABLED
 
-      EventBusName:
-        !Ref CloudMartEventBus
+      EventBusName: !Ref CloudMartEventBus
 
       EventPattern:
 
@@ -1034,14 +1004,11 @@ Resources:
 
     Properties:
 
-      TopicArn:
-        !Ref LowStockTopic
+      TopicArn: !Ref LowStockTopic
 
-      Protocol:
-        email
+      Protocol: email
 
-      Endpoint:
-        !Ref AlertEmail
+      Endpoint: !Ref AlertEmail
 
 
   # ==========================================================
@@ -1091,8 +1058,7 @@ Resources:
 
       State: ENABLED
 
-      EventBusName:
-        !Ref CloudMartEventBus
+      EventBusName: !Ref CloudMartEventBus
 
       EventPattern:
 
@@ -1215,20 +1181,20 @@ Outputs:
       Name: !Sub cloudmart-${Environment}-EventBusArn
 
 
-  LowStockTopicArn:
-    Description: Low stock SNS topic ARN
-    Value: !Ref LowStockTopic
-
-    Export:
-      Name: !Sub cloudmart-${Environment}-LowStockTopicArn
-
-
   OrderConfirmationTopicArn:
     Description: Order notification SNS topic ARN
     Value: !Ref OrderConfirmationTopic
 
     Export:
       Name: !Sub cloudmart-${Environment}-OrderConfirmationTopicArn
+
+
+  LowStockTopicArn:
+    Description: Low stock SNS topic ARN
+    Value: !Ref LowStockTopic
+
+    Export:
+      Name: !Sub cloudmart-${Environment}-LowStockTopicArn
 
 
   OrderPlacedEventRuleArn:
