@@ -81,19 +81,6 @@ def generate_policy(
 
 def get_request_details(method_arn):
 
-    """
-    Example:
-
-    arn:aws:execute-api:ap-south-1:ACCOUNT:API_ID/dev/GET/orders/10
-
-    Returns:
-
-    {
-        "http_method": "GET",
-        "resource_path": "/orders/10"
-    }
-    """
-
     try:
 
         arn_parts = method_arn.split(":")
@@ -102,7 +89,6 @@ def get_request_details(method_arn):
 
         parts = api_gateway_part.split("/")
 
-        # parts:
         # [api-id, stage, HTTP_METHOD, path...]
 
         http_method = (
@@ -137,36 +123,13 @@ def get_request_details(method_arn):
 
 def normalize_resource_path(path):
 
-    """
-    Convert actual paths into API resource patterns.
-
-    Examples:
-
-    /products
-        -> /products
-
-    /products/10
-        -> /products/{id}
-
-    /orders
-        -> /orders
-
-    /orders/10
-        -> /orders/{id}
-
-    /orders/10/status
-        -> /orders/{id}/status
-    """
-
     parts = [
         part
         for part in path.split("/")
         if part
     ]
 
-    # ------------------------------------------------------
     # /products/{id}
-    # ------------------------------------------------------
 
     if (
         len(parts) == 2
@@ -175,9 +138,7 @@ def normalize_resource_path(path):
 
         return "/products/{id}"
 
-    # ------------------------------------------------------
     # /orders/{id}
-    # ------------------------------------------------------
 
     if (
         len(parts) == 2
@@ -186,9 +147,7 @@ def normalize_resource_path(path):
 
         return "/orders/{id}"
 
-    # ------------------------------------------------------
     # /orders/{id}/status
-    # ------------------------------------------------------
 
     if (
         len(parts) == 3
@@ -198,9 +157,7 @@ def normalize_resource_path(path):
 
         return "/orders/{id}/status"
 
-    # ------------------------------------------------------
-    # BASE PATH
-    # ------------------------------------------------------
+    # Base path
 
     if not parts:
 
@@ -218,15 +175,12 @@ def customer_is_allowed(
     resource_path
 ):
 
-    normalized_path = (
-        normalize_resource_path(
-            resource_path
-        )
+    normalized_path = normalize_resource_path(
+        resource_path
     )
 
     # ------------------------------------------------------
     # PRODUCTS
-    #
     # Customer can only VIEW products
     # ------------------------------------------------------
 
@@ -234,63 +188,126 @@ def customer_is_allowed(
         http_method == "GET"
         and normalized_path == "/products"
     ):
-
         return True
 
     if (
         http_method == "GET"
         and normalized_path == "/products/{id}"
     ):
-
         return True
 
     # ------------------------------------------------------
     # ORDERS
-    #
-    # Customer can create own order
+    # Customer can create orders
     # ------------------------------------------------------
 
     if (
         http_method == "POST"
         and normalized_path == "/orders"
     ):
-
         return True
 
-    # ------------------------------------------------------
-    # Customer can view own orders
-    #
-    # Ownership will be checked by Order Lambda
-    # ------------------------------------------------------
+    # Customer can view orders
 
     if (
         http_method == "GET"
         and normalized_path == "/orders"
     ):
-
         return True
 
     if (
         http_method == "GET"
         and normalized_path == "/orders/{id}"
     ):
-
         return True
 
-    # ------------------------------------------------------
-    # Customer can request order cancellation
-    #
-    # Exact status value will be checked
-    # by Order Lambda because the authorizer
-    # does not receive the request body.
-    # ------------------------------------------------------
+    # Customer can request cancellation
 
     if (
         http_method == "PATCH"
         and normalized_path == "/orders/{id}/status"
     ):
-
         return True
+
+    return False
+
+
+# ==========================================================
+# ADMIN AUTHORIZATION
+# ==========================================================
+
+def admin_is_allowed(
+    http_method,
+    resource_path
+):
+
+    normalized_path = normalize_resource_path(
+        resource_path
+    )
+
+    # ------------------------------------------------------
+    # PRODUCTS
+    # Admin can manage products
+    # ------------------------------------------------------
+
+    if (
+        http_method == "GET"
+        and normalized_path == "/products"
+    ):
+        return True
+
+    if (
+        http_method == "GET"
+        and normalized_path == "/products/{id}"
+    ):
+        return True
+
+    if (
+        http_method == "POST"
+        and normalized_path == "/products"
+    ):
+        return True
+
+    if (
+        http_method == "PATCH"
+        and normalized_path == "/products/{id}"
+    ):
+        return True
+
+    if (
+        http_method == "DELETE"
+        and normalized_path == "/products/{id}"
+    ):
+        return True
+
+    # ------------------------------------------------------
+    # ORDERS
+    # Admin can view and manage order status
+    # ------------------------------------------------------
+
+    if (
+        http_method == "GET"
+        and normalized_path == "/orders"
+    ):
+        return True
+
+    if (
+        http_method == "GET"
+        and normalized_path == "/orders/{id}"
+    ):
+        return True
+
+    if (
+        http_method == "PATCH"
+        and normalized_path == "/orders/{id}/status"
+    ):
+        return True
+
+    # ------------------------------------------------------
+    # ADMIN CANNOT CREATE ORDERS
+    # ------------------------------------------------------
+
+    # POST /orders -> False
 
     return False
 
@@ -364,9 +381,7 @@ def lambda_handler(event, context):
         # EXTRACT BEARER TOKEN
         # ==================================================
 
-        provided_token = (
-            authorization_header.strip()
-        )
+        provided_token = authorization_header.strip()
 
         if provided_token.lower().startswith(
             "bearer "
@@ -430,17 +445,42 @@ def lambda_handler(event, context):
             "resource_path"
         ]
 
-        normalized_path = (
-            normalize_resource_path(
-                resource_path
-            )
+        normalized_path = normalize_resource_path(
+            resource_path
         )
 
         # ==================================================
-        # ADMIN AUTHENTICATION
+        # ADMIN AUTHENTICATION + AUTHORIZATION
         # ==================================================
 
         if provided_token == admin_token:
+
+            # ----------------------------------------------
+            # CHECK ADMIN ENDPOINT PERMISSION
+            # ----------------------------------------------
+
+            if not admin_is_allowed(
+                http_method,
+                resource_path
+            ):
+
+                log_event(
+                    "WARN",
+                    "Admin access denied",
+                    request_id=request_id,
+                    http_method=http_method,
+                    resource=normalized_path
+                )
+
+                return generate_policy(
+                    principal_id="admin",
+                    effect="Deny",
+                    resource=method_arn
+                )
+
+            # ----------------------------------------------
+            # ADMIN AUTHORIZED
+            # ----------------------------------------------
 
             log_event(
                 "INFO",
@@ -452,11 +492,8 @@ def lambda_handler(event, context):
 
             return generate_policy(
                 principal_id="admin",
-
                 effect="Allow",
-
                 resource=method_arn,
-
                 context={
                     "role": "ADMIN",
                     "customer_id": ""
@@ -511,9 +548,7 @@ def lambda_handler(event, context):
                 principal_id=(
                     f"customer-{customer_id}"
                 ),
-
                 effect="Deny",
-
                 resource=method_arn
             )
 
@@ -534,11 +569,8 @@ def lambda_handler(event, context):
             principal_id=(
                 f"customer-{customer_id}"
             ),
-
             effect="Allow",
-
             resource=method_arn,
-
             context={
                 "role": "CUSTOMER",
                 "customer_id": str(
