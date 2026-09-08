@@ -67,14 +67,14 @@ jobs:
       - name: Validate Network template
         run: |
           aws cloudformation validate-template \
-            --template-body file://cloudformation/network-security-stack.yaml \
+            --template-body file://cloudformation/network-stack.yaml \
             --region "$AWS_REGION"
 
 
       - name: Deploy Network Security Stack
         run: |
           aws cloudformation deploy \
-            --template-file cloudformation/network-security-stack.yaml \
+            --template-file cloudformation/network-stack.yaml \
             --stack-name "$NETWORK_STACK_NAME" \
             --parameter-overrides \
               Environment="$ENVIRONMENT" \
@@ -128,14 +128,14 @@ jobs:
       - name: Validate Data Storage template
         run: |
           aws cloudformation validate-template \
-            --template-body file://cloudformation/data-storage-stack.yaml \
+            --template-body file://cloudformation/data-stack.yaml \
             --region "$AWS_REGION"
 
 
       - name: Deploy Data Storage Stack
         run: |
           aws cloudformation deploy \
-            --template-file cloudformation/data-storage-stack.yaml \
+            --template-file cloudformation/data-stack.yaml \
             --stack-name "$DATA_STACK_NAME" \
             --parameter-overrides \
               Environment="$ENVIRONMENT" \
@@ -270,6 +270,7 @@ jobs:
           echo "PRODUCT_LAMBDA_S3_KEY=lambda/product/product-lambda-${GITHUB_SHA}.zip" >> "$GITHUB_ENV"
           echo "ORDER_LAMBDA_S3_KEY=lambda/order/order-lambda-${GITHUB_SHA}.zip" >> "$GITHUB_ENV"
           echo "ORDER_PROCESSOR_LAMBDA_S3_KEY=lambda/order-processor/order-processor-lambda-${GITHUB_SHA}.zip" >> "$GITHUB_ENV"
+          echo "AUTHORIZER_LAMBDA_S3_KEY=lambda/authorizer/authorizer-lambda-${GITHUB_SHA}.zip" >> "$GITHUB_ENV"
 
 
       # ========================================================
@@ -295,13 +296,24 @@ jobs:
 
 
       # ========================================================
-      # PACKAGE ORDER PROCESSOR
+      # PACKAGE ORDER PROCESSOR LAMBDA
       # ========================================================
 
       - name: Create Order Processor Lambda package
         run: |
           cd lambda/order-processor
           zip -r ../../order-processor-lambda.zip .
+          cd ../..
+
+
+      # ========================================================
+      # PACKAGE AUTHORIZER LAMBDA
+      # ========================================================
+
+      - name: Create Authorizer Lambda package
+        run: |
+          cd lambda/authorizer
+          zip -r ../../authorizer-lambda.zip .
           cd ../..
 
 
@@ -330,7 +342,7 @@ jobs:
 
 
       # ========================================================
-      # UPLOAD ORDER PROCESSOR
+      # UPLOAD ORDER PROCESSOR LAMBDA
       # ========================================================
 
       - name: Upload Order Processor Lambda
@@ -338,6 +350,18 @@ jobs:
           aws s3 cp \
             order-processor-lambda.zip \
             "s3://${LAMBDA_ARTIFACT_BUCKET}/lambda/order-processor/order-processor-lambda-${GITHUB_SHA}.zip" \
+            --region "$AWS_REGION"
+
+
+      # ========================================================
+      # UPLOAD AUTHORIZER LAMBDA
+      # ========================================================
+
+      - name: Upload Authorizer Lambda
+        run: |
+          aws s3 cp \
+            authorizer-lambda.zip \
+            "s3://${LAMBDA_ARTIFACT_BUCKET}/lambda/authorizer/authorizer-lambda-${GITHUB_SHA}.zip" \
             --region "$AWS_REGION"
 
 
@@ -373,7 +397,7 @@ jobs:
 
 
       # ========================================================
-      # SET ARTIFACT KEYS AGAIN
+      # SET ARTIFACT KEYS
       # ========================================================
 
       - name: Set Lambda artifact keys
@@ -381,6 +405,7 @@ jobs:
           echo "PRODUCT_LAMBDA_S3_KEY=lambda/product/product-lambda-${GITHUB_SHA}.zip" >> "$GITHUB_ENV"
           echo "ORDER_LAMBDA_S3_KEY=lambda/order/order-lambda-${GITHUB_SHA}.zip" >> "$GITHUB_ENV"
           echo "ORDER_PROCESSOR_LAMBDA_S3_KEY=lambda/order-processor/order-processor-lambda-${GITHUB_SHA}.zip" >> "$GITHUB_ENV"
+          echo "AUTHORIZER_LAMBDA_S3_KEY=lambda/authorizer/authorizer-lambda-${GITHUB_SHA}.zip" >> "$GITHUB_ENV"
 
 
       - name: Verify AWS identity
@@ -389,7 +414,7 @@ jobs:
 
 
       # ========================================================
-      # VALIDATE TEMPLATE
+      # VALIDATE APPLICATION EVENTS TEMPLATE
       # ========================================================
 
       - name: Validate Application Events template
@@ -427,11 +452,19 @@ jobs:
             --region "$AWS_REGION"
 
 
-      - name: Verify Order Processor artifact
+      - name: Verify Order Processor Lambda artifact
         run: |
           aws s3api head-object \
             --bucket "$LAMBDA_ARTIFACT_BUCKET" \
             --key "$ORDER_PROCESSOR_LAMBDA_S3_KEY" \
+            --region "$AWS_REGION"
+
+
+      - name: Verify Authorizer Lambda artifact
+        run: |
+          aws s3api head-object \
+            --bucket "$LAMBDA_ARTIFACT_BUCKET" \
+            --key "$AUTHORIZER_LAMBDA_S3_KEY" \
             --region "$AWS_REGION"
 
 
@@ -451,6 +484,7 @@ jobs:
               ProductLambdaS3Key="$PRODUCT_LAMBDA_S3_KEY" \
               OrderLambdaS3Key="$ORDER_LAMBDA_S3_KEY" \
               OrderProcessorLambdaS3Key="$ORDER_PROCESSOR_LAMBDA_S3_KEY" \
+              AuthorizerLambdaS3Key="$AUTHORIZER_LAMBDA_S3_KEY" \
               SchemaS3Key="$SCHEMA_S3_KEY" \
               DBName="/cloudmart/$ENVIRONMENT/db/name" \
               DBEndpoint="/cloudmart/$ENVIRONMENT/db/endpoint" \
@@ -466,7 +500,7 @@ jobs:
 
 
       # ========================================================
-      # VERIFY STACK
+      # VERIFY APPLICATION EVENTS STACK
       # ========================================================
 
       - name: Verify Application Events Stack
