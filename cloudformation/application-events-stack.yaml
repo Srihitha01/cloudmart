@@ -223,6 +223,13 @@ Resources:
               ):
                   return "/orders/{id}"
 
+              if (
+                  len(parts) == 3
+                  and parts[0] == "orders"
+                  and parts[2] == "status"
+              ):
+                  return "/orders/{id}/status"
+
               return resource_path
 
 
@@ -245,7 +252,9 @@ Resources:
 
                   ("GET", "/orders"),
 
-                  ("GET", "/orders/{id}")
+                  ("GET", "/orders/{id}"),
+
+                  ("PATCH", "/orders/{id}/status")
               }
 
               return (
