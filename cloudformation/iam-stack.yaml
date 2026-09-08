@@ -50,12 +50,34 @@ Resources:
               - sts:AssumeRole
 
 
-      ManagedPolicyArns:
-
-        - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
-
-
       Policies:
+
+
+        # ======================================================
+        # VPC NETWORK ACCESS
+        # ======================================================
+
+        - PolicyName: LambdaAuthorizerVpcAccess
+
+          PolicyDocument:
+
+            Version: '2012-10-17'
+
+            Statement:
+
+              - Effect: Allow
+
+                Action:
+                  - ec2:CreateNetworkInterface
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DescribeVpcs
+                  - ec2:DescribeSubnets
+                  - ec2:DescribeSecurityGroups
+                  - ec2:DeleteNetworkInterface
+                  - ec2:AssignPrivateIpAddresses
+                  - ec2:UnassignPrivateIpAddresses
+
+                Resource: "*"
 
 
         # ======================================================
@@ -147,12 +169,34 @@ Resources:
               - sts:AssumeRole
 
 
-      ManagedPolicyArns:
-
-        - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
-
-
       Policies:
+
+
+        # ======================================================
+        # VPC NETWORK ACCESS
+        # ======================================================
+
+        - PolicyName: ProductLambdaVpcAccess
+
+          PolicyDocument:
+
+            Version: '2012-10-17'
+
+            Statement:
+
+              - Effect: Allow
+
+                Action:
+                  - ec2:CreateNetworkInterface
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DescribeVpcs
+                  - ec2:DescribeSubnets
+                  - ec2:DescribeSecurityGroups
+                  - ec2:DeleteNetworkInterface
+                  - ec2:AssignPrivateIpAddresses
+                  - ec2:UnassignPrivateIpAddresses
+
+                Resource: "*"
 
 
         # ======================================================
@@ -271,12 +315,34 @@ Resources:
               - sts:AssumeRole
 
 
-      ManagedPolicyArns:
-
-        - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
-
-
       Policies:
+
+
+        # ======================================================
+        # VPC NETWORK ACCESS
+        # ======================================================
+
+        - PolicyName: OrderLambdaVpcAccess
+
+          PolicyDocument:
+
+            Version: '2012-10-17'
+
+            Statement:
+
+              - Effect: Allow
+
+                Action:
+                  - ec2:CreateNetworkInterface
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DescribeVpcs
+                  - ec2:DescribeSubnets
+                  - ec2:DescribeSecurityGroups
+                  - ec2:DeleteNetworkInterface
+                  - ec2:AssignPrivateIpAddresses
+                  - ec2:UnassignPrivateIpAddresses
+
+                Resource: "*"
 
 
         # ======================================================
@@ -416,12 +482,34 @@ Resources:
               - sts:AssumeRole
 
 
-      ManagedPolicyArns:
-
-        - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
-
-
       Policies:
+
+
+        # ======================================================
+        # VPC NETWORK ACCESS
+        # ======================================================
+
+        - PolicyName: OrderProcessorVpcAccess
+
+          PolicyDocument:
+
+            Version: '2012-10-17'
+
+            Statement:
+
+              - Effect: Allow
+
+                Action:
+                  - ec2:CreateNetworkInterface
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DescribeVpcs
+                  - ec2:DescribeSubnets
+                  - ec2:DescribeSecurityGroups
+                  - ec2:DeleteNetworkInterface
+                  - ec2:AssignPrivateIpAddresses
+                  - ec2:UnassignPrivateIpAddresses
+
+                Resource: "*"
 
 
         # ======================================================
