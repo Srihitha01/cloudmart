@@ -77,6 +77,7 @@ Resources:
     Type: AWS::Events::EventBus
 
     Properties:
+
       Name: !Sub cloudmart-${Environment}-event-bus
 
       Tags:
@@ -296,6 +297,14 @@ Resources:
                           provided_token[7:].strip()
                       )
 
+                  if not provided_token:
+
+                      return generate_policy(
+                          "unauthorized",
+                          "Deny",
+                          method_arn
+                      )
+
                   admin_parameter = os.environ[
                       "ADMIN_TOKEN_PARAMETER"
                   ]
@@ -407,7 +416,7 @@ Resources:
 
 
   # ==========================================================
-  # API GATEWAY AUTHORISER PERMISSION
+  # API GATEWAY AUTHORIZER PERMISSION
   # ==========================================================
 
   AuthorizerInvokePermission:
@@ -492,21 +501,15 @@ Resources:
         Variables:
 
           DB_NAME_PARAMETER: !Ref DBName
-
           DB_ENDPOINT_PARAMETER: !Ref DBEndpoint
-
           DB_PORT_PARAMETER: !Ref DBPort
-
           DB_USERNAME_PARAMETER: !Ref DBUsername
-
           DB_PASSWORD_PARAMETER: !Ref DBPassword
-
           EVENT_BUS_NAME: !Ref CloudMartEventBus
 
       Code:
 
         S3Bucket: !Ref LambdaArtifactBucket
-
         S3Key: !Ref ProductLambdaS3Key
 
       Tags:
@@ -564,13 +567,9 @@ Resources:
         Variables:
 
           DB_NAME_PARAMETER: !Ref DBName
-
           DB_ENDPOINT_PARAMETER: !Ref DBEndpoint
-
           DB_PORT_PARAMETER: !Ref DBPort
-
           DB_USERNAME_PARAMETER: !Ref DBUsername
-
           DB_PASSWORD_PARAMETER: !Ref DBPassword
 
           EVENT_BUS_NAME: !Ref CloudMartEventBus
@@ -580,7 +579,6 @@ Resources:
       Code:
 
         S3Bucket: !Ref LambdaArtifactBucket
-
         S3Key: !Ref OrderLambdaS3Key
 
       Tags:
@@ -638,13 +636,9 @@ Resources:
         Variables:
 
           DB_NAME_PARAMETER: !Ref DBName
-
           DB_ENDPOINT_PARAMETER: !Ref DBEndpoint
-
           DB_PORT_PARAMETER: !Ref DBPort
-
           DB_USERNAME_PARAMETER: !Ref DBUsername
-
           DB_PASSWORD_PARAMETER: !Ref DBPassword
 
           EVENT_BUS_NAME: !Ref CloudMartEventBus
@@ -652,7 +646,6 @@ Resources:
       Code:
 
         S3Bucket: !Ref LambdaArtifactBucket
-
         S3Key: !Ref OrderProcessorLambdaS3Key
 
       Tags:
@@ -710,17 +703,12 @@ Resources:
         Variables:
 
           DB_NAME_PARAMETER: !Ref DBName
-
           DB_ENDPOINT_PARAMETER: !Ref DBEndpoint
-
           DB_PORT_PARAMETER: !Ref DBPort
-
           DB_USERNAME_PARAMETER: !Ref DBUsername
-
           DB_PASSWORD_PARAMETER: !Ref DBPassword
 
           SCHEMA_BUCKET: !Ref LambdaArtifactBucket
-
           SCHEMA_KEY: !Ref SchemaS3Key
 
       Code:
@@ -728,6 +716,7 @@ Resources:
         ZipFile: |
           def lambda_handler(event, context):
               print("Schema Initializer Lambda deployed")
+
               return {
                   "statusCode": 200,
                   "body": "Schema initializer completed"
@@ -835,26 +824,26 @@ Resources:
 
               product_name: $.detail.product_name
 
-              stock_quantity: $.detail.stock_quantity
+              new_stock: $.detail.new_stock
 
-              reorder_threshold: $.detail.reorder_threshold
+              low_stock_threshold: $.detail.low_stock_threshold
 
             InputTemplate: |
-              "CloudMart Low Stock Alert\n\nProduct ID: <product_id>\nProduct: <product_name>\nCurrent Stock: <stock_quantity>\nReorder Threshold: <reorder_threshold>"
+              "CloudMart Low Stock Alert\n\nProduct ID: <product_id>\nProduct: <product_name>\nCurrent Stock: <new_stock>\nReorder Threshold: <low_stock_threshold>"
 
 
   # ==========================================================
-  # ORDER CREATED RULE
+  # ORDER PLACED RULE
   # ==========================================================
 
-  OrderCreatedEventRule:
+  OrderPlacedEventRule:
     Type: AWS::Events::Rule
 
     Properties:
 
-      Name: !Sub cloudmart-${Environment}-order-created-rule
+      Name: !Sub cloudmart-${Environment}-order-placed-rule
 
-      Description: CloudMart order created notification rule
+      Description: CloudMart order placed notification rule
 
       State: ENABLED
 
@@ -866,27 +855,27 @@ Resources:
           - cloudmart.orders
 
         detail-type:
-          - OrderCreated
+          - OrderPlaced
 
       Targets:
 
-        - Id: OrderCreatedSnsTarget
+        - Id: OrderPlacedSnsTarget
 
           Arn: !Ref OrderConfirmationTopic
 
 
   # ==========================================================
-  # ORDER PROCESSING RULE
+  # ORDER PENDING RULE
   # ==========================================================
 
-  OrderProcessingEventRule:
+  OrderPendingEventRule:
     Type: AWS::Events::Rule
 
     Properties:
 
-      Name: !Sub cloudmart-${Environment}-order-processing-rule
+      Name: !Sub cloudmart-${Environment}-order-pending-rule
 
-      Description: CloudMart order processing notification rule
+      Description: CloudMart order pending notification rule
 
       State: ENABLED
 
@@ -898,27 +887,27 @@ Resources:
           - cloudmart.orders
 
         detail-type:
-          - OrderProcessing
+          - OrderPending
 
       Targets:
 
-        - Id: OrderProcessingSnsTarget
+        - Id: OrderPendingSnsTarget
 
           Arn: !Ref OrderConfirmationTopic
 
 
   # ==========================================================
-  # ORDER DELIVERED RULE
+  # ORDER CONFIRMED RULE
   # ==========================================================
 
-  OrderDeliveredEventRule:
+  OrderConfirmedEventRule:
     Type: AWS::Events::Rule
 
     Properties:
 
-      Name: !Sub cloudmart-${Environment}-order-delivered-rule
+      Name: !Sub cloudmart-${Environment}-order-confirmed-rule
 
-      Description: CloudMart order delivered notification rule
+      Description: CloudMart order confirmed notification rule
 
       State: ENABLED
 
@@ -930,11 +919,11 @@ Resources:
           - cloudmart.orders
 
         detail-type:
-          - OrderDelivered
+          - OrderConfirmed
 
       Targets:
 
-        - Id: OrderDeliveredSnsTarget
+        - Id: OrderConfirmedSnsTarget
 
           Arn: !Ref OrderConfirmationTopic
 
@@ -999,6 +988,38 @@ Resources:
       Targets:
 
         - Id: OrderCancelledSnsTarget
+
+          Arn: !Ref OrderConfirmationTopic
+
+
+  # ==========================================================
+  # ORDER DELIVERED RULE
+  # ==========================================================
+
+  OrderDeliveredEventRule:
+    Type: AWS::Events::Rule
+
+    Properties:
+
+      Name: !Sub cloudmart-${Environment}-order-delivered-rule
+
+      Description: CloudMart order delivered notification rule
+
+      State: ENABLED
+
+      EventBusName: !Ref CloudMartEventBus
+
+      EventPattern:
+
+        source:
+          - cloudmart.orders
+
+        detail-type:
+          - OrderDelivered
+
+      Targets:
+
+        - Id: OrderDeliveredSnsTarget
 
           Arn: !Ref OrderConfirmationTopic
 
