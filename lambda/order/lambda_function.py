@@ -191,7 +191,7 @@ def get_auth_context(event):
     role = authorizer.get(
         "role",
         ""
-    )
+    ).strip().upper()
 
     customer_id = authorizer.get(
         "customer_id",
@@ -442,14 +442,12 @@ def create_order(
                 "Invalid processor response"
         }
 
-
     if status_code >= 400:
 
         return response(
             status_code,
             processor_body
         )
-
 
     log_event(
         "INFO",
@@ -462,7 +460,6 @@ def create_order(
             "order_id"
         )
     )
-
 
     return response(
         201,
@@ -575,14 +572,12 @@ def get_order(
 
         order["items"] = items
 
-
         log_event(
             "INFO",
             "Order retrieved",
             request_id=context.aws_request_id,
             order_id=order_id
         )
-
 
         return response(
             200,
@@ -633,7 +628,6 @@ def get_customer_orders(
             )
 
         customer_id = authenticated_customer_id
-
 
     elif role == "ADMIN":
 
@@ -737,7 +731,6 @@ def get_customer_orders(
                     cursor.fetchall()
                 )
 
-
         log_event(
             "INFO",
             "Orders retrieved",
@@ -746,7 +739,6 @@ def get_customer_orders(
             customer_id=customer_id,
             count=len(orders)
         )
-
 
         return response(
             200,
@@ -873,7 +865,11 @@ def update_order_status(
 
 
     # ======================================================
-    # CUSTOMER CAN ONLY CANCEL
+    # STRICT STATUS AUTHORIZATION
+    #
+    # CUSTOMER -> Can cancel only their own order
+    # ADMIN    -> Can mark an order as DELIVERED only
+    # OWNER    -> Cannot cancel or deliver orders
     # ======================================================
 
     if role == "CUSTOMER":
@@ -898,13 +894,27 @@ def update_order_status(
                 }
             )
 
-    elif role != "ADMIN":
+    elif role == "ADMIN":
+
+        if requested_status != "DELIVERED":
+
+            return response(
+                403,
+                {
+                    "message":
+                        "Admins can only mark orders as delivered"
+                }
+            )
+
+    else:
 
         return response(
             403,
             {
                 "message":
-                    "Unauthorized user"
+                    "Only customers can cancel orders"
+                    if requested_status == "CANCELLED"
+                    else "Only admins can mark orders as delivered"
             }
         )
 
@@ -975,10 +985,7 @@ def update_order_status(
             # STATUS TRANSITIONS
             # ==================================================
 
-            if (
-                current_status
-                != "CONFIRMED"
-            ):
+            if current_status != "CONFIRMED":
 
                 return response(
                     400,
@@ -1073,9 +1080,9 @@ def update_order_status(
             if not note:
 
                 note = (
-                    "Order cancelled"
+                    "Order cancelled by customer"
                     if requested_status == "CANCELLED"
-                    else "Order delivered"
+                    else "Order delivered by admin"
                 )
 
             cursor.execute(
@@ -1138,7 +1145,8 @@ def update_order_status(
             request_id=context.aws_request_id,
             order_id=order_id,
             previous_status=current_status,
-            new_status=requested_status
+            new_status=requested_status,
+            changed_by=changed_by
         )
 
 
