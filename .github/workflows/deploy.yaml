@@ -5,16 +5,20 @@ on:
     branches:
       - main
       - feature/order-flow
+
     paths:
       - 'cloudformation/**'
       - 'lambda/**'
+      - 'database/**'
       - '.github/workflows/deploy.yaml'
 
   workflow_dispatch:
 
+
 permissions:
   id-token: write
   contents: read
+
 
 env:
   AWS_REGION: ap-south-1
@@ -235,7 +239,7 @@ jobs:
 
 
   # ============================================================
-  # 4. BUILD AND UPLOAD LAMBDA ARTIFACTS
+  # 4. BUILD AND UPLOAD ARTIFACTS
   # ============================================================
 
   build-artifacts:
@@ -263,7 +267,7 @@ jobs:
 
 
       # ========================================================
-      # CREATE ARTIFACT KEYS
+      # SET ARTIFACT KEYS
       # ========================================================
 
       - name: Set Lambda artifact keys
@@ -326,7 +330,7 @@ jobs:
         run: |
           aws s3 cp \
             product-lambda.zip \
-            "s3://${LAMBDA_ARTIFACT_BUCKET}/lambda/product/product-lambda-${GITHUB_SHA}.zip" \
+            "s3://${LAMBDA_ARTIFACT_BUCKET}/${PRODUCT_LAMBDA_S3_KEY}" \
             --region "$AWS_REGION"
 
 
@@ -338,7 +342,7 @@ jobs:
         run: |
           aws s3 cp \
             order-lambda.zip \
-            "s3://${LAMBDA_ARTIFACT_BUCKET}/lambda/order/order-lambda-${GITHUB_SHA}.zip" \
+            "s3://${LAMBDA_ARTIFACT_BUCKET}/${ORDER_LAMBDA_S3_KEY}" \
             --region "$AWS_REGION"
 
 
@@ -350,7 +354,7 @@ jobs:
         run: |
           aws s3 cp \
             order-processor-lambda.zip \
-            "s3://${LAMBDA_ARTIFACT_BUCKET}/lambda/order-processor/order-processor-lambda-${GITHUB_SHA}.zip" \
+            "s3://${LAMBDA_ARTIFACT_BUCKET}/${ORDER_PROCESSOR_LAMBDA_S3_KEY}" \
             --region "$AWS_REGION"
 
 
@@ -362,7 +366,31 @@ jobs:
         run: |
           aws s3 cp \
             authorizer-lambda.zip \
-            "s3://${LAMBDA_ARTIFACT_BUCKET}/lambda/authorizer/authorizer-lambda-${GITHUB_SHA}.zip" \
+            "s3://${LAMBDA_ARTIFACT_BUCKET}/${AUTHORIZER_LAMBDA_S3_KEY}" \
+            --region "$AWS_REGION"
+
+
+      # ========================================================
+      # UPLOAD DATABASE SCHEMA
+      # ========================================================
+
+      - name: Upload Database Schema
+        run: |
+          aws s3 cp \
+            database/schema.sql \
+            "s3://${LAMBDA_ARTIFACT_BUCKET}/${SCHEMA_S3_KEY}" \
+            --region "$AWS_REGION"
+
+
+      # ========================================================
+      # VERIFY DATABASE SCHEMA UPLOAD
+      # ========================================================
+
+      - name: Verify Database Schema Upload
+        run: |
+          aws s3api head-object \
+            --bucket "$LAMBDA_ARTIFACT_BUCKET" \
+            --key "$SCHEMA_S3_KEY" \
             --region "$AWS_REGION"
 
 
@@ -469,6 +497,14 @@ jobs:
             --region "$AWS_REGION"
 
 
+      - name: Verify Database Schema
+        run: |
+          aws s3api head-object \
+            --bucket "$LAMBDA_ARTIFACT_BUCKET" \
+            --key "$SCHEMA_S3_KEY" \
+            --region "$AWS_REGION"
+
+
       # ========================================================
       # DEPLOY APPLICATION EVENTS
       # ========================================================
@@ -560,6 +596,25 @@ jobs:
             --region "$AWS_REGION" \
             --query '[FunctionName,Runtime,Handler,State,LastUpdateStatus]' \
             --output table
+
+
+      # ========================================================
+      # APPLICATION FAILURE DETAILS
+      # ========================================================
+
+      - name: Show Application Events Failure Details
+        if: failure()
+        run: |
+          echo "==============================================="
+          echo "APPLICATION EVENTS STACK FAILURE DETAILS"
+          echo "==============================================="
+
+          aws cloudformation describe-stack-events \
+            --stack-name "$APPLICATION_EVENTS_STACK_NAME" \
+            --region "$AWS_REGION" \
+            --max-items 30 \
+            --query "StackEvents[?ResourceStatus=='CREATE_FAILED' || ResourceStatus=='UPDATE_FAILED' || ResourceStatus=='CREATE_ROLLBACK_IN_PROGRESS'].[Timestamp,LogicalResourceId,ResourceType,ResourceStatus,ResourceStatusReason]" \
+            --output table || true
 
 
   # ============================================================
