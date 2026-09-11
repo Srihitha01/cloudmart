@@ -15,8 +15,8 @@ ssm = boto3.client("ssm")
 # ENVIRONMENT VARIABLES
 # ==========================================================
 
-AUTH_TOKEN_PARAMETER = os.environ[
-    "AUTH_TOKEN_PARAMETER"
+ADMIN_TOKEN_PARAMETER = os.environ[
+    "ADMIN_TOKEN_PARAMETER"
 ]
 
 CUSTOMER_TOKENS_PARAMETER = os.environ[
@@ -32,7 +32,7 @@ def generate_policy(
     principal_id,
     effect,
     method_arn,
-    context=None
+    auth_context=None
 ):
 
     policy_document = {
@@ -51,11 +51,11 @@ def generate_policy(
         "policyDocument": policy_document
     }
 
-    if context:
+    if auth_context:
 
         response["context"] = {
             key: str(value)
-            for key, value in context.items()
+            for key, value in auth_context.items()
         }
 
     return response
@@ -93,15 +93,7 @@ def get_parameter(parameter_name):
 
 
 # ==========================================================
-# GET TOKEN
-#
-# TOKEN Lambda Authorizer receives:
-#
-# event["authorizationToken"]
-#
-# Example:
-#
-# Bearer CustomerToken@3
+# GET BEARER TOKEN
 # ==========================================================
 
 def get_bearer_token(event):
@@ -110,13 +102,12 @@ def get_bearer_token(event):
         "authorizationToken"
     )
 
-    # Fallback support for other event formats
+    # Fallback support
     if not authorization:
 
-        headers = (
-            event.get("headers")
-            or {}
-        )
+        headers = event.get(
+            "headers"
+        ) or {}
 
         authorization = (
             headers.get("Authorization")
@@ -150,7 +141,9 @@ def get_customer_tokens():
 
     try:
 
-        tokens = json.loads(value)
+        customer_tokens = json.loads(
+            value
+        )
 
     except json.JSONDecodeError:
 
@@ -158,7 +151,10 @@ def get_customer_tokens():
             "Customer tokens parameter contains invalid JSON"
         )
 
-    if not isinstance(tokens, dict):
+    if not isinstance(
+        customer_tokens,
+        dict
+    ):
 
         raise ValueError(
             "Customer tokens parameter must be a JSON object"
@@ -166,7 +162,7 @@ def get_customer_tokens():
 
     normalized_tokens = {}
 
-    for token, customer_id in tokens.items():
+    for token, customer_id in customer_tokens.items():
 
         try:
 
@@ -189,6 +185,261 @@ def get_customer_tokens():
 
 
 # ==========================================================
+# GET REQUEST DETAILS FROM METHOD ARN
+# ==========================================================
+
+def get_request_details(method_arn):
+
+    try:
+
+        execute_api_part = method_arn.split(
+            ":"
+        )[5]
+
+        parts = execute_api_part.split(
+            "/"
+        )
+
+        http_method = (
+            parts[2]
+            if len(parts) > 2
+            else ""
+        )
+
+        resource_path = (
+            "/"
+            + "/".join(parts[3:])
+            if len(parts) > 3
+            else "/"
+        )
+
+        return (
+            http_method,
+            resource_path
+        )
+
+    except Exception:
+
+        return (
+            "",
+            ""
+        )
+
+
+# ==========================================================
+# NORMALIZE API PATH
+# ==========================================================
+
+def normalize_path(resource_path):
+
+    parts = [
+
+        part
+
+        for part in resource_path.split("/")
+
+        if part
+    ]
+
+
+    # PRODUCTS
+
+    if len(parts) == 1:
+
+        if parts[0] == "products":
+
+            return "/products"
+
+
+    if (
+
+        len(parts) == 2
+
+        and parts[0] == "products"
+
+    ):
+
+        return "/products/{id}"
+
+
+    # CUSTOMER ORDERS
+
+    if (
+
+        len(parts) == 3
+
+        and parts[0] == "customers"
+
+        and parts[2] == "orders"
+
+    ):
+
+        return (
+            "/customers/{customer_id}/orders"
+        )
+
+
+    # SINGLE CUSTOMER ORDER
+
+    if (
+
+        len(parts) == 4
+
+        and parts[0] == "customers"
+
+        and parts[2] == "orders"
+
+    ):
+
+        return (
+            "/customers/{customer_id}"
+            "/orders/{order_id}"
+        )
+
+
+    # CUSTOMER ORDER STATUS
+
+    if (
+
+        len(parts) == 5
+
+        and parts[0] == "customers"
+
+        and parts[2] == "orders"
+
+        and parts[4] == "status"
+
+    ):
+
+        return (
+            "/customers/{customer_id}"
+            "/orders/{order_id}/status"
+        )
+
+
+    return resource_path
+
+
+# ==========================================================
+# GET CUSTOMER ID FROM URL
+# ==========================================================
+
+def get_customer_id_from_path(resource_path):
+
+    parts = [
+
+        part
+
+        for part in resource_path.split("/")
+
+        if part
+    ]
+
+
+    if (
+
+        len(parts) >= 2
+
+        and parts[0] == "customers"
+
+    ):
+
+        try:
+
+            return int(
+                parts[1]
+            )
+
+        except (
+            ValueError,
+            TypeError
+        ):
+
+            return None
+
+
+    return None
+
+
+# ==========================================================
+# CHECK CUSTOMER ROUTE ACCESS
+# ==========================================================
+
+def customer_is_allowed(
+    http_method,
+    resource_path
+):
+
+    normalized_path = normalize_path(
+        resource_path
+    )
+
+
+    allowed_routes = {
+
+        # PRODUCTS
+
+        (
+            "GET",
+            "/products"
+        ),
+
+        (
+            "GET",
+            "/products/{id}"
+        ),
+
+
+        # CREATE ORDER
+
+        (
+            "POST",
+            "/customers/{customer_id}/orders"
+        ),
+
+
+        # GET CUSTOMER ORDERS
+
+        (
+            "GET",
+            "/customers/{customer_id}/orders"
+        ),
+
+
+        # GET SINGLE ORDER
+
+        (
+            "GET",
+            "/customers/{customer_id}/orders/{order_id}"
+        ),
+
+
+        # UPDATE ORDER
+
+        (
+            "PUT",
+            "/customers/{customer_id}/orders/{order_id}"
+        ),
+
+
+        # UPDATE ORDER STATUS / CANCEL
+
+        (
+            "PATCH",
+            "/customers/{customer_id}/orders/{order_id}/status"
+        )
+    }
+
+
+    return (
+
+        http_method,
+        normalized_path
+
+    ) in allowed_routes
+
+
+# ==========================================================
 # AUTHORIZE ADMIN
 # ==========================================================
 
@@ -198,7 +449,7 @@ def authorize_admin(
 ):
 
     admin_token = get_parameter(
-        AUTH_TOKEN_PARAMETER
+        ADMIN_TOKEN_PARAMETER
     )
 
     if token != admin_token:
@@ -212,7 +463,7 @@ def authorize_admin(
 
         method_arn=method_arn,
 
-        context={
+        auth_context={
             "role": "ADMIN",
             "customer_id": ""
         }
@@ -225,12 +476,12 @@ def authorize_admin(
 
 def authorize_customer(
     token,
-    method_arn
+    method_arn,
+    http_method,
+    resource_path
 ):
 
-    customer_tokens = (
-        get_customer_tokens()
-    )
+    customer_tokens = get_customer_tokens()
 
     authenticated_customer_id = (
         customer_tokens.get(token)
@@ -240,15 +491,84 @@ def authorize_customer(
 
         return None
 
+
+    # VALIDATE ROUTE
+
+    if not customer_is_allowed(
+        http_method,
+        resource_path
+    ):
+
+        print(
+            json.dumps(
+                {
+                    "message":
+                        "Customer route not allowed",
+
+                    "http_method":
+                        http_method,
+
+                    "resource_path":
+                        resource_path
+                }
+            )
+        )
+
+        return deny_policy(
+            method_arn
+        )
+
+
+    # VALIDATE CUSTOMER ID IN URL
+
+    url_customer_id = (
+        get_customer_id_from_path(
+            resource_path
+        )
+    )
+
+
+    if (
+
+        url_customer_id is not None
+
+        and url_customer_id
+        != authenticated_customer_id
+
+    ):
+
+        print(
+            json.dumps(
+                {
+                    "message":
+                        "Customer ID mismatch",
+
+                    "authenticated_customer_id":
+                        authenticated_customer_id,
+
+                    "url_customer_id":
+                        url_customer_id
+                }
+            )
+        )
+
+        return deny_policy(
+            method_arn
+        )
+
+
+    # CUSTOMER AUTHORIZED
+
     return generate_policy(
-        principal_id=
-            f"customer-{authenticated_customer_id}",
+        principal_id=(
+            f"customer-{authenticated_customer_id}"
+        ),
 
         effect="Allow",
 
         method_arn=method_arn,
 
-        context={
+        auth_context={
             "role": "CUSTOMER",
 
             "customer_id":
@@ -266,28 +586,23 @@ def lambda_handler(
     context
 ):
 
+    method_arn = event.get(
+        "methodArn"
+    )
+
+
     print(
         json.dumps(
             {
                 "message":
                     "Authorization request received",
 
-                "event_type":
-                    event.get("type"),
-
                 "method_arn":
-                    event.get("methodArn")
+                    method_arn
             }
         )
     )
 
-    # ======================================================
-    # GET METHOD ARN
-    # ======================================================
-
-    method_arn = event.get(
-        "methodArn"
-    )
 
     if not method_arn:
 
@@ -295,40 +610,69 @@ def lambda_handler(
             "Unauthorized"
         )
 
-    # ======================================================
-    # GET TOKEN
-    # ======================================================
 
-    token = get_bearer_token(
-        event
-    )
+    try:
 
-    if not token:
+        # GET TOKEN
+
+        token = get_bearer_token(
+            event
+        )
+
+
+        if not token:
+
+            print(
+                json.dumps(
+                    {
+                        "message":
+                            "Token missing"
+                    }
+                )
+            )
+
+            return deny_policy(
+                method_arn
+            )
+
+
+        # GET REQUEST DETAILS
+
+        (
+            http_method,
+            resource_path
+        ) = get_request_details(
+            method_arn
+        )
+
 
         print(
             json.dumps(
                 {
-                    "message":
-                        "Authorization denied - token missing"
+                    "http_method":
+                        http_method,
+
+                    "resource_path":
+                        resource_path,
+
+                    "normalized_path":
+                        normalize_path(
+                            resource_path
+                        )
                 }
             )
         )
 
-        return deny_policy(
-            method_arn
-        )
-
-    try:
 
         # ==================================================
         # ADMIN AUTHORIZATION
         # ==================================================
 
         admin_response = authorize_admin(
-            token=token,
-
-            method_arn=method_arn
+            token,
+            method_arn
         )
+
 
         if admin_response:
 
@@ -343,51 +687,49 @@ def lambda_handler(
 
             return admin_response
 
+
         # ==================================================
         # CUSTOMER AUTHORIZATION
         # ==================================================
 
-        customer_response = (
-            authorize_customer(
-                token=token,
-
-                method_arn=method_arn
-            )
+        customer_response = authorize_customer(
+            token,
+            method_arn,
+            http_method,
+            resource_path
         )
 
-        if customer_response:
 
-            authenticated_customer_id = (
-                customer_response[
-                    "context"
-                ][
-                    "customer_id"
-                ]
-            )
+        if customer_response:
 
             print(
                 json.dumps(
                     {
                         "message":
-                            "Customer authorized",
+                            "Customer authorization completed",
 
-                        "customer_id":
-                            authenticated_customer_id
+                        "effect":
+                            customer_response[
+                                "policyDocument"
+                            ][
+                                "Statement"
+                            ][0][
+                                "Effect"
+                            ]
                     }
                 )
             )
 
             return customer_response
 
-        # ==================================================
+
         # INVALID TOKEN
-        # ==================================================
 
         print(
             json.dumps(
                 {
                     "message":
-                        "Authorization denied - invalid token"
+                        "Invalid token"
                 }
             )
         )
@@ -395,6 +737,7 @@ def lambda_handler(
         return deny_policy(
             method_arn
         )
+
 
     except Exception as exc:
 
