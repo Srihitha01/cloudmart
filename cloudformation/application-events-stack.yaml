@@ -1,10 +1,14 @@
-AWSTemplateFormatVersion: '2010-09-09'
+AWSTemplateFormatVersion: "2010-09-09"
 
-Description: CloudMart Application, Lambda, EventBridge and SNS Stack
+Description: >
+  CloudMart Application and Events Stack.
+  Creates Lambda functions, EventBridge resources,
+  and SNS notifications.
 
-# ============================================================
+
+# ==========================================================
 # PARAMETERS
-# ============================================================
+# ==========================================================
 
 Parameters:
 
@@ -12,61 +16,72 @@ Parameters:
     Type: String
     Default: dev
 
+
   LambdaArtifactBucket:
     Type: String
+
 
   PyMySQLLayerS3Key:
     Type: String
 
+
   ProductLambdaS3Key:
     Type: String
+
 
   OrderLambdaS3Key:
     Type: String
 
+
   OrderProcessorLambdaS3Key:
     Type: String
+
 
   AuthorizerLambdaS3Key:
     Type: String
 
-  SchemaS3Key:
-    Type: String
 
   DBName:
     Type: String
 
+
   DBEndpoint:
     Type: String
+
 
   DBPort:
     Type: String
 
+
   DBUsername:
     Type: String
+
 
   DBPassword:
     Type: String
 
+
   AuthTokenParameter:
     Type: String
 
+
   CustomerTokensParameter:
     Type: String
+
 
   AlertEmail:
     Type: String
 
 
-# ============================================================
+# ==========================================================
 # RESOURCES
-# ============================================================
+# ==========================================================
 
 Resources:
 
 
   # ==========================================================
-  # PYMYSQL LAYER
+  # PYMYSQL LAMBDA LAYER
   # ==========================================================
 
   PyMySQLLayer:
@@ -75,9 +90,10 @@ Resources:
 
     Properties:
 
-      LayerName: !Sub cloudmart-${Environment}-pymysql
+      LayerName: !Sub "cloudmart-${Environment}-pymysql"
 
-      Description: PyMySQL dependency layer for CloudMart Lambda functions
+      Description: >
+        PyMySQL dependency layer for CloudMart Lambda functions
 
       Content:
 
@@ -91,239 +107,6 @@ Resources:
 
 
   # ==========================================================
-  # EVENTBRIDGE EVENT BUS
-  # ==========================================================
-
-  CloudMartEventBus:
-
-    Type: AWS::Events::EventBus
-
-    Properties:
-
-      Name: !Sub cloudmart-${Environment}-event-bus
-
-
-  # ==========================================================
-  # LOW STOCK SNS TOPIC
-  # ==========================================================
-
-  LowStockTopic:
-
-    Type: AWS::SNS::Topic
-
-    Properties:
-
-      TopicName: !Sub cloudmart-${Environment}-low-stock-alerts
-
-      DisplayName: CloudMart Low Stock Alerts
-
-
-  # ==========================================================
-  # ORDER NOTIFICATION SNS TOPIC
-  # ==========================================================
-
-  OrderConfirmationTopic:
-
-    Type: AWS::SNS::Topic
-
-    Properties:
-
-      TopicName: !Sub cloudmart-${Environment}-order-notifications
-
-      DisplayName: CloudMart Order Notifications
-
-
-  # ==========================================================
-  # LOW STOCK EMAIL SUBSCRIPTION
-  # ==========================================================
-
-  LowStockEmailSubscription:
-
-    Type: AWS::SNS::Subscription
-
-    Properties:
-
-      TopicArn: !Ref LowStockTopic
-
-      Protocol: email
-
-      Endpoint: !Ref AlertEmail
-
-
-  # ==========================================================
-  # ORDER EMAIL SUBSCRIPTION
-  # ==========================================================
-
-  OrderEmailSubscription:
-
-    Type: AWS::SNS::Subscription
-
-    Properties:
-
-      TopicArn: !Ref OrderConfirmationTopic
-
-      Protocol: email
-
-      Endpoint: !Ref AlertEmail
-
-
-  # ==========================================================
-  # EVENTBRIDGE TO SNS ROLE
-  # ==========================================================
-
-  EventBridgeSNSRole:
-
-    Type: AWS::IAM::Role
-
-    Properties:
-
-      RoleName: !Sub cloudmart-${Environment}-eventbridge-sns-role
-
-      AssumeRolePolicyDocument:
-
-        Version: '2012-10-17'
-
-        Statement:
-
-          - Effect: Allow
-
-            Principal:
-
-              Service: events.amazonaws.com
-
-            Action: sts:AssumeRole
-
-
-      Policies:
-
-        - PolicyName: PublishToCloudMartSNSTopics
-
-          PolicyDocument:
-
-            Version: '2012-10-17'
-
-            Statement:
-
-              - Effect: Allow
-
-                Action:
-
-                  - sns:Publish
-
-                Resource:
-
-                  - !Ref LowStockTopic
-
-                  - !Ref OrderConfirmationTopic
-
-
-  # ==========================================================
-  # LOW STOCK SNS TOPIC POLICY
-  # ==========================================================
-
-  LowStockTopicPolicy:
-
-    Type: AWS::SNS::TopicPolicy
-
-    Properties:
-
-      Topics:
-
-        - !Ref LowStockTopic
-
-      PolicyDocument:
-
-        Version: '2012-10-17'
-
-        Statement:
-
-          - Sid: AllowEventBridgePublish
-
-            Effect: Allow
-
-            Principal:
-
-              Service: events.amazonaws.com
-
-            Action: sns:Publish
-
-            Resource: !Ref LowStockTopic
-
-
-  # ==========================================================
-  # ORDER SNS TOPIC POLICY
-  # ==========================================================
-
-  OrderConfirmationTopicPolicy:
-
-    Type: AWS::SNS::TopicPolicy
-
-    Properties:
-
-      Topics:
-
-        - !Ref OrderConfirmationTopic
-
-      PolicyDocument:
-
-        Version: '2012-10-17'
-
-        Statement:
-
-          - Sid: AllowEventBridgePublish
-
-            Effect: Allow
-
-            Principal:
-
-              Service: events.amazonaws.com
-
-            Action: sns:Publish
-
-            Resource: !Ref OrderConfirmationTopic
-
-
-  # ==========================================================
-  # LAMBDA AUTHORIZER
-  # ==========================================================
-
-  LambdaAuthorizer:
-
-    Type: AWS::Lambda::Function
-
-    Properties:
-
-      FunctionName: !Sub cloudmart-${Environment}-lambda-authorizer
-
-      Runtime: python3.12
-
-      Handler: lambda_function.lambda_handler
-
-      Role:
-
-        Fn::ImportValue:
-          Fn::Sub: cloudmart-${Environment}-LambdaAuthorizerRoleArn
-
-      Timeout: 30
-
-      MemorySize: 128
-
-      Environment:
-
-        Variables:
-
-          AUTH_TOKEN_PARAMETER: !Ref AuthTokenParameter
-
-          CUSTOMER_TOKENS_PARAMETER: !Ref CustomerTokensParameter
-
-      Code:
-
-        S3Bucket: !Ref LambdaArtifactBucket
-
-        S3Key: !Ref AuthorizerLambdaS3Key
-
-
-  # ==========================================================
   # PRODUCT LAMBDA
   # ==========================================================
 
@@ -333,7 +116,7 @@ Resources:
 
     Properties:
 
-      FunctionName: !Sub cloudmart-${Environment}-product-lambda
+      FunctionName: !Sub "cloudmart-${Environment}-product-lambda"
 
       Runtime: python3.12
 
@@ -341,31 +124,24 @@ Resources:
 
       Role:
 
-        Fn::ImportValue:
-          Fn::Sub: cloudmart-${Environment}-ProductLambdaRoleArn
+        Fn::ImportValue: !Sub "${Environment}-ProductLambdaRoleArn"
 
       Timeout: 30
 
       MemorySize: 256
 
+
       Layers:
 
         - !Ref PyMySQLLayer
 
-      VpcConfig:
 
-        SecurityGroupIds:
+      Code:
 
-          - Fn::ImportValue:
-              Fn::Sub: cloudmart-${Environment}-LambdaSecurityGroupId
+        S3Bucket: !Ref LambdaArtifactBucket
 
-        SubnetIds:
+        S3Key: !Ref ProductLambdaS3Key
 
-          - Fn::ImportValue:
-              Fn::Sub: cloudmart-${Environment}-PrivateSubnetId
-
-          - Fn::ImportValue:
-              Fn::Sub: cloudmart-${Environment}-SecondaryPrivateSubnetId
 
       Environment:
 
@@ -381,13 +157,7 @@ Resources:
 
           DB_PASSWORD_PARAMETER: !Ref DBPassword
 
-          EVENT_BUS_NAME: !Ref CloudMartEventBus
-
-      Code:
-
-        S3Bucket: !Ref LambdaArtifactBucket
-
-        S3Key: !Ref ProductLambdaS3Key
+          EVENT_BUS_NAME: !Sub "cloudmart-${Environment}-event-bus"
 
 
   # ==========================================================
@@ -400,7 +170,7 @@ Resources:
 
     Properties:
 
-      FunctionName: !Sub cloudmart-${Environment}-order-lambda
+      FunctionName: !Sub "cloudmart-${Environment}-order-lambda"
 
       Runtime: python3.12
 
@@ -408,45 +178,40 @@ Resources:
 
       Role:
 
-        Fn::ImportValue:
-          Fn::Sub: cloudmart-${Environment}-OrderLambdaRoleArn
+        Fn::ImportValue: !Sub "${Environment}-OrderLambdaRoleArn"
 
       Timeout: 30
 
       MemorySize: 256
 
+
       Layers:
 
         - !Ref PyMySQLLayer
 
-      VpcConfig:
-
-        SecurityGroupIds:
-
-          - Fn::ImportValue:
-              Fn::Sub: cloudmart-${Environment}-LambdaSecurityGroupId
-
-        SubnetIds:
-
-          - Fn::ImportValue:
-              Fn::Sub: cloudmart-${Environment}-PrivateSubnetId
-
-          - Fn::ImportValue:
-              Fn::Sub: cloudmart-${Environment}-SecondaryPrivateSubnetId
-
-      Environment:
-
-        Variables:
-
-          ORDER_PROCESSOR_FUNCTION_NAME: !Ref OrderProcessorLambda
-
-          EVENT_BUS_NAME: !Ref CloudMartEventBus
 
       Code:
 
         S3Bucket: !Ref LambdaArtifactBucket
 
         S3Key: !Ref OrderLambdaS3Key
+
+
+      Environment:
+
+        Variables:
+
+          DB_NAME_PARAMETER: !Ref DBName
+
+          DB_ENDPOINT_PARAMETER: !Ref DBEndpoint
+
+          DB_PORT_PARAMETER: !Ref DBPort
+
+          DB_USERNAME_PARAMETER: !Ref DBUsername
+
+          DB_PASSWORD_PARAMETER: !Ref DBPassword
+
+          EVENT_BUS_NAME: !Sub "cloudmart-${Environment}-event-bus"
 
 
   # ==========================================================
@@ -459,7 +224,7 @@ Resources:
 
     Properties:
 
-      FunctionName: !Sub cloudmart-${Environment}-order-processor
+      FunctionName: !Sub "cloudmart-${Environment}-order-processor"
 
       Runtime: python3.12
 
@@ -467,47 +232,17 @@ Resources:
 
       Role:
 
-        Fn::ImportValue:
-          Fn::Sub: cloudmart-${Environment}-OrderProcessorLambdaRoleArn
+        Fn::ImportValue: !Sub "${Environment}-OrderProcessorLambdaRoleArn"
 
-      Timeout: 60
+      Timeout: 30
 
       MemorySize: 256
+
 
       Layers:
 
         - !Ref PyMySQLLayer
 
-      VpcConfig:
-
-        SecurityGroupIds:
-
-          - Fn::ImportValue:
-              Fn::Sub: cloudmart-${Environment}-LambdaSecurityGroupId
-
-        SubnetIds:
-
-          - Fn::ImportValue:
-              Fn::Sub: cloudmart-${Environment}-PrivateSubnetId
-
-          - Fn::ImportValue:
-              Fn::Sub: cloudmart-${Environment}-SecondaryPrivateSubnetId
-
-      Environment:
-
-        Variables:
-
-          DB_NAME_PARAMETER: !Ref DBName
-
-          DB_ENDPOINT_PARAMETER: !Ref DBEndpoint
-
-          DB_PORT_PARAMETER: !Ref DBPort
-
-          DB_USERNAME_PARAMETER: !Ref DBUsername
-
-          DB_PASSWORD_PARAMETER: !Ref DBPassword
-
-          EVENT_BUS_NAME: !Ref CloudMartEventBus
 
       Code:
 
@@ -516,71 +251,6 @@ Resources:
         S3Key: !Ref OrderProcessorLambdaS3Key
 
 
-  # ==========================================================
-  # ORDER LAMBDA -> ORDER PROCESSOR PERMISSION
-  # ==========================================================
-
-  OrderProcessorInvokePermission:
-
-    Type: AWS::Lambda::Permission
-
-    Properties:
-
-      FunctionName: !Ref OrderProcessorLambda
-
-      Action: lambda:InvokeFunction
-
-      Principal: lambda.amazonaws.com
-
-      SourceArn: !GetAtt OrderLambda.Arn
-
-
-  # ==========================================================
-  # SCHEMA INITIALIZER LAMBDA
-  # IMPORTANT:
-  # Uses INLINE CODE, NOT SchemaS3Key as Lambda code
-  # ==========================================================
-
-  SchemaInitializerLambda:
-
-    Type: AWS::Lambda::Function
-
-    Properties:
-
-      FunctionName: !Sub cloudmart-${Environment}-schema-initializer
-
-      Runtime: python3.12
-
-      Handler: index.lambda_handler
-
-      Role:
-
-        Fn::ImportValue:
-          Fn::Sub: cloudmart-${Environment}-ProductLambdaRoleArn
-
-      Timeout: 300
-
-      MemorySize: 256
-
-      Layers:
-
-        - !Ref PyMySQLLayer
-
-      VpcConfig:
-
-        SecurityGroupIds:
-
-          - Fn::ImportValue:
-              Fn::Sub: cloudmart-${Environment}-LambdaSecurityGroupId
-
-        SubnetIds:
-
-          - Fn::ImportValue:
-              Fn::Sub: cloudmart-${Environment}-PrivateSubnetId
-
-          - Fn::ImportValue:
-              Fn::Sub: cloudmart-${Environment}-SecondaryPrivateSubnetId
-
       Environment:
 
         Variables:
@@ -595,310 +265,59 @@ Resources:
 
           DB_PASSWORD_PARAMETER: !Ref DBPassword
 
-          SCHEMA_BUCKET: !Ref LambdaArtifactBucket
 
-          SCHEMA_KEY: !Ref SchemaS3Key
+  # ==========================================================
+  # LAMBDA AUTHORIZER
+  # ==========================================================
+
+  LambdaAuthorizer:
+
+    Type: AWS::Lambda::Function
+
+    Properties:
+
+      FunctionName: !Sub "cloudmart-${Environment}-lambda-authorizer"
+
+      Runtime: python3.12
+
+      Handler: lambda_function.lambda_handler
+
+      Role:
+
+        Fn::ImportValue: !Sub "${Environment}-LambdaAuthorizerRoleArn"
+
+      Timeout: 30
+
+      MemorySize: 128
+
 
       Code:
 
-        ZipFile: |
-          import os
-          import boto3
-          import pymysql
+        S3Bucket: !Ref LambdaArtifactBucket
 
-          s3 = boto3.client("s3")
-          ssm = boto3.client("ssm")
+        S3Key: !Ref AuthorizerLambdaS3Key
 
-          def get_parameter(name):
-              response = ssm.get_parameter(
-                  Name=name,
-                  WithDecryption=True
-              )
-              return response["Parameter"]["Value"]
 
-          def lambda_handler(event, context):
+      Environment:
 
-              db_name = get_parameter(
-                  os.environ["DB_NAME_PARAMETER"]
-              )
+        Variables:
 
-              db_endpoint = get_parameter(
-                  os.environ["DB_ENDPOINT_PARAMETER"]
-              )
+          ADMIN_TOKEN_PARAMETER: !Ref AuthTokenParameter
 
-              db_port = int(
-                  get_parameter(
-                      os.environ["DB_PORT_PARAMETER"]
-                  )
-              )
-
-              db_username = get_parameter(
-                  os.environ["DB_USERNAME_PARAMETER"]
-              )
-
-              db_password = get_parameter(
-                  os.environ["DB_PASSWORD_PARAMETER"]
-              )
-
-              schema_bucket = os.environ["SCHEMA_BUCKET"]
-              schema_key = os.environ["SCHEMA_KEY"]
-
-              response = s3.get_object(
-                  Bucket=schema_bucket,
-                  Key=schema_key
-              )
-
-              schema_sql = response["Body"].read().decode("utf-8")
-
-              connection = pymysql.connect(
-                  host=db_endpoint,
-                  user=db_username,
-                  password=db_password,
-                  database=db_name,
-                  port=db_port,
-                  connect_timeout=10,
-                  autocommit=True
-              )
-
-              try:
-
-                  with connection.cursor() as cursor:
-
-                      statements = [
-                          statement.strip()
-                          for statement in schema_sql.split(";")
-                          if statement.strip()
-                      ]
-
-                      for statement in statements:
-                          cursor.execute(statement)
-
-                  return {
-                      "statusCode": 200,
-                      "body": "CloudMart database schema initialized successfully"
-                  }
-
-              finally:
-
-                  connection.close()
+          CUSTOMER_TOKENS_PARAMETER: !Ref CustomerTokensParameter
 
 
   # ==========================================================
-  # LOW STOCK EVENT RULE
+  # EVENTBRIDGE EVENT BUS
   # ==========================================================
 
-  LowStockEventRule:
+  CloudMartEventBus:
 
-    Type: AWS::Events::Rule
+    Type: AWS::Events::EventBus
 
     Properties:
 
-      Name: !Sub cloudmart-${Environment}-low-stock-rule
-
-      Description: CloudMart low stock alert rule
-
-      State: ENABLED
-
-      EventBusName: !Ref CloudMartEventBus
-
-      EventPattern:
-
-        source:
-
-          - cloudmart.product
-
-        detail-type:
-
-          - Inventory Changed
-
-        detail:
-
-          low_stock:
-
-            - true
-
-      Targets:
-
-        - Id: LowStockSnsTarget
-
-          Arn: !Ref LowStockTopic
-
-          RoleArn: !GetAtt EventBridgeSNSRole.Arn
-
-
-  # ==========================================================
-  # ORDER PLACED EVENT RULE
-  # ==========================================================
-
-  OrderPlacedEventRule:
-
-    Type: AWS::Events::Rule
-
-    Properties:
-
-      Name: !Sub cloudmart-${Environment}-order-placed-rule
-
-      State: ENABLED
-
-      EventBusName: !Ref CloudMartEventBus
-
-      EventPattern:
-
-        source:
-
-          - cloudmart.orders
-
-        detail-type:
-
-          - OrderPlaced
-
-      Targets:
-
-        - Id: OrderPlacedSnsTarget
-
-          Arn: !Ref OrderConfirmationTopic
-
-          RoleArn: !GetAtt EventBridgeSNSRole.Arn
-
-
-  # ==========================================================
-  # ORDER PENDING EVENT RULE
-  # ==========================================================
-
-  OrderPendingEventRule:
-
-    Type: AWS::Events::Rule
-
-    Properties:
-
-      Name: !Sub cloudmart-${Environment}-order-pending-rule
-
-      State: ENABLED
-
-      EventBusName: !Ref CloudMartEventBus
-
-      EventPattern:
-
-        source:
-
-          - cloudmart.orders
-
-        detail-type:
-
-          - OrderPending
-
-      Targets:
-
-        - Id: OrderPendingSnsTarget
-
-          Arn: !Ref OrderConfirmationTopic
-
-          RoleArn: !GetAtt EventBridgeSNSRole.Arn
-
-
-  # ==========================================================
-  # ORDER CONFIRMED EVENT RULE
-  # ==========================================================
-
-  OrderConfirmedEventRule:
-
-    Type: AWS::Events::Rule
-
-    Properties:
-
-      Name: !Sub cloudmart-${Environment}-order-confirmed-rule
-
-      State: ENABLED
-
-      EventBusName: !Ref CloudMartEventBus
-
-      EventPattern:
-
-        source:
-
-          - cloudmart.orders
-
-        detail-type:
-
-          - OrderConfirmed
-
-      Targets:
-
-        - Id: OrderConfirmedSnsTarget
-
-          Arn: !Ref OrderConfirmationTopic
-
-          RoleArn: !GetAtt EventBridgeSNSRole.Arn
-
-
-  # ==========================================================
-  # ORDER FAILED EVENT RULE
-  # ==========================================================
-
-  OrderFailedEventRule:
-
-    Type: AWS::Events::Rule
-
-    Properties:
-
-      Name: !Sub cloudmart-${Environment}-order-failed-rule
-
-      State: ENABLED
-
-      EventBusName: !Ref CloudMartEventBus
-
-      EventPattern:
-
-        source:
-
-          - cloudmart.orders
-
-        detail-type:
-
-          - OrderFailed
-
-      Targets:
-
-        - Id: OrderFailedSnsTarget
-
-          Arn: !Ref OrderConfirmationTopic
-
-          RoleArn: !GetAtt EventBridgeSNSRole.Arn
-
-
-  # ==========================================================
-  # ORDER CANCELLED EVENT RULE
-  # ==========================================================
-
-  OrderCancelledEventRule:
-
-    Type: AWS::Events::Rule
-
-    Properties:
-
-      Name: !Sub cloudmart-${Environment}-order-cancelled-rule
-
-      State: ENABLED
-
-      EventBusName: !Ref CloudMartEventBus
-
-      EventPattern:
-
-        source:
-
-          - cloudmart.orders
-
-        detail-type:
-
-          - OrderCancelled
-
-      Targets:
-
-        - Id: OrderCancelledSnsTarget
-
-          Arn: !Ref OrderConfirmationTopic
-
-          RoleArn: !GetAtt EventBridgeSNSRole.Arn
+      Name: !Sub "cloudmart-${Environment}-event-bus"
 
 
   # ==========================================================
@@ -911,11 +330,13 @@ Resources:
 
     Properties:
 
-      Name: !Sub cloudmart-${Environment}-order-updated-rule
+      Name: !Sub "cloudmart-${Environment}-order-updated"
 
-      State: ENABLED
+      Description: >
+        Sends order update events to Order Processor Lambda
 
       EventBusName: !Ref CloudMartEventBus
+
 
       EventPattern:
 
@@ -923,47 +344,81 @@ Resources:
 
           - cloudmart.orders
 
+
         detail-type:
 
           - OrderUpdated
 
+
+      State: ENABLED
+
+
       Targets:
 
-        - Id: OrderUpdatedSnsTarget
+        - Arn: !GetAtt OrderProcessorLambda.Arn
 
-          Arn: !Ref OrderConfirmationTopic
-
-          RoleArn: !GetAtt EventBridgeSNSRole.Arn
+          Id: OrderProcessorTarget
 
 
-# ============================================================
+  # ==========================================================
+  # EVENTBRIDGE PERMISSION
+  # ==========================================================
+
+  OrderProcessorLambdaPermission:
+
+    Type: AWS::Lambda::Permission
+
+    Properties:
+
+      FunctionName: !Ref OrderProcessorLambda
+
+      Action: lambda:InvokeFunction
+
+      Principal: events.amazonaws.com
+
+      SourceArn: !GetAtt OrderUpdatedEventRule.Arn
+
+
+  # ==========================================================
+  # SNS ALERT TOPIC
+  # ==========================================================
+
+  AlertTopic:
+
+    Type: AWS::SNS::Topic
+
+    Properties:
+
+      TopicName: !Sub "cloudmart-${Environment}-alerts"
+
+
+  # ==========================================================
+  # SNS EMAIL SUBSCRIPTION
+  # ==========================================================
+
+  AlertSubscription:
+
+    Type: AWS::SNS::Subscription
+
+    Properties:
+
+      Protocol: email
+
+      TopicArn: !Ref AlertTopic
+
+      Endpoint: !Ref AlertEmail
+
+
+# ==========================================================
 # OUTPUTS
-# ============================================================
+# ==========================================================
 
 Outputs:
 
 
-  LambdaAuthorizerArn:
-
-    Description: Lambda Authorizer ARN
-
-    Value: !GetAtt LambdaAuthorizer.Arn
-
-    Export:
-
-      Name: !Sub cloudmart-${Environment}-LambdaAuthorizerArn
-
-
-  LambdaAuthorizerName:
-
-    Description: Lambda Authorizer Name
-
-    Value: !Ref LambdaAuthorizer
-
-    Export:
-
-      Name: !Sub cloudmart-${Environment}-LambdaAuthorizerName
-
+  # ==========================================================
+  # PRODUCT LAMBDA
+  # ==========================================================
 
   ProductLambdaArn:
 
@@ -973,7 +428,7 @@ Outputs:
 
     Export:
 
-      Name: !Sub cloudmart-${Environment}-ProductLambdaArn
+      Name: !Sub "cloudmart-${Environment}-ProductLambdaArn"
 
 
   ProductLambdaName:
@@ -984,8 +439,12 @@ Outputs:
 
     Export:
 
-      Name: !Sub cloudmart-${Environment}-ProductLambdaName
+      Name: !Sub "cloudmart-${Environment}-ProductLambdaName"
 
+
+  # ==========================================================
+  # ORDER LAMBDA
+  # ==========================================================
 
   OrderLambdaArn:
 
@@ -995,7 +454,7 @@ Outputs:
 
     Export:
 
-      Name: !Sub cloudmart-${Environment}-OrderLambdaArn
+      Name: !Sub "cloudmart-${Environment}-OrderLambdaArn"
 
 
   OrderLambdaName:
@@ -1006,8 +465,12 @@ Outputs:
 
     Export:
 
-      Name: !Sub cloudmart-${Environment}-OrderLambdaName
+      Name: !Sub "cloudmart-${Environment}-OrderLambdaName"
 
+
+  # ==========================================================
+  # ORDER PROCESSOR LAMBDA
+  # ==========================================================
 
   OrderProcessorLambdaArn:
 
@@ -1017,7 +480,7 @@ Outputs:
 
     Export:
 
-      Name: !Sub cloudmart-${Environment}-OrderProcessorLambdaArn
+      Name: !Sub "cloudmart-${Environment}-OrderProcessorLambdaArn"
 
 
   OrderProcessorLambdaName:
@@ -1028,41 +491,38 @@ Outputs:
 
     Export:
 
-      Name: !Sub cloudmart-${Environment}-OrderProcessorLambdaName
+      Name: !Sub "cloudmart-${Environment}-OrderProcessorLambdaName"
 
 
-  SchemaInitializerLambdaArn:
+  # ==========================================================
+  # AUTHORIZER LAMBDA
+  # ==========================================================
 
-    Description: Schema Initializer Lambda ARN
+  AuthorizerLambdaArn:
 
-    Value: !GetAtt SchemaInitializerLambda.Arn
+    Description: Lambda Authorizer ARN
 
-    Export:
-
-      Name: !Sub cloudmart-${Environment}-SchemaInitializerLambdaArn
-
-
-  SchemaInitializerLambdaName:
-
-    Description: Schema Initializer Lambda Name
-
-    Value: !Ref SchemaInitializerLambda
+    Value: !GetAtt LambdaAuthorizer.Arn
 
     Export:
 
-      Name: !Sub cloudmart-${Environment}-SchemaInitializerLambdaName
+      Name: !Sub "cloudmart-${Environment}-AuthorizerLambdaArn"
 
 
-  PyMySQLLayerArn:
+  AuthorizerLambdaName:
 
-    Description: PyMySQL Layer ARN
+    Description: Lambda Authorizer Name
 
-    Value: !Ref PyMySQLLayer
+    Value: !Ref LambdaAuthorizer
 
     Export:
 
-      Name: !Sub cloudmart-${Environment}-PyMySQLLayerArn
+      Name: !Sub "cloudmart-${Environment}-AuthorizerLambdaName"
 
+
+  # ==========================================================
+  # EVENTBRIDGE EVENT BUS
+  # ==========================================================
 
   EventBusName:
 
@@ -1072,7 +532,7 @@ Outputs:
 
     Export:
 
-      Name: !Sub cloudmart-${Environment}-EventBusName
+      Name: !Sub "cloudmart-${Environment}-EventBusName"
 
 
   EventBusArn:
@@ -1083,92 +543,19 @@ Outputs:
 
     Export:
 
-      Name: !Sub cloudmart-${Environment}-EventBusArn
+      Name: !Sub "cloudmart-${Environment}-EventBusArn"
 
 
-  LowStockTopicArn:
+  # ==========================================================
+  # SNS ALERT TOPIC
+  # ==========================================================
 
-    Description: Low Stock SNS Topic ARN
+  AlertTopicArn:
 
-    Value: !Ref LowStockTopic
+    Description: CloudMart SNS Alert Topic ARN
 
-    Export:
-
-      Name: !Sub cloudmart-${Environment}-LowStockTopicArn
-
-
-  OrderConfirmationTopicArn:
-
-    Description: Order Notification SNS Topic ARN
-
-    Value: !Ref OrderConfirmationTopic
+    Value: !Ref AlertTopic
 
     Export:
 
-      Name: !Sub cloudmart-${Environment}-OrderConfirmationTopicArn
-
-
-  OrderPlacedEventRuleArn:
-
-    Description: Order Placed Event Rule ARN
-
-    Value: !GetAtt OrderPlacedEventRule.Arn
-
-    Export:
-
-      Name: !Sub cloudmart-${Environment}-OrderPlacedEventRuleArn
-
-
-  OrderPendingEventRuleArn:
-
-    Description: Order Pending Event Rule ARN
-
-    Value: !GetAtt OrderPendingEventRule.Arn
-
-    Export:
-
-      Name: !Sub cloudmart-${Environment}-OrderPendingEventRuleArn
-
-
-  OrderConfirmedEventRuleArn:
-
-    Description: Order Confirmed Event Rule ARN
-
-    Value: !GetAtt OrderConfirmedEventRule.Arn
-
-    Export:
-
-      Name: !Sub cloudmart-${Environment}-OrderConfirmedEventRuleArn
-
-
-  OrderFailedEventRuleArn:
-
-    Description: Order Failed Event Rule ARN
-
-    Value: !GetAtt OrderFailedEventRule.Arn
-
-    Export:
-
-      Name: !Sub cloudmart-${Environment}-OrderFailedEventRuleArn
-
-
-  OrderCancelledEventRuleArn:
-
-    Description: Order Cancelled Event Rule ARN
-
-    Value: !GetAtt OrderCancelledEventRule.Arn
-
-    Export:
-
-      Name: !Sub cloudmart-${Environment}-OrderCancelledEventRuleArn
-
-
-  OrderUpdatedEventRuleArn:
-
-    Description: Order Updated Event Rule ARN
-
-    Value: !GetAtt OrderUpdatedEventRule.Arn
-
-    Export:
-
-      Name: !Sub cloudmart-${Environment}-OrderUpdatedEventRuleArn
+      Name: !Sub "cloudmart-${Environment}-AlertTopicArn"
