@@ -25,7 +25,7 @@ CUSTOMER_TOKENS_PARAMETER = os.environ[
 
 
 # ==========================================================
-# RESPONSE HELPERS
+# GENERATE POLICY
 # ==========================================================
 
 def generate_policy(
@@ -47,20 +47,15 @@ def generate_policy(
     }
 
     response = {
-        "principalId": str(
-            principal_id
-        ),
+        "principalId": str(principal_id),
         "policyDocument": policy_document
     }
 
     if context:
 
-        # API Gateway authorizer context values
-        # should be strings
         response["context"] = {
             key: str(value)
-            for key, value
-            in context.items()
+            for key, value in context.items()
         }
 
     return response
@@ -70,9 +65,7 @@ def generate_policy(
 # DENY POLICY
 # ==========================================================
 
-def deny_policy(
-    method_arn
-):
+def deny_policy(method_arn):
 
     return generate_policy(
         principal_id="unauthorized",
@@ -85,9 +78,7 @@ def deny_policy(
 # GET SSM PARAMETER
 # ==========================================================
 
-def get_parameter(
-    parameter_name
-):
+def get_parameter(parameter_name):
 
     response = ssm.get_parameter(
         Name=parameter_name,
@@ -103,170 +94,52 @@ def get_parameter(
 
 # ==========================================================
 # GET TOKEN
+#
+# TOKEN Lambda Authorizer receives:
+#
+# event["authorizationToken"]
+#
+# Example:
+#
+# Bearer CustomerToken@3
 # ==========================================================
 
-def get_bearer_token(
-    event
-):
+def get_bearer_token(event):
 
-    headers = (
-        event.get("headers")
-        or {}
+    authorization = event.get(
+        "authorizationToken"
     )
 
-    authorization = (
-        headers.get("Authorization")
-        or
-        headers.get("authorization")
-    )
+    # Fallback support for other event formats
+    if not authorization:
+
+        headers = (
+            event.get("headers")
+            or {}
+        )
+
+        authorization = (
+            headers.get("Authorization")
+            or headers.get("authorization")
+        )
 
     if not authorization:
 
         return None
 
-    authorization = (
-        authorization.strip()
-    )
+    authorization = authorization.strip()
 
-    if (
-        authorization.lower()
-        .startswith("bearer ")
+    if authorization.lower().startswith(
+        "bearer "
     ):
 
-        return authorization[
-            7:
-        ].strip()
+        return authorization[7:].strip()
 
-    # Also allow direct token
     return authorization
 
 
 # ==========================================================
-# GET REQUEST INFORMATION
-# ==========================================================
-
-def get_request_info(
-    event
-):
-
-    method = event.get(
-        "httpMethod",
-        ""
-    )
-
-    resource = event.get(
-        "resource",
-        ""
-    )
-
-    path = event.get(
-        "path",
-        ""
-    )
-
-    path_parameters = (
-        event.get(
-            "pathParameters"
-        )
-        or {}
-    )
-
-    return (
-        method,
-        resource,
-        path,
-        path_parameters
-    )
-
-
-# ==========================================================
-# GET CUSTOMER ID FROM PATH PARAMETERS
-# ==========================================================
-
-def get_customer_id_from_path(
-    path_parameters
-):
-
-    customer_id = (
-        path_parameters.get(
-            "customer_id"
-        )
-    )
-
-    if customer_id is None:
-
-        return None
-
-    try:
-
-        customer_id = int(
-            customer_id
-        )
-
-    except (
-        TypeError,
-        ValueError
-    ):
-
-        return None
-
-    if customer_id <= 0:
-
-        return None
-
-    return customer_id
-
-
-# ==========================================================
-# CUSTOMER ROUTES
-# ==========================================================
-
-def is_customer_route(
-    resource
-):
-
-    customer_routes = [
-
-        "/customers/{customer_id}/orders",
-
-        "/customers/{customer_id}/orders/{order_id}",
-
-        "/customers/{customer_id}/orders/{order_id}/status"
-    ]
-
-    return (
-        resource
-        in
-        customer_routes
-    )
-
-
-# ==========================================================
-# ADMIN ROUTES
-# ==========================================================
-
-def is_admin_route(
-    resource
-):
-
-    admin_routes = [
-
-        "/orders",
-
-        "/orders/{id}",
-
-        "/orders/{id}/status"
-    ]
-
-    return (
-        resource
-        in
-        admin_routes
-    )
-
-
-# ==========================================================
-# GET CUSTOMER TOKENS
+# GET CUSTOMER TOKENS FROM SSM
 # ==========================================================
 
 def get_customer_tokens():
@@ -277,9 +150,7 @@ def get_customer_tokens():
 
     try:
 
-        tokens = json.loads(
-            value
-        )
+        tokens = json.loads(value)
 
     except json.JSONDecodeError:
 
@@ -287,10 +158,7 @@ def get_customer_tokens():
             "Customer tokens parameter contains invalid JSON"
         )
 
-    if not isinstance(
-        tokens,
-        dict
-    ):
+    if not isinstance(tokens, dict):
 
         raise ValueError(
             "Customer tokens parameter must be a JSON object"
@@ -298,9 +166,7 @@ def get_customer_tokens():
 
     normalized_tokens = {}
 
-    for token, customer_id in (
-        tokens.items()
-    ):
+    for token, customer_id in tokens.items():
 
         try:
 
@@ -323,13 +189,12 @@ def get_customer_tokens():
 
 
 # ==========================================================
-# ADMIN AUTHORIZATION
+# AUTHORIZE ADMIN
 # ==========================================================
 
 def authorize_admin(
     token,
-    method_arn,
-    resource
+    method_arn
 ):
 
     admin_token = get_parameter(
@@ -337,16 +202,6 @@ def authorize_admin(
     )
 
     if token != admin_token:
-
-        return None
-
-    # Admin is allowed only on admin routes.
-    # Product routes can also be added separately
-    # if your existing project requires them.
-
-    if is_customer_route(
-        resource
-    ):
 
         return None
 
@@ -365,65 +220,23 @@ def authorize_admin(
 
 
 # ==========================================================
-# CUSTOMER AUTHORIZATION
+# AUTHORIZE CUSTOMER
 # ==========================================================
 
 def authorize_customer(
     token,
-    method_arn,
-    resource,
-    path_parameters
+    method_arn
 ):
-
-    # Customer must access customer-specific route
-
-    if not is_customer_route(
-        resource
-    ):
-
-        return None
 
     customer_tokens = (
         get_customer_tokens()
     )
 
     authenticated_customer_id = (
-        customer_tokens.get(
-            token
-        )
+        customer_tokens.get(token)
     )
 
-    if (
-        authenticated_customer_id
-        is None
-    ):
-
-        return None
-
-    url_customer_id = (
-        get_customer_id_from_path(
-            path_parameters
-        )
-    )
-
-    if (
-        url_customer_id
-        is None
-    ):
-
-        return None
-
-    # ======================================================
-    # MOST IMPORTANT SECURITY CHECK
-    #
-    # Token customer_id MUST match URL customer_id
-    # ======================================================
-
-    if (
-        authenticated_customer_id
-        !=
-        url_customer_id
-    ):
+    if authenticated_customer_id is None:
 
         return None
 
@@ -453,6 +266,25 @@ def lambda_handler(
     context
 ):
 
+    print(
+        json.dumps(
+            {
+                "message":
+                    "Authorization request received",
+
+                "event_type":
+                    event.get("type"),
+
+                "method_arn":
+                    event.get("methodArn")
+            }
+        )
+    )
+
+    # ======================================================
+    # GET METHOD ARN
+    # ======================================================
+
     method_arn = event.get(
         "methodArn"
     )
@@ -463,11 +295,24 @@ def lambda_handler(
             "Unauthorized"
         )
 
+    # ======================================================
+    # GET TOKEN
+    # ======================================================
+
     token = get_bearer_token(
         event
     )
 
     if not token:
+
+        print(
+            json.dumps(
+                {
+                    "message":
+                        "Authorization denied - token missing"
+                }
+            )
+        )
 
         return deny_policy(
             method_arn
@@ -475,48 +320,14 @@ def lambda_handler(
 
     try:
 
-        (
-            method,
-            resource,
-            path,
-            path_parameters
-        ) = get_request_info(
-            event
-        )
-
-        print(
-            json.dumps(
-                {
-                    "message":
-                        "Authorization request received",
-
-                    "method":
-                        method,
-
-                    "resource":
-                        resource,
-
-                    "path":
-                        path,
-
-                    "path_parameters":
-                        path_parameters
-                }
-            )
-        )
-
         # ==================================================
-        # ADMIN
+        # ADMIN AUTHORIZATION
         # ==================================================
 
-        admin_response = (
-            authorize_admin(
-                token=token,
+        admin_response = authorize_admin(
+            token=token,
 
-                method_arn=method_arn,
-
-                resource=resource
-            )
+            method_arn=method_arn
         )
 
         if admin_response:
@@ -525,10 +336,7 @@ def lambda_handler(
                 json.dumps(
                     {
                         "message":
-                            "Admin authorized",
-
-                        "resource":
-                            resource
+                            "Admin authorized"
                     }
                 )
             )
@@ -536,23 +344,26 @@ def lambda_handler(
             return admin_response
 
         # ==================================================
-        # CUSTOMER
+        # CUSTOMER AUTHORIZATION
         # ==================================================
 
         customer_response = (
             authorize_customer(
                 token=token,
 
-                method_arn=method_arn,
-
-                resource=resource,
-
-                path_parameters=
-                    path_parameters
+                method_arn=method_arn
             )
         )
 
         if customer_response:
+
+            authenticated_customer_id = (
+                customer_response[
+                    "context"
+                ][
+                    "customer_id"
+                ]
+            )
 
             print(
                 json.dumps(
@@ -560,15 +371,8 @@ def lambda_handler(
                         "message":
                             "Customer authorized",
 
-                        "resource":
-                            resource,
-
                         "customer_id":
-                            customer_response[
-                                "context"
-                            ][
-                                "customer_id"
-                            ]
+                            authenticated_customer_id
                     }
                 )
             )
@@ -576,17 +380,14 @@ def lambda_handler(
             return customer_response
 
         # ==================================================
-        # INVALID AUTHORIZATION
+        # INVALID TOKEN
         # ==================================================
 
         print(
             json.dumps(
                 {
                     "message":
-                        "Authorization denied",
-
-                    "resource":
-                        resource
+                        "Authorization denied - invalid token"
                 }
             )
         )
