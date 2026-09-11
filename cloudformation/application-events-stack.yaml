@@ -595,7 +595,7 @@ Resources:
         Fn::ImportValue:
 
           Fn::Sub:
-            cloudmart-${Environment}-SchemaInitializerLambdaRoleArn
+            cloudmart-${Environment}-ProductLambdaRoleArn
 
       Timeout: 60
 
