@@ -49,7 +49,6 @@ jobs:
 
     runs-on: ubuntu-latest
 
-
     steps:
 
       - name: Checkout repository
@@ -383,7 +382,7 @@ jobs:
 
 
       # ========================================================
-      # VERIFY DATABASE SCHEMA UPLOAD
+      # VERIFY DATABASE SCHEMA
       # ========================================================
 
       - name: Verify Database Schema Upload
@@ -425,10 +424,6 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
 
-      # ========================================================
-      # SET ARTIFACT KEYS
-      # ========================================================
-
       - name: Set Lambda artifact keys
         run: |
           echo "PRODUCT_LAMBDA_S3_KEY=lambda/product/product-lambda-${GITHUB_SHA}.zip" >> "$GITHUB_ENV"
@@ -441,10 +436,6 @@ jobs:
         run: |
           aws sts get-caller-identity
 
-
-      # ========================================================
-      # VALIDATE APPLICATION EVENTS TEMPLATE
-      # ========================================================
 
       - name: Validate Application Events template
         run: |
@@ -533,7 +524,8 @@ jobs:
               AlertEmail="${{ secrets.CLOUDMART_ALERT_EMAIL }}" \
             --region "$AWS_REGION" \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
-            --no-fail-on-empty-changeset
+            --no-fail-on-empty-changeset \
+            --disable-rollback
 
 
       # ========================================================
@@ -612,8 +604,8 @@ jobs:
           aws cloudformation describe-stack-events \
             --stack-name "$APPLICATION_EVENTS_STACK_NAME" \
             --region "$AWS_REGION" \
-            --max-items 30 \
-            --query "StackEvents[?ResourceStatus=='CREATE_FAILED' || ResourceStatus=='UPDATE_FAILED' || ResourceStatus=='CREATE_ROLLBACK_IN_PROGRESS'].[Timestamp,LogicalResourceId,ResourceType,ResourceStatus,ResourceStatusReason]" \
+            --max-items 50 \
+            --query "StackEvents[].[Timestamp,LogicalResourceId,ResourceType,ResourceStatus,ResourceStatusReason]" \
             --output table || true
 
 
@@ -676,3 +668,25 @@ jobs:
             --region "$AWS_REGION" \
             --query 'Stacks[0].[StackName,StackStatus]' \
             --output table
+
+
+      - name: Show API Monitoring EC2 Outputs
+        run: |
+          aws cloudformation describe-stacks \
+            --stack-name "$API_MONITORING_EC2_STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query 'Stacks[0].Outputs[*].[OutputKey,OutputValue]' \
+            --output table
+
+
+      - name: Show API Endpoint
+        run: |
+          echo "==============================================="
+          echo "CLOUDMART API ENDPOINT"
+          echo "==============================================="
+
+          aws cloudformation describe-stacks \
+            --stack-name "$API_MONITORING_EC2_STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query "Stacks[0].Outputs[?OutputKey=='ApiEndpoint'].OutputValue" \
+            --output text
