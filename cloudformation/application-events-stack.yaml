@@ -14,6 +14,9 @@ Parameters:
   Environment:
     Type: String
     Default: dev
+    AllowedValues:
+      - dev
+      - prod
 
   LambdaArtifactBucket:
     Type: String
@@ -64,6 +67,7 @@ Parameters:
 
 Resources:
 
+
   # ==========================================================
   # PYMYSQL LAMBDA LAYER
   # ==========================================================
@@ -72,161 +76,26 @@ Resources:
     Type: AWS::Lambda::LayerVersion
 
     Properties:
-      LayerName: !Sub "cloudmart-${Environment}-pymysql"
+
+      LayerName:
+        !Sub "cloudmart-${Environment}-pymysql"
 
       Description: >
         PyMySQL dependency layer for CloudMart Lambda functions
 
       Content:
-        S3Bucket: !Ref LambdaArtifactBucket
-        S3Key: !Ref PyMySQLLayerS3Key
+
+        S3Bucket:
+          !Ref LambdaArtifactBucket
+
+        S3Key:
+          !Ref PyMySQLLayerS3Key
 
       CompatibleRuntimes:
         - python3.12
 
-
-  # ==========================================================
-  # PRODUCT LAMBDA
-  # ==========================================================
-
-  ProductLambda:
-    Type: AWS::Lambda::Function
-
-    Properties:
-      FunctionName: !Sub "cloudmart-${Environment}-product-lambda"
-
-      Runtime: python3.12
-
-      Handler: lambda_function.lambda_handler
-
-      Role:
-        Fn::ImportValue: !Sub "cloudmart-${Environment}-ProductLambdaRoleArn"
-
-      Timeout: 30
-
-      MemorySize: 256
-
-      Layers:
-        - !Ref PyMySQLLayer
-
-      Code:
-        S3Bucket: !Ref LambdaArtifactBucket
-        S3Key: !Ref ProductLambdaS3Key
-
-      Environment:
-        Variables:
-          DB_NAME_PARAMETER: !Ref DBName
-          DB_ENDPOINT_PARAMETER: !Ref DBEndpoint
-          DB_PORT_PARAMETER: !Ref DBPort
-          DB_USERNAME_PARAMETER: !Ref DBUsername
-          DB_PASSWORD_PARAMETER: !Ref DBPassword
-          EVENT_BUS_NAME: !Sub "cloudmart-${Environment}-event-bus"
-
-
-  # ==========================================================
-  # ORDER LAMBDA
-  # ==========================================================
-
-  OrderLambda:
-    Type: AWS::Lambda::Function
-
-    Properties:
-      FunctionName: !Sub "cloudmart-${Environment}-order-lambda"
-
-      Runtime: python3.12
-
-      Handler: lambda_function.lambda_handler
-
-      Role:
-        Fn::ImportValue: !Sub "cloudmart-${Environment}-OrderLambdaRoleArn"
-
-      Timeout: 30
-
-      MemorySize: 256
-
-      Layers:
-        - !Ref PyMySQLLayer
-
-      Code:
-        S3Bucket: !Ref LambdaArtifactBucket
-        S3Key: !Ref OrderLambdaS3Key
-
-      Environment:
-        Variables:
-          DB_NAME_PARAMETER: !Ref DBName
-          DB_ENDPOINT_PARAMETER: !Ref DBEndpoint
-          DB_PORT_PARAMETER: !Ref DBPort
-          DB_USERNAME_PARAMETER: !Ref DBUsername
-          DB_PASSWORD_PARAMETER: !Ref DBPassword
-          EVENT_BUS_NAME: !Sub "cloudmart-${Environment}-event-bus"
-
-
-  # ==========================================================
-  # ORDER PROCESSOR LAMBDA
-  # ==========================================================
-
-  OrderProcessorLambda:
-    Type: AWS::Lambda::Function
-
-    Properties:
-      FunctionName: !Sub "cloudmart-${Environment}-order-processor"
-
-      Runtime: python3.12
-
-      Handler: lambda_function.lambda_handler
-
-      Role:
-        Fn::ImportValue: !Sub "cloudmart-${Environment}-OrderProcessorLambdaRoleArn"
-
-      Timeout: 30
-
-      MemorySize: 256
-
-      Layers:
-        - !Ref PyMySQLLayer
-
-      Code:
-        S3Bucket: !Ref LambdaArtifactBucket
-        S3Key: !Ref OrderProcessorLambdaS3Key
-
-      Environment:
-        Variables:
-          DB_NAME_PARAMETER: !Ref DBName
-          DB_ENDPOINT_PARAMETER: !Ref DBEndpoint
-          DB_PORT_PARAMETER: !Ref DBPort
-          DB_USERNAME_PARAMETER: !Ref DBUsername
-          DB_PASSWORD_PARAMETER: !Ref DBPassword
-
-
-  # ==========================================================
-  # LAMBDA AUTHORIZER
-  # ==========================================================
-
-  LambdaAuthorizer:
-    Type: AWS::Lambda::Function
-
-    Properties:
-      FunctionName: !Sub "cloudmart-${Environment}-lambda-authorizer"
-
-      Runtime: python3.12
-
-      Handler: lambda_function.lambda_handler
-
-      Role:
-        Fn::ImportValue: !Sub "cloudmart-${Environment}-LambdaAuthorizerRoleArn"
-
-      Timeout: 30
-
-      MemorySize: 128
-
-      Code:
-        S3Bucket: !Ref LambdaArtifactBucket
-        S3Key: !Ref AuthorizerLambdaS3Key
-
-      Environment:
-        Variables:
-          ADMIN_TOKEN_PARAMETER: !Ref AuthTokenParameter
-          CUSTOMER_TOKENS_PARAMETER: !Ref CustomerTokensParameter
+      CompatibleArchitectures:
+        - x86_64
 
 
   # ==========================================================
@@ -237,7 +106,242 @@ Resources:
     Type: AWS::Events::EventBus
 
     Properties:
-      Name: !Sub "cloudmart-${Environment}-event-bus"
+
+      Name:
+        !Sub "cloudmart-${Environment}-event-bus"
+
+
+  # ==========================================================
+  # PRODUCT LAMBDA
+  # ==========================================================
+
+  ProductLambda:
+    Type: AWS::Lambda::Function
+
+    Properties:
+
+      FunctionName:
+        !Sub "cloudmart-${Environment}-product-lambda"
+
+      Runtime:
+        python3.12
+
+      Handler:
+        lambda_function.lambda_handler
+
+      Role:
+        Fn::ImportValue:
+          Fn::Sub: "cloudmart-${Environment}-ProductLambdaRoleArn"
+
+      Timeout:
+        30
+
+      MemorySize:
+        256
+
+      Layers:
+        - !Ref PyMySQLLayer
+
+      Code:
+
+        S3Bucket:
+          !Ref LambdaArtifactBucket
+
+        S3Key:
+          !Ref ProductLambdaS3Key
+
+      Environment:
+
+        Variables:
+
+          DB_NAME_PARAMETER:
+            !Ref DBName
+
+          DB_ENDPOINT_PARAMETER:
+            !Ref DBEndpoint
+
+          DB_PORT_PARAMETER:
+            !Ref DBPort
+
+          DB_USERNAME_PARAMETER:
+            !Ref DBUsername
+
+          DB_PASSWORD_PARAMETER:
+            !Ref DBPassword
+
+          EVENT_BUS_NAME:
+            !Ref CloudMartEventBus
+
+
+  # ==========================================================
+  # ORDER LAMBDA
+  # ==========================================================
+
+  OrderLambda:
+    Type: AWS::Lambda::Function
+
+    Properties:
+
+      FunctionName:
+        !Sub "cloudmart-${Environment}-order-lambda"
+
+      Runtime:
+        python3.12
+
+      Handler:
+        lambda_function.lambda_handler
+
+      Role:
+        Fn::ImportValue:
+          Fn::Sub: "cloudmart-${Environment}-OrderLambdaRoleArn"
+
+      Timeout:
+        30
+
+      MemorySize:
+        256
+
+      Layers:
+        - !Ref PyMySQLLayer
+
+      Code:
+
+        S3Bucket:
+          !Ref LambdaArtifactBucket
+
+        S3Key:
+          !Ref OrderLambdaS3Key
+
+      Environment:
+
+        Variables:
+
+          DB_NAME_PARAMETER:
+            !Ref DBName
+
+          DB_ENDPOINT_PARAMETER:
+            !Ref DBEndpoint
+
+          DB_PORT_PARAMETER:
+            !Ref DBPort
+
+          DB_USERNAME_PARAMETER:
+            !Ref DBUsername
+
+          DB_PASSWORD_PARAMETER:
+            !Ref DBPassword
+
+          EVENT_BUS_NAME:
+            !Ref CloudMartEventBus
+
+
+  # ==========================================================
+  # ORDER PROCESSOR LAMBDA
+  # ==========================================================
+
+  OrderProcessorLambda:
+    Type: AWS::Lambda::Function
+
+    Properties:
+
+      FunctionName:
+        !Sub "cloudmart-${Environment}-order-processor"
+
+      Runtime:
+        python3.12
+
+      Handler:
+        lambda_function.lambda_handler
+
+      Role:
+        Fn::ImportValue:
+          Fn::Sub: "cloudmart-${Environment}-OrderProcessorLambdaRoleArn"
+
+      Timeout:
+        30
+
+      MemorySize:
+        256
+
+      Layers:
+        - !Ref PyMySQLLayer
+
+      Code:
+
+        S3Bucket:
+          !Ref LambdaArtifactBucket
+
+        S3Key:
+          !Ref OrderProcessorLambdaS3Key
+
+      Environment:
+
+        Variables:
+
+          DB_NAME_PARAMETER:
+            !Ref DBName
+
+          DB_ENDPOINT_PARAMETER:
+            !Ref DBEndpoint
+
+          DB_PORT_PARAMETER:
+            !Ref DBPort
+
+          DB_USERNAME_PARAMETER:
+            !Ref DBUsername
+
+          DB_PASSWORD_PARAMETER:
+            !Ref DBPassword
+
+          EVENT_BUS_NAME:
+            !Ref CloudMartEventBus
+
+
+  # ==========================================================
+  # LAMBDA AUTHORIZER
+  # ==========================================================
+
+  LambdaAuthorizer:
+    Type: AWS::Lambda::Function
+
+    Properties:
+
+      FunctionName:
+        !Sub "cloudmart-${Environment}-lambda-authorizer"
+
+      Runtime:
+        python3.12
+
+      Handler:
+        lambda_function.lambda_handler
+
+      Role:
+        Fn::ImportValue:
+          Fn::Sub: "cloudmart-${Environment}-LambdaAuthorizerRoleArn"
+
+      Timeout:
+        30
+
+      MemorySize:
+        128
+
+      Code:
+
+        S3Bucket:
+          !Ref LambdaArtifactBucket
+
+        S3Key:
+          !Ref AuthorizerLambdaS3Key
+
+      Environment:
+
+        Variables:
+
+          ADMIN_TOKEN_PARAMETER:
+            !Ref AuthTokenParameter
+
+          CUSTOMER_TOKENS_PARAMETER:
+            !Ref CustomerTokensParameter
 
 
   # ==========================================================
@@ -248,42 +352,56 @@ Resources:
     Type: AWS::Events::Rule
 
     Properties:
-      Name: !Sub "cloudmart-${Environment}-order-updated"
+
+      Name:
+        !Sub "cloudmart-${Environment}-order-updated"
 
       Description: >
         Sends order update events to Order Processor Lambda
 
-      EventBusName: !Ref CloudMartEventBus
+      EventBusName:
+        !Ref CloudMartEventBus
 
       EventPattern:
+
         source:
           - cloudmart.orders
 
         detail-type:
           - OrderUpdated
 
-      State: ENABLED
+      State:
+        ENABLED
 
       Targets:
-        - Arn: !GetAtt OrderProcessorLambda.Arn
-          Id: OrderProcessorTarget
+
+        - Arn:
+            !GetAtt OrderProcessorLambda.Arn
+
+          Id:
+            OrderProcessorTarget
 
 
   # ==========================================================
-  # EVENTBRIDGE PERMISSION
+  # EVENTBRIDGE INVOKE PERMISSION
   # ==========================================================
 
   OrderProcessorLambdaPermission:
     Type: AWS::Lambda::Permission
 
     Properties:
-      FunctionName: !Ref OrderProcessorLambda
 
-      Action: lambda:InvokeFunction
+      FunctionName:
+        !Ref OrderProcessorLambda
 
-      Principal: events.amazonaws.com
+      Action:
+        lambda:InvokeFunction
 
-      SourceArn: !GetAtt OrderUpdatedEventRule.Arn
+      Principal:
+        events.amazonaws.com
+
+      SourceArn:
+        !GetAtt OrderUpdatedEventRule.Arn
 
 
   # ==========================================================
@@ -294,7 +412,9 @@ Resources:
     Type: AWS::SNS::Topic
 
     Properties:
-      TopicName: !Sub "cloudmart-${Environment}-alerts"
+
+      TopicName:
+        !Sub "cloudmart-${Environment}-alerts"
 
 
   # ==========================================================
@@ -305,11 +425,15 @@ Resources:
     Type: AWS::SNS::Subscription
 
     Properties:
-      Protocol: email
 
-      TopicArn: !Ref AlertTopic
+      Protocol:
+        email
 
-      Endpoint: !Ref AlertEmail
+      TopicArn:
+        !Ref AlertTopic
+
+      Endpoint:
+        !Ref AlertEmail
 
 
 # ==========================================================
@@ -318,100 +442,181 @@ Resources:
 
 Outputs:
 
-  ProductLambdaArn:
-    Description: Product Lambda ARN
 
-    Value: !GetAtt ProductLambda.Arn
+  # ==========================================================
+  # PRODUCT LAMBDA
+  # ==========================================================
+
+  ProductLambdaArn:
+
+    Description:
+      Product Lambda ARN
+
+    Value:
+      !GetAtt ProductLambda.Arn
 
     Export:
-      Name: !Sub "cloudmart-${Environment}-ProductLambdaArn"
+
+      Name:
+        !Sub "cloudmart-${Environment}-ProductLambdaArn"
 
 
   ProductLambdaName:
-    Description: Product Lambda Name
 
-    Value: !Ref ProductLambda
+    Description:
+      Product Lambda Name
+
+    Value:
+      !Ref ProductLambda
 
     Export:
-      Name: !Sub "cloudmart-${Environment}-ProductLambdaName"
 
+      Name:
+        !Sub "cloudmart-${Environment}-ProductLambdaName"
+
+
+  # ==========================================================
+  # ORDER LAMBDA
+  # ==========================================================
 
   OrderLambdaArn:
-    Description: Order Lambda ARN
 
-    Value: !GetAtt OrderLambda.Arn
+    Description:
+      Order Lambda ARN
+
+    Value:
+      !GetAtt OrderLambda.Arn
 
     Export:
-      Name: !Sub "cloudmart-${Environment}-OrderLambdaArn"
+
+      Name:
+        !Sub "cloudmart-${Environment}-OrderLambdaArn"
 
 
   OrderLambdaName:
-    Description: Order Lambda Name
 
-    Value: !Ref OrderLambda
+    Description:
+      Order Lambda Name
+
+    Value:
+      !Ref OrderLambda
 
     Export:
-      Name: !Sub "cloudmart-${Environment}-OrderLambdaName"
 
+      Name:
+        !Sub "cloudmart-${Environment}-OrderLambdaName"
+
+
+  # ==========================================================
+  # ORDER PROCESSOR LAMBDA
+  # ==========================================================
 
   OrderProcessorLambdaArn:
-    Description: Order Processor Lambda ARN
 
-    Value: !GetAtt OrderProcessorLambda.Arn
+    Description:
+      Order Processor Lambda ARN
+
+    Value:
+      !GetAtt OrderProcessorLambda.Arn
 
     Export:
-      Name: !Sub "cloudmart-${Environment}-OrderProcessorLambdaArn"
+
+      Name:
+        !Sub "cloudmart-${Environment}-OrderProcessorLambdaArn"
 
 
   OrderProcessorLambdaName:
-    Description: Order Processor Lambda Name
 
-    Value: !Ref OrderProcessorLambda
+    Description:
+      Order Processor Lambda Name
 
-    Export:
-      Name: !Sub "cloudmart-${Environment}-OrderProcessorLambdaName"
-
-
-  AuthorizerLambdaArn:
-    Description: Lambda Authorizer ARN
-
-    Value: !GetAtt LambdaAuthorizer.Arn
+    Value:
+      !Ref OrderProcessorLambda
 
     Export:
-      Name: !Sub "cloudmart-${Environment}-AuthorizerLambdaArn"
+
+      Name:
+        !Sub "cloudmart-${Environment}-OrderProcessorLambdaName"
 
 
-  AuthorizerLambdaName:
-    Description: Lambda Authorizer Name
+  # ==========================================================
+  # LAMBDA AUTHORIZER
+  # IMPORTANT: KEEP THESE NAMES FOR API STACK COMPATIBILITY
+  # ==========================================================
 
-    Value: !Ref LambdaAuthorizer
+  LambdaAuthorizerArn:
+
+    Description:
+      Lambda Authorizer ARN
+
+    Value:
+      !GetAtt LambdaAuthorizer.Arn
 
     Export:
-      Name: !Sub "cloudmart-${Environment}-AuthorizerLambdaName"
 
+      Name:
+        !Sub "cloudmart-${Environment}-LambdaAuthorizerArn"
+
+
+  LambdaAuthorizerName:
+
+    Description:
+      Lambda Authorizer function name
+
+    Value:
+      !Ref LambdaAuthorizer
+
+    Export:
+
+      Name:
+        !Sub "cloudmart-${Environment}-LambdaAuthorizerName"
+
+
+  # ==========================================================
+  # EVENTBRIDGE EVENT BUS
+  # ==========================================================
 
   EventBusName:
-    Description: CloudMart EventBridge Event Bus Name
 
-    Value: !Ref CloudMartEventBus
+    Description:
+      CloudMart EventBridge Event Bus Name
+
+    Value:
+      !Ref CloudMartEventBus
 
     Export:
-      Name: !Sub "cloudmart-${Environment}-EventBusName"
+
+      Name:
+        !Sub "cloudmart-${Environment}-EventBusName"
 
 
   EventBusArn:
-    Description: CloudMart EventBridge Event Bus ARN
 
-    Value: !GetAtt CloudMartEventBus.Arn
+    Description:
+      CloudMart EventBridge Event Bus ARN
+
+    Value:
+      !GetAtt CloudMartEventBus.Arn
 
     Export:
-      Name: !Sub "cloudmart-${Environment}-EventBusArn"
 
+      Name:
+        !Sub "cloudmart-${Environment}-EventBusArn"
+
+
+  # ==========================================================
+  # SNS ALERT TOPIC
+  # ==========================================================
 
   AlertTopicArn:
-    Description: CloudMart SNS Alert Topic ARN
 
-    Value: !Ref AlertTopic
+    Description:
+      CloudMart SNS Alert Topic ARN
+
+    Value:
+      !Ref AlertTopic
 
     Export:
-      Name: !Sub "cloudmart-${Environment}-AlertTopicArn"
+
+      Name:
+        !Sub "cloudmart-${Environment}-AlertTopicArn"
