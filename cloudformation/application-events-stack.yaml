@@ -14,48 +14,63 @@ Parameters:
   Environment:
     Type: String
     Default: dev
+
     AllowedValues:
       - dev
       - prod
 
+
   LambdaArtifactBucket:
     Type: String
+
 
   PyMySQLLayerS3Key:
     Type: String
 
+
   ProductLambdaS3Key:
     Type: String
+
 
   OrderLambdaS3Key:
     Type: String
 
+
   OrderProcessorLambdaS3Key:
     Type: String
+
 
   AuthorizerLambdaS3Key:
     Type: String
 
+
   DBName:
     Type: String
+
 
   DBEndpoint:
     Type: String
 
+
   DBPort:
     Type: String
+
 
   DBUsername:
     Type: String
 
+
   DBPassword:
     Type: String
+
 
   AuthTokenParameter:
     Type: String
 
+
   CustomerTokensParameter:
     Type: String
+
 
   AlertEmail:
     Type: String
@@ -73,6 +88,7 @@ Resources:
   # ==========================================================
 
   PyMySQLLayer:
+
     Type: AWS::Lambda::LayerVersion
 
     Properties:
@@ -80,8 +96,10 @@ Resources:
       LayerName:
         !Sub "cloudmart-${Environment}-pymysql"
 
+
       Description: >
         PyMySQL dependency layer for CloudMart Lambda functions
+
 
       Content:
 
@@ -91,8 +109,10 @@ Resources:
         S3Key:
           !Ref PyMySQLLayerS3Key
 
+
       CompatibleRuntimes:
         - python3.12
+
 
       CompatibleArchitectures:
         - x86_64
@@ -103,6 +123,7 @@ Resources:
   # ==========================================================
 
   CloudMartEventBus:
+
     Type: AWS::Events::EventBus
 
     Properties:
@@ -116,6 +137,7 @@ Resources:
   # ==========================================================
 
   ProductLambda:
+
     Type: AWS::Lambda::Function
 
     Properties:
@@ -123,24 +145,60 @@ Resources:
       FunctionName:
         !Sub "cloudmart-${Environment}-product-lambda"
 
+
       Runtime:
         python3.12
+
 
       Handler:
         lambda_function.lambda_handler
 
+
       Role:
+
         Fn::ImportValue:
+
           Fn::Sub: "cloudmart-${Environment}-ProductLambdaRoleArn"
+
 
       Timeout:
         30
 
+
       MemorySize:
         256
 
+
+      # ======================================================
+      # VPC CONFIGURATION
+      # Required for private RDS access
+      # ======================================================
+
+      VpcConfig:
+
+        SecurityGroupIds:
+
+          - Fn::ImportValue:
+
+              Fn::Sub: "cloudmart-${Environment}-LambdaSecurityGroupId"
+
+
+        SubnetIds:
+
+          - Fn::ImportValue:
+
+              Fn::Sub: "cloudmart-${Environment}-PrivateSubnetId"
+
+
+          - Fn::ImportValue:
+
+              Fn::Sub: "cloudmart-${Environment}-SecondaryPrivateSubnetId"
+
+
       Layers:
+
         - !Ref PyMySQLLayer
+
 
       Code:
 
@@ -150,6 +208,7 @@ Resources:
         S3Key:
           !Ref ProductLambdaS3Key
 
+
       Environment:
 
         Variables:
@@ -157,17 +216,22 @@ Resources:
           DB_NAME_PARAMETER:
             !Ref DBName
 
+
           DB_ENDPOINT_PARAMETER:
             !Ref DBEndpoint
+
 
           DB_PORT_PARAMETER:
             !Ref DBPort
 
+
           DB_USERNAME_PARAMETER:
             !Ref DBUsername
 
+
           DB_PASSWORD_PARAMETER:
             !Ref DBPassword
+
 
           EVENT_BUS_NAME:
             !Ref CloudMartEventBus
@@ -178,6 +242,7 @@ Resources:
   # ==========================================================
 
   OrderLambda:
+
     Type: AWS::Lambda::Function
 
     Properties:
@@ -185,24 +250,60 @@ Resources:
       FunctionName:
         !Sub "cloudmart-${Environment}-order-lambda"
 
+
       Runtime:
         python3.12
+
 
       Handler:
         lambda_function.lambda_handler
 
+
       Role:
+
         Fn::ImportValue:
+
           Fn::Sub: "cloudmart-${Environment}-OrderLambdaRoleArn"
+
 
       Timeout:
         30
 
+
       MemorySize:
         256
 
+
+      # ======================================================
+      # VPC CONFIGURATION
+      # Required for private RDS access
+      # ======================================================
+
+      VpcConfig:
+
+        SecurityGroupIds:
+
+          - Fn::ImportValue:
+
+              Fn::Sub: "cloudmart-${Environment}-LambdaSecurityGroupId"
+
+
+        SubnetIds:
+
+          - Fn::ImportValue:
+
+              Fn::Sub: "cloudmart-${Environment}-PrivateSubnetId"
+
+
+          - Fn::ImportValue:
+
+              Fn::Sub: "cloudmart-${Environment}-SecondaryPrivateSubnetId"
+
+
       Layers:
+
         - !Ref PyMySQLLayer
+
 
       Code:
 
@@ -212,6 +313,7 @@ Resources:
         S3Key:
           !Ref OrderLambdaS3Key
 
+
       Environment:
 
         Variables:
@@ -219,17 +321,22 @@ Resources:
           DB_NAME_PARAMETER:
             !Ref DBName
 
+
           DB_ENDPOINT_PARAMETER:
             !Ref DBEndpoint
+
 
           DB_PORT_PARAMETER:
             !Ref DBPort
 
+
           DB_USERNAME_PARAMETER:
             !Ref DBUsername
 
+
           DB_PASSWORD_PARAMETER:
             !Ref DBPassword
+
 
           EVENT_BUS_NAME:
             !Ref CloudMartEventBus
@@ -240,6 +347,7 @@ Resources:
   # ==========================================================
 
   OrderProcessorLambda:
+
     Type: AWS::Lambda::Function
 
     Properties:
@@ -247,24 +355,60 @@ Resources:
       FunctionName:
         !Sub "cloudmart-${Environment}-order-processor"
 
+
       Runtime:
         python3.12
+
 
       Handler:
         lambda_function.lambda_handler
 
+
       Role:
+
         Fn::ImportValue:
+
           Fn::Sub: "cloudmart-${Environment}-OrderProcessorLambdaRoleArn"
+
 
       Timeout:
         30
 
+
       MemorySize:
         256
 
+
+      # ======================================================
+      # VPC CONFIGURATION
+      # Required for private RDS access
+      # ======================================================
+
+      VpcConfig:
+
+        SecurityGroupIds:
+
+          - Fn::ImportValue:
+
+              Fn::Sub: "cloudmart-${Environment}-LambdaSecurityGroupId"
+
+
+        SubnetIds:
+
+          - Fn::ImportValue:
+
+              Fn::Sub: "cloudmart-${Environment}-PrivateSubnetId"
+
+
+          - Fn::ImportValue:
+
+              Fn::Sub: "cloudmart-${Environment}-SecondaryPrivateSubnetId"
+
+
       Layers:
+
         - !Ref PyMySQLLayer
+
 
       Code:
 
@@ -274,6 +418,7 @@ Resources:
         S3Key:
           !Ref OrderProcessorLambdaS3Key
 
+
       Environment:
 
         Variables:
@@ -281,17 +426,22 @@ Resources:
           DB_NAME_PARAMETER:
             !Ref DBName
 
+
           DB_ENDPOINT_PARAMETER:
             !Ref DBEndpoint
+
 
           DB_PORT_PARAMETER:
             !Ref DBPort
 
+
           DB_USERNAME_PARAMETER:
             !Ref DBUsername
 
+
           DB_PASSWORD_PARAMETER:
             !Ref DBPassword
+
 
           EVENT_BUS_NAME:
             !Ref CloudMartEventBus
@@ -302,6 +452,7 @@ Resources:
   # ==========================================================
 
   LambdaAuthorizer:
+
     Type: AWS::Lambda::Function
 
     Properties:
@@ -309,21 +460,29 @@ Resources:
       FunctionName:
         !Sub "cloudmart-${Environment}-lambda-authorizer"
 
+
       Runtime:
         python3.12
+
 
       Handler:
         lambda_function.lambda_handler
 
+
       Role:
+
         Fn::ImportValue:
+
           Fn::Sub: "cloudmart-${Environment}-LambdaAuthorizerRoleArn"
+
 
       Timeout:
         30
 
+
       MemorySize:
         128
+
 
       Code:
 
@@ -333,12 +492,14 @@ Resources:
         S3Key:
           !Ref AuthorizerLambdaS3Key
 
+
       Environment:
 
         Variables:
 
           ADMIN_TOKEN_PARAMETER:
             !Ref AuthTokenParameter
+
 
           CUSTOMER_TOKENS_PARAMETER:
             !Ref CustomerTokensParameter
@@ -349,6 +510,7 @@ Resources:
   # ==========================================================
 
   OrderUpdatedEventRule:
+
     Type: AWS::Events::Rule
 
     Properties:
@@ -356,22 +518,28 @@ Resources:
       Name:
         !Sub "cloudmart-${Environment}-order-updated"
 
+
       Description: >
         Sends order update events to Order Processor Lambda
 
+
       EventBusName:
         !Ref CloudMartEventBus
+
 
       EventPattern:
 
         source:
           - cloudmart.orders
 
+
         detail-type:
           - OrderUpdated
 
+
       State:
         ENABLED
+
 
       Targets:
 
@@ -387,6 +555,7 @@ Resources:
   # ==========================================================
 
   OrderProcessorLambdaPermission:
+
     Type: AWS::Lambda::Permission
 
     Properties:
@@ -394,11 +563,14 @@ Resources:
       FunctionName:
         !Ref OrderProcessorLambda
 
+
       Action:
         lambda:InvokeFunction
 
+
       Principal:
         events.amazonaws.com
+
 
       SourceArn:
         !GetAtt OrderUpdatedEventRule.Arn
@@ -409,6 +581,7 @@ Resources:
   # ==========================================================
 
   AlertTopic:
+
     Type: AWS::SNS::Topic
 
     Properties:
@@ -422,6 +595,7 @@ Resources:
   # ==========================================================
 
   AlertSubscription:
+
     Type: AWS::SNS::Subscription
 
     Properties:
@@ -429,8 +603,10 @@ Resources:
       Protocol:
         email
 
+
       TopicArn:
         !Ref AlertTopic
+
 
       Endpoint:
         !Ref AlertEmail
@@ -452,8 +628,10 @@ Outputs:
     Description:
       Product Lambda ARN
 
+
     Value:
       !GetAtt ProductLambda.Arn
+
 
     Export:
 
@@ -466,8 +644,10 @@ Outputs:
     Description:
       Product Lambda Name
 
+
     Value:
       !Ref ProductLambda
+
 
     Export:
 
@@ -484,8 +664,10 @@ Outputs:
     Description:
       Order Lambda ARN
 
+
     Value:
       !GetAtt OrderLambda.Arn
+
 
     Export:
 
@@ -498,8 +680,10 @@ Outputs:
     Description:
       Order Lambda Name
 
+
     Value:
       !Ref OrderLambda
+
 
     Export:
 
@@ -516,8 +700,10 @@ Outputs:
     Description:
       Order Processor Lambda ARN
 
+
     Value:
       !GetAtt OrderProcessorLambda.Arn
+
 
     Export:
 
@@ -530,8 +716,10 @@ Outputs:
     Description:
       Order Processor Lambda Name
 
+
     Value:
       !Ref OrderProcessorLambda
+
 
     Export:
 
@@ -541,7 +729,7 @@ Outputs:
 
   # ==========================================================
   # LAMBDA AUTHORIZER
-  # IMPORTANT: KEEP THESE NAMES FOR API STACK COMPATIBILITY
+  # KEEP THESE NAMES FOR API STACK COMPATIBILITY
   # ==========================================================
 
   LambdaAuthorizerArn:
@@ -549,8 +737,10 @@ Outputs:
     Description:
       Lambda Authorizer ARN
 
+
     Value:
       !GetAtt LambdaAuthorizer.Arn
+
 
     Export:
 
@@ -563,8 +753,10 @@ Outputs:
     Description:
       Lambda Authorizer function name
 
+
     Value:
       !Ref LambdaAuthorizer
+
 
     Export:
 
@@ -581,8 +773,10 @@ Outputs:
     Description:
       CloudMart EventBridge Event Bus Name
 
+
     Value:
       !Ref CloudMartEventBus
+
 
     Export:
 
@@ -595,8 +789,10 @@ Outputs:
     Description:
       CloudMart EventBridge Event Bus ARN
 
+
     Value:
       !GetAtt CloudMartEventBus.Arn
+
 
     Export:
 
@@ -613,8 +809,10 @@ Outputs:
     Description:
       CloudMart SNS Alert Topic ARN
 
+
     Value:
       !Ref AlertTopic
+
 
     Export:
 
