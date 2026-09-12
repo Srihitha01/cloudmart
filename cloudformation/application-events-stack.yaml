@@ -44,6 +44,11 @@ Parameters:
     Type: String
 
 
+  # Kept for deployment workflow compatibility
+  SchemaS3Key:
+    Type: String
+
+
   DBName:
     Type: String
 
@@ -238,6 +243,111 @@ Resources:
 
 
   # ==========================================================
+  # ORDER PROCESSOR LAMBDA
+  # ==========================================================
+
+  OrderProcessorLambda:
+
+    Type: AWS::Lambda::Function
+
+    Properties:
+
+      FunctionName:
+        !Sub "cloudmart-${Environment}-order-processor"
+
+
+      Runtime:
+        python3.12
+
+
+      Handler:
+        lambda_function.lambda_handler
+
+
+      Role:
+
+        Fn::ImportValue:
+
+          Fn::Sub: "cloudmart-${Environment}-OrderProcessorLambdaRoleArn"
+
+
+      Timeout:
+        30
+
+
+      MemorySize:
+        256
+
+
+      # ======================================================
+      # VPC CONFIGURATION
+      # Required for private RDS access
+      # ======================================================
+
+      VpcConfig:
+
+        SecurityGroupIds:
+
+          - Fn::ImportValue:
+
+              Fn::Sub: "cloudmart-${Environment}-LambdaSecurityGroupId"
+
+
+        SubnetIds:
+
+          - Fn::ImportValue:
+
+              Fn::Sub: "cloudmart-${Environment}-PrivateSubnetId"
+
+
+          - Fn::ImportValue:
+
+              Fn::Sub: "cloudmart-${Environment}-SecondaryPrivateSubnetId"
+
+
+      Layers:
+
+        - !Ref PyMySQLLayer
+
+
+      Code:
+
+        S3Bucket:
+          !Ref LambdaArtifactBucket
+
+        S3Key:
+          !Ref OrderProcessorLambdaS3Key
+
+
+      Environment:
+
+        Variables:
+
+          DB_NAME_PARAMETER:
+            !Ref DBName
+
+
+          DB_ENDPOINT_PARAMETER:
+            !Ref DBEndpoint
+
+
+          DB_PORT_PARAMETER:
+            !Ref DBPort
+
+
+          DB_USERNAME_PARAMETER:
+            !Ref DBUsername
+
+
+          DB_PASSWORD_PARAMETER:
+            !Ref DBPassword
+
+
+          EVENT_BUS_NAME:
+            !Ref CloudMartEventBus
+
+
+  # ==========================================================
   # ORDER LAMBDA
   # ==========================================================
 
@@ -342,109 +452,9 @@ Resources:
             !Ref CloudMartEventBus
 
 
-  # ==========================================================
-  # ORDER PROCESSOR LAMBDA
-  # ==========================================================
-
-  OrderProcessorLambda:
-
-    Type: AWS::Lambda::Function
-
-    Properties:
-
-      FunctionName:
-        !Sub "cloudmart-${Environment}-order-processor"
-
-
-      Runtime:
-        python3.12
-
-
-      Handler:
-        lambda_function.lambda_handler
-
-
-      Role:
-
-        Fn::ImportValue:
-
-          Fn::Sub: "cloudmart-${Environment}-OrderProcessorLambdaRoleArn"
-
-
-      Timeout:
-        30
-
-
-      MemorySize:
-        256
-
-
-      # ======================================================
-      # VPC CONFIGURATION
-      # Required for private RDS access
-      # ======================================================
-
-      VpcConfig:
-
-        SecurityGroupIds:
-
-          - Fn::ImportValue:
-
-              Fn::Sub: "cloudmart-${Environment}-LambdaSecurityGroupId"
-
-
-        SubnetIds:
-
-          - Fn::ImportValue:
-
-              Fn::Sub: "cloudmart-${Environment}-PrivateSubnetId"
-
-
-          - Fn::ImportValue:
-
-              Fn::Sub: "cloudmart-${Environment}-SecondaryPrivateSubnetId"
-
-
-      Layers:
-
-        - !Ref PyMySQLLayer
-
-
-      Code:
-
-        S3Bucket:
-          !Ref LambdaArtifactBucket
-
-        S3Key:
-          !Ref OrderProcessorLambdaS3Key
-
-
-      Environment:
-
-        Variables:
-
-          DB_NAME_PARAMETER:
-            !Ref DBName
-
-
-          DB_ENDPOINT_PARAMETER:
-            !Ref DBEndpoint
-
-
-          DB_PORT_PARAMETER:
-            !Ref DBPort
-
-
-          DB_USERNAME_PARAMETER:
-            !Ref DBUsername
-
-
-          DB_PASSWORD_PARAMETER:
-            !Ref DBPassword
-
-
-          EVENT_BUS_NAME:
-            !Ref CloudMartEventBus
+          # REQUIRED BY ORDER LAMBDA CODE
+          ORDER_PROCESSOR_FUNCTION_NAME:
+            !Ref OrderProcessorLambda
 
 
   # ==========================================================
@@ -729,7 +739,6 @@ Outputs:
 
   # ==========================================================
   # LAMBDA AUTHORIZER
-  # KEEP THESE NAMES FOR API STACK COMPATIBILITY
   # ==========================================================
 
   LambdaAuthorizerArn:
@@ -751,7 +760,7 @@ Outputs:
   LambdaAuthorizerName:
 
     Description:
-      Lambda Authorizer function name
+      Lambda Authorizer Function Name
 
 
     Value:
