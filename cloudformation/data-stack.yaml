@@ -2,15 +2,10 @@ AWSTemplateFormatVersion: '2010-09-09'
 
 Description: >
   CloudMart Data-Storage Stack.
-  Creates the private RDS MySQL database and
-  S3 report bucket.
-  Uses the existing Lambda deployment artifact bucket.
+  Creates the private RDS MySQL database
+  and S3 report bucket.
 
 Parameters:
-
-  # ==========================================================
-  # ENVIRONMENT
-  # ==========================================================
 
   Environment:
     Type: String
@@ -20,16 +15,10 @@ Parameters:
       - prod
     Description: Deployment environment
 
-
-  # ==========================================================
-  # DATABASE
-  # ==========================================================
-
   DBName:
     Type: String
     Default: cloudmart
     Description: CloudMart database name
-
 
   DBUsername:
     Type: String
@@ -37,19 +26,16 @@ Parameters:
     NoEcho: true
     Description: RDS master username
 
-
   DBPassword:
     Type: String
     NoEcho: true
     MinLength: 12
     Description: RDS master password
 
-
   DBInstanceClass:
     Type: String
     Default: db.t3.micro
     Description: RDS instance class
-
 
   AllocatedStorage:
     Type: Number
@@ -57,29 +43,15 @@ Parameters:
     Description: Initial RDS storage in GB
 
 
-  # ==========================================================
-  # EXISTING LAMBDA ARTIFACT BUCKET
-  # ==========================================================
-
-  LambdaArtifactBucket:
-    Type: String
-    Default: cloudmart-dev-artifacts
-    Description: Existing S3 bucket used for Lambda deployment artifacts
-
-
 Resources:
-
-  # ==========================================================
-  # RDS SUBNET GROUP
-  # ==========================================================
 
   CloudMartDBSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
 
     Properties:
 
-      DBSubnetGroupDescription: !Sub
-        CloudMart ${Environment} RDS private subnet group
+      DBSubnetGroupDescription:
+        !Sub CloudMart ${Environment} RDS private subnet group
 
       SubnetIds:
 
@@ -101,10 +73,6 @@ Resources:
           Value: !Ref Environment
 
 
-  # ==========================================================
-  # RDS MYSQL DATABASE
-  # ==========================================================
-
   CloudMartRDS:
     Type: AWS::RDS::DBInstance
 
@@ -116,8 +84,7 @@ Resources:
       DBInstanceIdentifier:
         !Sub cloudmart-${Environment}-mysql
 
-      Engine:
-        mysql
+      Engine: mysql
 
       DBName:
         !Ref DBName
@@ -134,24 +101,21 @@ Resources:
       AllocatedStorage:
         !Ref AllocatedStorage
 
-      StorageType:
-        gp3
+      StorageType: gp3
 
-      Port:
-        3306
+      StorageEncrypted: true
 
-      PubliclyAccessible:
-        false
+      Port: 3306
 
-      MultiAZ:
-        false
+      PubliclyAccessible: false
 
-      # Account currently restricts backup retention.
-      BackupRetentionPeriod:
-        0
+      MultiAZ: false
 
-      CopyTagsToSnapshot:
-        true
+      DeletionProtection: false
+
+      BackupRetentionPeriod: 0
+
+      CopyTagsToSnapshot: true
 
       DBSubnetGroupName:
         !Ref CloudMartDBSubnetGroup
@@ -172,10 +136,6 @@ Resources:
         - Key: Environment
           Value: !Ref Environment
 
-
-  # ==========================================================
-  # S3 REPORT BUCKET
-  # ==========================================================
 
   CloudMartReportBucket:
     Type: AWS::S3::Bucket
@@ -214,129 +174,95 @@ Resources:
           Value: !Ref Environment
 
 
-# ============================================================
-# OUTPUTS
-# ============================================================
-
 Outputs:
 
-  # ----------------------------------------------------------
-  # RDS ENDPOINT
-  # ----------------------------------------------------------
-
   DBEndpoint:
+
     Description: RDS MySQL endpoint
 
     Value:
       !GetAtt CloudMartRDS.Endpoint.Address
 
     Export:
+
       Name:
         !Sub cloudmart-${Environment}-DBEndpoint
 
 
-  # ----------------------------------------------------------
-  # RDS PORT
-  # ----------------------------------------------------------
-
   DBPort:
+
     Description: RDS MySQL port
 
     Value:
       !GetAtt CloudMartRDS.Endpoint.Port
 
     Export:
+
       Name:
         !Sub cloudmart-${Environment}-DBPort
 
 
-  # ----------------------------------------------------------
-  # DATABASE NAME
-  # ----------------------------------------------------------
-
   DBName:
+
     Description: CloudMart database name
 
     Value:
       !Ref DBName
 
     Export:
+
       Name:
         !Sub cloudmart-${Environment}-DBName
 
 
-  # ----------------------------------------------------------
-  # RDS INSTANCE IDENTIFIER
-  # ----------------------------------------------------------
-
   DBInstanceIdentifier:
+
     Description: RDS instance identifier
 
     Value:
       !Ref CloudMartRDS
 
     Export:
+
       Name:
         !Sub cloudmart-${Environment}-DBInstanceIdentifier
 
 
-  # ----------------------------------------------------------
-  # REPORT BUCKET NAME
-  # ----------------------------------------------------------
+  RDSSecurityGroupId:
+
+    Description: RDS security group ID
+
+    Value:
+      Fn::ImportValue:
+        Fn::Sub: cloudmart-${Environment}-RDSSecurityGroupId
+
+    Export:
+
+      Name:
+        !Sub cloudmart-${Environment}-DataStorageRDSSecurityGroupId
+
 
   ReportBucketName:
+
     Description: S3 report bucket name
 
     Value:
       !Ref CloudMartReportBucket
 
     Export:
+
       Name:
         !Sub cloudmart-${Environment}-ReportBucketName
 
 
-  # ----------------------------------------------------------
-  # REPORT BUCKET ARN
-  # ----------------------------------------------------------
-
   ReportBucketArn:
+
     Description: S3 report bucket ARN
 
     Value:
       !GetAtt CloudMartReportBucket.Arn
 
     Export:
+
       Name:
         !Sub cloudmart-${Environment}-ReportBucketArn
-
-
-  # ----------------------------------------------------------
-  # LAMBDA ARTIFACT BUCKET NAME
-  # Existing bucket - NOT created by this stack
-  # ----------------------------------------------------------
-
-  LambdaArtifactBucketName:
-    Description: Existing S3 bucket used for Lambda deployment artifacts
-
-    Value:
-      !Ref LambdaArtifactBucket
-
-    Export:
-      Name:
-        !Sub cloudmart-${Environment}-LambdaArtifactBucketName
-
-
-  # ----------------------------------------------------------
-  # LAMBDA ARTIFACT BUCKET ARN
-  # Existing bucket - NOT created by this stack
-  # ----------------------------------------------------------
-
-  LambdaArtifactBucketArn:
-    Description: ARN of the existing Lambda artifact bucket
-
-    Value:
-      !Sub arn:${AWS::Partition}:s3:::${LambdaArtifactBucket}
-
-    Export:
-      Name:
-        !Sub cloudmart-${Environment}-LambdaArtifactBucketArn

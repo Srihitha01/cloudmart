@@ -415,11 +415,41 @@ Resources:
         - !Ref VPCEndpointSecurityGroup
 
 
+  # ==========================================================
+  # LAMBDA INTERFACE ENDPOINT
+  # ==========================================================
+  #
+  # Required because Order Lambda runs inside private subnets
+  # and invokes the Order Processor Lambda.
+  #
+  # ==========================================================
+
+  LambdaVPCEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+
+    Properties:
+      VpcId: !Ref CloudMartVPC
+      VpcEndpointType: Interface
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.lambda
+      PrivateDnsEnabled: true
+
+      SubnetIds:
+        - !Ref PrivateSubnet
+        - !Ref SecondaryPrivateSubnet
+
+      SecurityGroupIds:
+        - !Ref VPCEndpointSecurityGroup
+
+
 # ==========================================================
 # OUTPUTS
 # ==========================================================
 
 Outputs:
+
+  # ----------------------------------------------------------
+  # VPC ID
+  # ----------------------------------------------------------
 
   VpcId:
     Description: CloudMart VPC ID
@@ -429,6 +459,10 @@ Outputs:
       Name: !Sub cloudmart-${Environment}-VpcId
 
 
+  # ----------------------------------------------------------
+  # PUBLIC SUBNET
+  # ----------------------------------------------------------
+
   PublicSubnetId:
     Description: Public subnet ID
     Value: !Ref PublicSubnet
@@ -436,6 +470,10 @@ Outputs:
     Export:
       Name: !Sub cloudmart-${Environment}-PublicSubnetId
 
+
+  # ----------------------------------------------------------
+  # PRIVATE SUBNET
+  # ----------------------------------------------------------
 
   PrivateSubnetId:
     Description: Primary private subnet ID
@@ -445,6 +483,10 @@ Outputs:
       Name: !Sub cloudmart-${Environment}-PrivateSubnetId
 
 
+  # ----------------------------------------------------------
+  # SECONDARY PRIVATE SUBNET
+  # ----------------------------------------------------------
+
   SecondaryPrivateSubnetId:
     Description: Secondary private subnet ID
     Value: !Ref SecondaryPrivateSubnet
@@ -452,6 +494,10 @@ Outputs:
     Export:
       Name: !Sub cloudmart-${Environment}-SecondaryPrivateSubnetId
 
+
+  # ----------------------------------------------------------
+  # LAMBDA SECURITY GROUP
+  # ----------------------------------------------------------
 
   LambdaSecurityGroupId:
     Description: Lambda security group ID
@@ -461,6 +507,10 @@ Outputs:
       Name: !Sub cloudmart-${Environment}-LambdaSecurityGroupId
 
 
+  # ----------------------------------------------------------
+  # RDS SECURITY GROUP
+  # ----------------------------------------------------------
+
   RDSSecurityGroupId:
     Description: RDS security group ID
     Value: !Ref RDSSecurityGroup
@@ -468,6 +518,10 @@ Outputs:
     Export:
       Name: !Sub cloudmart-${Environment}-RDSSecurityGroupId
 
+
+  # ----------------------------------------------------------
+  # EC2 SECURITY GROUP
+  # ----------------------------------------------------------
 
   EC2SecurityGroupId:
     Description: EC2 dashboard security group ID
@@ -477,6 +531,10 @@ Outputs:
       Name: !Sub cloudmart-${Environment}-EC2SecurityGroupId
 
 
+  # ----------------------------------------------------------
+  # VPC ENDPOINT SECURITY GROUP
+  # ----------------------------------------------------------
+
   VPCEndpointSecurityGroupId:
     Description: VPC endpoint security group ID
     Value: !Ref VPCEndpointSecurityGroup
@@ -484,6 +542,10 @@ Outputs:
     Export:
       Name: !Sub cloudmart-${Environment}-VPCEndpointSecurityGroupId
 
+
+  # ----------------------------------------------------------
+  # S3 ENDPOINT
+  # ----------------------------------------------------------
 
   S3EndpointId:
     Description: S3 gateway endpoint ID
@@ -493,6 +555,10 @@ Outputs:
       Name: !Sub cloudmart-${Environment}-S3EndpointId
 
 
+  # ----------------------------------------------------------
+  # SSM ENDPOINT
+  # ----------------------------------------------------------
+
   SSMEndpointId:
     Description: SSM interface endpoint ID
     Value: !Ref SSMEndpoint
@@ -500,6 +566,10 @@ Outputs:
     Export:
       Name: !Sub cloudmart-${Environment}-SSMEndpointId
 
+
+  # ----------------------------------------------------------
+  # SSM MESSAGES ENDPOINT
+  # ----------------------------------------------------------
 
   SSMMessagesEndpointId:
     Description: SSM Messages interface endpoint ID
@@ -509,6 +579,10 @@ Outputs:
       Name: !Sub cloudmart-${Environment}-SSMMessagesEndpointId
 
 
+  # ----------------------------------------------------------
+  # EC2 MESSAGES ENDPOINT
+  # ----------------------------------------------------------
+
   EC2MessagesEndpointId:
     Description: EC2 Messages interface endpoint ID
     Value: !Ref EC2MessagesEndpoint
@@ -516,6 +590,10 @@ Outputs:
     Export:
       Name: !Sub cloudmart-${Environment}-EC2MessagesEndpointId
 
+
+  # ----------------------------------------------------------
+  # EVENTBRIDGE ENDPOINT
+  # ----------------------------------------------------------
 
   EventBridgeEndpointId:
     Description: EventBridge endpoint ID
@@ -525,9 +603,25 @@ Outputs:
       Name: !Sub cloudmart-${Environment}-EventBridgeEndpointId
 
 
+  # ----------------------------------------------------------
+  # SNS ENDPOINT
+  # ----------------------------------------------------------
+
   SNSEndpointId:
-    Description: SNS endpoint ID
+    Description: SNS interface endpoint ID
     Value: !Ref SNSEndpoint
 
     Export:
       Name: !Sub cloudmart-${Environment}-SNSEndpointId
+
+
+  # ----------------------------------------------------------
+  # LAMBDA ENDPOINT
+  # ----------------------------------------------------------
+
+  LambdaEndpointId:
+    Description: Lambda interface endpoint ID
+    Value: !Ref LambdaVPCEndpoint
+
+    Export:
+      Name: !Sub cloudmart-${Environment}-LambdaEndpointId

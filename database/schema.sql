@@ -33,9 +33,15 @@ CREATE TABLE IF NOT EXISTS customers (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
         ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at DATETIME NULL,
+    deleted_by VARCHAR(150) NULL,
+    delete_reason VARCHAR(500) NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
 
     CONSTRAINT uq_customers_email
-        UNIQUE (email)
+        UNIQUE (email),
+
+    INDEX idx_customers_deleted_at (deleted_at)
 );
 
 
@@ -59,6 +65,7 @@ CREATE TABLE IF NOT EXISTS products (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
         ON UPDATE CURRENT_TIMESTAMP,
     deleted_at DATETIME NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
 
     CONSTRAINT fk_products_category
         FOREIGN KEY (category_id)
@@ -521,7 +528,9 @@ SELECT
     name,
     price,
     stock_quantity,
-    reorder_threshold
+    reorder_threshold,
+    status,
+    deleted_at
 FROM products
 ORDER BY product_id;
 
@@ -533,7 +542,11 @@ SELECT
     customer_id,
     name,
     email,
-    address
+    address,
+    status,
+    deleted_at,
+    deleted_by,
+    delete_reason
 FROM customers
 ORDER BY customer_id;
 

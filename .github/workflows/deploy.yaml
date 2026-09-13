@@ -1,10 +1,10 @@
 name: CloudMart Infrastructure Deployment
 
 on:
-
   push:
     branches:
       - main
+      - feature/order-flow
 
     paths:
       - 'cloudformation/**'
@@ -21,7 +21,6 @@ permissions:
 
 
 env:
-
   AWS_REGION: ap-south-1
   ENVIRONMENT: dev
 
@@ -33,26 +32,21 @@ env:
 
   LAMBDA_ARTIFACT_BUCKET: cloudmart-dev-artifacts
 
-  # ============================================================
-  # VERIFIED EXISTING ARTIFACTS
-  # ============================================================
-
-  PRODUCT_LAMBDA_S3_KEY: lambda/product/product-lambda-1c359937e7f4e8453f83e9b3f5a021ebdbd515e5.zip
-
   PYMYSQL_LAYER_S3_KEY: layers/pymysql/pymysql-layer-1c359937e7f4e8453f83e9b3f5a021ebdbd515e5.zip
 
-  SCHEMA_S3_KEY: database/schema-1c359937e7f4e8453f83e9b3f5a021ebdbd515e5.sql
+  SCHEMA_S3_KEY: database/schema.sql
 
 
 jobs:
 
   # ============================================================
-  # 1. NETWORK
+  # 1. NETWORK SECURITY
   # ============================================================
 
   deploy-network:
 
-    name: Deploy Network-Security Stack
+    name: Deploy Network Security Stack
+
     runs-on: ubuntu-latest
 
     steps:
@@ -60,15 +54,19 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
+
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
+
       - name: Verify AWS identity
         run: |
           aws sts get-caller-identity
+
 
       - name: Validate Network template
         run: |
@@ -76,7 +74,8 @@ jobs:
             --template-body file://cloudformation/network-stack.yaml \
             --region "$AWS_REGION"
 
-      - name: Deploy Network-Security Stack
+
+      - name: Deploy Network Security Stack
         run: |
           aws cloudformation deploy \
             --template-file cloudformation/network-stack.yaml \
@@ -84,9 +83,11 @@ jobs:
             --parameter-overrides \
               Environment="$ENVIRONMENT" \
             --region "$AWS_REGION" \
+            --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --no-fail-on-empty-changeset
 
-      - name: Verify Network Stack
+
+      - name: Verify Network Security Stack
         run: |
           aws cloudformation describe-stacks \
             --stack-name "$NETWORK_STACK_NAME" \
@@ -101,50 +102,53 @@ jobs:
 
   deploy-data:
 
-    name: Deploy Data-Storage Stack
+    name: Deploy Data Storage Stack
+
     runs-on: ubuntu-latest
 
     needs:
       - deploy-network
+
 
     steps:
 
       - name: Checkout repository
         uses: actions/checkout@v5
 
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
+
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+
 
       - name: Verify AWS identity
         run: |
           aws sts get-caller-identity
 
-      - name: Validate Data template
+
+      - name: Validate Data Storage template
         run: |
           aws cloudformation validate-template \
             --template-body file://cloudformation/data-stack.yaml \
             --region "$AWS_REGION"
 
-      - name: Deploy Data-Storage Stack
+
+      - name: Deploy Data Storage Stack
         run: |
           aws cloudformation deploy \
             --template-file cloudformation/data-stack.yaml \
             --stack-name "$DATA_STACK_NAME" \
             --parameter-overrides \
               Environment="$ENVIRONMENT" \
-              DBName="cloudmart" \
-              DBUsername="cloudmartadmin" \
-              DBPassword="${{ secrets.CLOUDMART_DB_PASSWORD }}" \
-              DBInstanceClass="db.t3.micro" \
-              AllocatedStorage="20" \
-              LambdaArtifactBucket="$LAMBDA_ARTIFACT_BUCKET" \
             --region "$AWS_REGION" \
+            --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --no-fail-on-empty-changeset
 
-      - name: Verify Data-Storage Stack
+
+      - name: Verify Data Storage Stack
         run: |
           aws cloudformation describe-stacks \
             --stack-name "$DATA_STACK_NAME" \
@@ -152,45 +156,13 @@ jobs:
             --query 'Stacks[0].[StackName,StackStatus]' \
             --output table
 
-      - name: Show Data-Storage Outputs
+
+      - name: Show Data Storage Outputs
         run: |
           aws cloudformation describe-stacks \
             --stack-name "$DATA_STACK_NAME" \
             --region "$AWS_REGION" \
             --query 'Stacks[0].Outputs[*].[OutputKey,OutputValue]' \
-            --output table
-
-      - name: Verify RDS
-        run: |
-          aws rds describe-db-instances \
-            --db-instance-identifier "cloudmart-${ENVIRONMENT}-mysql" \
-            --region "$AWS_REGION" \
-            --query '[DBInstances[0].DBInstanceIdentifier,DBInstances[0].DBInstanceStatus,DBInstances[0].Endpoint.Address,DBInstances[0].Endpoint.Port,DBInstances[0].PubliclyAccessible]' \
-            --output table
-
-      - name: Verify Report Bucket
-        run: |
-          aws cloudformation describe-stack-resources \
-            --stack-name "$DATA_STACK_NAME" \
-            --region "$AWS_REGION" \
-            --query "StackResources[?LogicalResourceId=='CloudMartReportBucket'].[LogicalResourceId,ResourceType,ResourceStatus,PhysicalResourceId]" \
-            --output table
-
-      - name: Verify Lambda Artifact Configuration
-        run: |
-          aws cloudformation describe-stacks \
-            --stack-name "$DATA_STACK_NAME" \
-            --region "$AWS_REGION" \
-            --query "Stacks[0].Outputs[?OutputKey=='LambdaArtifactBucketName'].[OutputKey,OutputValue]" \
-            --output table
-
-      - name: Show Data-Storage Failure Details
-        if: failure()
-        run: |
-          aws cloudformation describe-stack-events \
-            --stack-name "$DATA_STACK_NAME" \
-            --region "$AWS_REGION" \
-            --query "StackEvents[?ResourceStatus=='CREATE_FAILED' || ResourceStatus=='UPDATE_FAILED' || ResourceStatus=='DELETE_FAILED'].[LogicalResourceId,ResourceType,ResourceStatus,ResourceStatusReason]" \
             --output table
 
 
@@ -201,39 +173,39 @@ jobs:
   deploy-iam:
 
     name: Deploy IAM Stack
+
     runs-on: ubuntu-latest
 
     needs:
+      - deploy-network
       - deploy-data
+
 
     steps:
 
       - name: Checkout repository
         uses: actions/checkout@v5
 
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
+
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+
 
       - name: Verify AWS identity
         run: |
           aws sts get-caller-identity
 
-      - name: Verify Data Stack
-        run: |
-          aws cloudformation describe-stacks \
-            --stack-name "$DATA_STACK_NAME" \
-            --region "$AWS_REGION" \
-            --query 'Stacks[0].[StackName,StackStatus]' \
-            --output table
 
       - name: Validate IAM template
         run: |
           aws cloudformation validate-template \
             --template-body file://cloudformation/iam-stack.yaml \
             --region "$AWS_REGION"
+
 
       - name: Deploy IAM Stack
         run: |
@@ -242,9 +214,10 @@ jobs:
             --stack-name "$IAM_STACK_NAME" \
             --parameter-overrides \
               Environment="$ENVIRONMENT" \
-            --capabilities CAPABILITY_NAMED_IAM \
             --region "$AWS_REGION" \
+            --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --no-fail-on-empty-changeset
+
 
       - name: Verify IAM Stack
         run: |
@@ -253,6 +226,7 @@ jobs:
             --region "$AWS_REGION" \
             --query 'Stacks[0].[StackName,StackStatus]' \
             --output table
+
 
       - name: Show IAM Outputs
         run: |
@@ -262,63 +236,271 @@ jobs:
             --query 'Stacks[0].Outputs[*].[OutputKey,OutputValue]' \
             --output table
 
-      - name: Show IAM Failure Details
-        if: failure()
-        run: |
-          aws cloudformation describe-stack-events \
-            --stack-name "$IAM_STACK_NAME" \
-            --region "$AWS_REGION" \
-            --query "StackEvents[?ResourceStatus=='CREATE_FAILED' || ResourceStatus=='UPDATE_FAILED' || ResourceStatus=='DELETE_FAILED'].[LogicalResourceId,ResourceType,ResourceStatus,ResourceStatusReason]" \
-            --output table
-
 
   # ============================================================
-  # 4. APPLICATION EVENTS
-  #    PURE CLOUDFORMATION - NO SAM
+  # 4. BUILD AND UPLOAD ARTIFACTS
   # ============================================================
 
-  deploy-application-events:
+  build-artifacts:
 
-    name: Deploy Application-Events Stack
+    name: Build Lambda Artifacts
+
     runs-on: ubuntu-latest
 
     needs:
       - deploy-iam
+
 
     steps:
 
       - name: Checkout repository
         uses: actions/checkout@v5
 
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
+
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+
+
+      # ========================================================
+      # SET ARTIFACT KEYS
+      # ========================================================
+
+      - name: Set Lambda artifact keys
+        run: |
+          echo "PRODUCT_LAMBDA_S3_KEY=lambda/product/product-lambda-${GITHUB_SHA}.zip" >> "$GITHUB_ENV"
+          echo "ORDER_LAMBDA_S3_KEY=lambda/order/order-lambda-${GITHUB_SHA}.zip" >> "$GITHUB_ENV"
+          echo "ORDER_PROCESSOR_LAMBDA_S3_KEY=lambda/order-processor/order-processor-lambda-${GITHUB_SHA}.zip" >> "$GITHUB_ENV"
+          echo "AUTHORIZER_LAMBDA_S3_KEY=lambda/authorizer/authorizer-lambda-${GITHUB_SHA}.zip" >> "$GITHUB_ENV"
+
+
+      # ========================================================
+      # PACKAGE PRODUCT LAMBDA
+      # ========================================================
+
+      - name: Create Product Lambda package
+        run: |
+          cd lambda/product
+          zip -r ../../product-lambda.zip .
+          cd ../..
+
+
+      # ========================================================
+      # PACKAGE ORDER LAMBDA
+      # ========================================================
+
+      - name: Create Order Lambda package
+        run: |
+          cd lambda/order
+          zip -r ../../order-lambda.zip .
+          cd ../..
+
+
+      # ========================================================
+      # PACKAGE ORDER PROCESSOR LAMBDA
+      # ========================================================
+
+      - name: Create Order Processor Lambda package
+        run: |
+          cd lambda/order-processor
+          zip -r ../../order-processor-lambda.zip .
+          cd ../..
+
+
+      # ========================================================
+      # PACKAGE AUTHORIZER LAMBDA
+      # ========================================================
+
+      - name: Create Authorizer Lambda package
+        run: |
+          cd lambda/authorizer
+          zip -r ../../authorizer-lambda.zip .
+          cd ../..
+
+
+      # ========================================================
+      # UPLOAD PRODUCT LAMBDA
+      # ========================================================
+
+      - name: Upload Product Lambda
+        run: |
+          aws s3 cp \
+            product-lambda.zip \
+            "s3://${LAMBDA_ARTIFACT_BUCKET}/${PRODUCT_LAMBDA_S3_KEY}" \
+            --region "$AWS_REGION"
+
+
+      # ========================================================
+      # UPLOAD ORDER LAMBDA
+      # ========================================================
+
+      - name: Upload Order Lambda
+        run: |
+          aws s3 cp \
+            order-lambda.zip \
+            "s3://${LAMBDA_ARTIFACT_BUCKET}/${ORDER_LAMBDA_S3_KEY}" \
+            --region "$AWS_REGION"
+
+
+      # ========================================================
+      # UPLOAD ORDER PROCESSOR LAMBDA
+      # ========================================================
+
+      - name: Upload Order Processor Lambda
+        run: |
+          aws s3 cp \
+            order-processor-lambda.zip \
+            "s3://${LAMBDA_ARTIFACT_BUCKET}/${ORDER_PROCESSOR_LAMBDA_S3_KEY}" \
+            --region "$AWS_REGION"
+
+
+      # ========================================================
+      # UPLOAD AUTHORIZER LAMBDA
+      # ========================================================
+
+      - name: Upload Authorizer Lambda
+        run: |
+          aws s3 cp \
+            authorizer-lambda.zip \
+            "s3://${LAMBDA_ARTIFACT_BUCKET}/${AUTHORIZER_LAMBDA_S3_KEY}" \
+            --region "$AWS_REGION"
+
+
+      # ========================================================
+      # UPLOAD DATABASE SCHEMA
+      # ========================================================
+
+      - name: Upload Database Schema
+        run: |
+          aws s3 cp \
+            database/schema.sql \
+            "s3://${LAMBDA_ARTIFACT_BUCKET}/${SCHEMA_S3_KEY}" \
+            --region "$AWS_REGION"
+
+
+      # ========================================================
+      # VERIFY DATABASE SCHEMA
+      # ========================================================
+
+      - name: Verify Database Schema Upload
+        run: |
+          aws s3api head-object \
+            --bucket "$LAMBDA_ARTIFACT_BUCKET" \
+            --key "$SCHEMA_S3_KEY" \
+            --region "$AWS_REGION"
+
+
+  # ============================================================
+  # 5. APPLICATION EVENTS
+  # ============================================================
+
+  deploy-application-events:
+
+    name: Deploy Application Events Stack
+
+    runs-on: ubuntu-latest
+
+    needs:
+      - deploy-network
+      - deploy-data
+      - deploy-iam
+      - build-artifacts
+
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+
+      - name: Set Lambda artifact keys
+        run: |
+          echo "PRODUCT_LAMBDA_S3_KEY=lambda/product/product-lambda-${GITHUB_SHA}.zip" >> "$GITHUB_ENV"
+          echo "ORDER_LAMBDA_S3_KEY=lambda/order/order-lambda-${GITHUB_SHA}.zip" >> "$GITHUB_ENV"
+          echo "ORDER_PROCESSOR_LAMBDA_S3_KEY=lambda/order-processor/order-processor-lambda-${GITHUB_SHA}.zip" >> "$GITHUB_ENV"
+          echo "AUTHORIZER_LAMBDA_S3_KEY=lambda/authorizer/authorizer-lambda-${GITHUB_SHA}.zip" >> "$GITHUB_ENV"
+
 
       - name: Verify AWS identity
         run: |
           aws sts get-caller-identity
 
-      - name: Verify IAM Stack
-        run: |
-          aws cloudformation describe-stacks \
-            --stack-name "$IAM_STACK_NAME" \
-            --region "$AWS_REGION" \
-            --query 'Stacks[0].[StackName,StackStatus]' \
-            --output table
 
-      - name: Validate Application-Events template
+      - name: Validate Application Events template
         run: |
           aws cloudformation validate-template \
             --template-body file://cloudformation/application-events-stack.yaml \
             --region "$AWS_REGION"
 
+
+      # ========================================================
+      # VERIFY ARTIFACTS
+      # ========================================================
+
+      - name: Verify PyMySQL Layer
+        run: |
+          aws s3api head-object \
+            --bucket "$LAMBDA_ARTIFACT_BUCKET" \
+            --key "$PYMYSQL_LAYER_S3_KEY" \
+            --region "$AWS_REGION"
+
+
+      - name: Verify Product Lambda artifact
+        run: |
+          aws s3api head-object \
+            --bucket "$LAMBDA_ARTIFACT_BUCKET" \
+            --key "$PRODUCT_LAMBDA_S3_KEY" \
+            --region "$AWS_REGION"
+
+
+      - name: Verify Order Lambda artifact
+        run: |
+          aws s3api head-object \
+            --bucket "$LAMBDA_ARTIFACT_BUCKET" \
+            --key "$ORDER_LAMBDA_S3_KEY" \
+            --region "$AWS_REGION"
+
+
+      - name: Verify Order Processor Lambda artifact
+        run: |
+          aws s3api head-object \
+            --bucket "$LAMBDA_ARTIFACT_BUCKET" \
+            --key "$ORDER_PROCESSOR_LAMBDA_S3_KEY" \
+            --region "$AWS_REGION"
+
+
+      - name: Verify Authorizer Lambda artifact
+        run: |
+          aws s3api head-object \
+            --bucket "$LAMBDA_ARTIFACT_BUCKET" \
+            --key "$AUTHORIZER_LAMBDA_S3_KEY" \
+            --region "$AWS_REGION"
+
+
+      - name: Verify Database Schema
+        run: |
+          aws s3api head-object \
+            --bucket "$LAMBDA_ARTIFACT_BUCKET" \
+            --key "$SCHEMA_S3_KEY" \
+            --region "$AWS_REGION"
+
+
       # ========================================================
       # DEPLOY APPLICATION EVENTS
       # ========================================================
 
-      - name: Deploy Application-Events Stack
+      - name: Deploy Application Events Stack
         run: |
           aws cloudformation deploy \
             --template-file cloudformation/application-events-stack.yaml \
@@ -328,6 +510,9 @@ jobs:
               LambdaArtifactBucket="$LAMBDA_ARTIFACT_BUCKET" \
               PyMySQLLayerS3Key="$PYMYSQL_LAYER_S3_KEY" \
               ProductLambdaS3Key="$PRODUCT_LAMBDA_S3_KEY" \
+              OrderLambdaS3Key="$ORDER_LAMBDA_S3_KEY" \
+              OrderProcessorLambdaS3Key="$ORDER_PROCESSOR_LAMBDA_S3_KEY" \
+              AuthorizerLambdaS3Key="$AUTHORIZER_LAMBDA_S3_KEY" \
               SchemaS3Key="$SCHEMA_S3_KEY" \
               DBName="/cloudmart/$ENVIRONMENT/db/name" \
               DBEndpoint="/cloudmart/$ENVIRONMENT/db/endpoint" \
@@ -335,16 +520,16 @@ jobs:
               DBUsername="/cloudmart/$ENVIRONMENT/db/username" \
               DBPassword="/cloudmart/$ENVIRONMENT/db/password" \
               AuthTokenParameter="/cloudmart/$ENVIRONMENT/auth/token" \
+              CustomerTokensParameter="/cloudmart/$ENVIRONMENT/auth/customer-tokens" \
               AlertEmail="${{ secrets.CLOUDMART_ALERT_EMAIL }}" \
             --region "$AWS_REGION" \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --no-fail-on-empty-changeset
-
       # ========================================================
-      # VERIFY APPLICATION EVENTS
+      # VERIFY APPLICATION EVENTS STACK
       # ========================================================
 
-      - name: Verify Application-Events Stack
+      - name: Verify Application Events Stack
         run: |
           aws cloudformation describe-stacks \
             --stack-name "$APPLICATION_EVENTS_STACK_NAME" \
@@ -352,13 +537,19 @@ jobs:
             --query 'Stacks[0].[StackName,StackStatus]' \
             --output table
 
-      - name: Show Application-Events Outputs
+
+      - name: Show Application Outputs
         run: |
           aws cloudformation describe-stacks \
             --stack-name "$APPLICATION_EVENTS_STACK_NAME" \
             --region "$AWS_REGION" \
             --query 'Stacks[0].Outputs[*].[OutputKey,OutputValue]' \
             --output table
+
+
+      # ========================================================
+      # VERIFY LAMBDAS
+      # ========================================================
 
       - name: Verify Product Lambda
         run: |
@@ -368,7 +559,26 @@ jobs:
             --query '[FunctionName,Runtime,Handler,State,LastUpdateStatus]' \
             --output table
 
-      - name: Verify Authorizer
+
+      - name: Verify Order Lambda
+        run: |
+          aws lambda get-function-configuration \
+            --function-name "cloudmart-${ENVIRONMENT}-order-lambda" \
+            --region "$AWS_REGION" \
+            --query '[FunctionName,Runtime,Handler,State,LastUpdateStatus]' \
+            --output table
+
+
+      - name: Verify Order Processor Lambda
+        run: |
+          aws lambda get-function-configuration \
+            --function-name "cloudmart-${ENVIRONMENT}-order-processor" \
+            --region "$AWS_REGION" \
+            --query '[FunctionName,Runtime,Handler,State,LastUpdateStatus]' \
+            --output table
+
+
+      - name: Verify Lambda Authorizer
         run: |
           aws lambda get-function-configuration \
             --function-name "cloudmart-${ENVIRONMENT}-lambda-authorizer" \
@@ -376,66 +586,67 @@ jobs:
             --query '[FunctionName,Runtime,Handler,State,LastUpdateStatus]' \
             --output table
 
-      - name: Verify EventBridge
-        run: |
-          aws events describe-rule \
-            --name "cloudmart-${ENVIRONMENT}-low-stock-rule" \
-            --region "$AWS_REGION" \
-            --query '[Name,State]' \
-            --output table
 
-      - name: Show Application-Events Failure Details
+      # ========================================================
+      # APPLICATION FAILURE DETAILS
+      # ========================================================
+
+      - name: Show Application Events Failure Details
         if: failure()
         run: |
+          echo "==============================================="
+          echo "APPLICATION EVENTS STACK FAILURE DETAILS"
+          echo "==============================================="
+
           aws cloudformation describe-stack-events \
             --stack-name "$APPLICATION_EVENTS_STACK_NAME" \
             --region "$AWS_REGION" \
-            --query "StackEvents[?ResourceStatus=='CREATE_FAILED' || ResourceStatus=='UPDATE_FAILED' || ResourceStatus=='DELETE_FAILED'].[LogicalResourceId,ResourceType,ResourceStatus,ResourceStatusReason]" \
-            --output table
+            --max-items 50 \
+            --query "StackEvents[].[Timestamp,LogicalResourceId,ResourceType,ResourceStatus,ResourceStatusReason]" \
+            --output table || true
 
 
   # ============================================================
-  # 5. API MONITORING / EC2
+  # 6. API MONITORING EC2
   # ============================================================
 
   deploy-api-monitoring-ec2:
 
-    name: Deploy API-Monitoring-EC2 Stack
+    name: Deploy API Monitoring EC2 Stack
+
     runs-on: ubuntu-latest
 
     needs:
       - deploy-application-events
+
 
     steps:
 
       - name: Checkout repository
         uses: actions/checkout@v5
 
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
+
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+
 
       - name: Verify AWS identity
         run: |
           aws sts get-caller-identity
 
-      - name: Verify Application-Events Stack
-        run: |
-          aws cloudformation describe-stacks \
-            --stack-name "$APPLICATION_EVENTS_STACK_NAME" \
-            --region "$AWS_REGION" \
-            --query 'Stacks[0].[StackName,StackStatus]' \
-            --output table
 
-      - name: Validate API-Monitoring-EC2 template
+      - name: Validate API Monitoring EC2 template
         run: |
           aws cloudformation validate-template \
             --template-body file://cloudformation/api-monitoring-ec2-stack.yaml \
             --region "$AWS_REGION"
 
-      - name: Deploy API-Monitoring-EC2 Stack
+
+      - name: Deploy API Monitoring EC2 Stack
         run: |
           aws cloudformation deploy \
             --template-file cloudformation/api-monitoring-ec2-stack.yaml \
@@ -443,9 +654,11 @@ jobs:
             --parameter-overrides \
               Environment="$ENVIRONMENT" \
             --region "$AWS_REGION" \
+            --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --no-fail-on-empty-changeset
 
-      - name: Show API-Monitoring-EC2 Status
+
+      - name: Verify API Monitoring EC2 Stack
         run: |
           aws cloudformation describe-stacks \
             --stack-name "$API_MONITORING_EC2_STACK_NAME" \
@@ -453,10 +666,24 @@ jobs:
             --query 'Stacks[0].[StackName,StackStatus]' \
             --output table
 
-      - name: Show API-Monitoring-EC2 Outputs
+
+      - name: Show API Monitoring EC2 Outputs
         run: |
           aws cloudformation describe-stacks \
             --stack-name "$API_MONITORING_EC2_STACK_NAME" \
             --region "$AWS_REGION" \
             --query 'Stacks[0].Outputs[*].[OutputKey,OutputValue]' \
             --output table
+
+
+      - name: Show API Endpoint
+        run: |
+          echo "==============================================="
+          echo "CLOUDMART API ENDPOINT"
+          echo "==============================================="
+
+          aws cloudformation describe-stacks \
+            --stack-name "$API_MONITORING_EC2_STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query "Stacks[0].Outputs[?OutputKey=='ApiEndpoint'].OutputValue" \
+            --output text
