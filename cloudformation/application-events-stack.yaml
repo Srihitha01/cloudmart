@@ -3,7 +3,7 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: >
   CloudMart Application and Events Stack.
   Creates Lambda functions, EventBridge resources,
-  and SNS notifications.
+  SNS notifications, and Lambda integrations.
 
 # ==========================================================
 # PARAMETERS
@@ -138,6 +138,75 @@ Resources:
 
 
   # ==========================================================
+  # SNS ALERT TOPIC
+  # ==========================================================
+
+  AlertTopic:
+
+    Type: AWS::SNS::Topic
+
+    Properties:
+
+      TopicName:
+        !Sub "cloudmart-${Environment}-alerts"
+
+
+  # ==========================================================
+  # SNS EMAIL SUBSCRIPTION
+  # ==========================================================
+
+  AlertSubscription:
+
+    Type: AWS::SNS::Subscription
+
+    Properties:
+
+      Protocol:
+        email
+
+      TopicArn:
+        !Ref AlertTopic
+
+      Endpoint:
+        !Ref AlertEmail
+
+
+  # ==========================================================
+  # SNS TOPIC POLICY
+  # ALLOWS EVENTBRIDGE TO PUBLISH ALERTS
+  # ==========================================================
+
+  AlertTopicPolicy:
+
+    Type: AWS::SNS::TopicPolicy
+
+    Properties:
+
+      Topics:
+        - !Ref AlertTopic
+
+      PolicyDocument:
+
+        Version: "2012-10-17"
+
+        Statement:
+
+          - Sid: AllowEventBridgePublish
+
+            Effect: Allow
+
+            Principal:
+
+              Service: events.amazonaws.com
+
+            Action:
+              - sns:Publish
+
+            Resource:
+              !Ref AlertTopic
+
+
+  # ==========================================================
   # PRODUCT LAMBDA
   # ==========================================================
 
@@ -193,7 +262,6 @@ Resources:
           - Fn::ImportValue:
 
               Fn::Sub: "cloudmart-${Environment}-PrivateSubnetId"
-
 
           - Fn::ImportValue:
 
@@ -299,7 +367,6 @@ Resources:
 
               Fn::Sub: "cloudmart-${Environment}-PrivateSubnetId"
 
-
           - Fn::ImportValue:
 
               Fn::Sub: "cloudmart-${Environment}-SecondaryPrivateSubnetId"
@@ -404,7 +471,6 @@ Resources:
 
               Fn::Sub: "cloudmart-${Environment}-PrivateSubnetId"
 
-
           - Fn::ImportValue:
 
               Fn::Sub: "cloudmart-${Environment}-SecondaryPrivateSubnetId"
@@ -452,7 +518,6 @@ Resources:
             !Ref CloudMartEventBus
 
 
-          # REQUIRED BY ORDER LAMBDA CODE
           ORDER_PROCESSOR_FUNCTION_NAME:
             !Ref OrderProcessorLambda
 
@@ -517,6 +582,7 @@ Resources:
 
   # ==========================================================
   # ORDER UPDATED EVENT RULE
+  # SENDS ORDER UPDATED EVENTS TO ORDER PROCESSOR
   # ==========================================================
 
   OrderUpdatedEventRule:
@@ -587,39 +653,55 @@ Resources:
 
 
   # ==========================================================
-  # SNS ALERT TOPIC
+  # ORDER EVENTS TO SNS
   # ==========================================================
 
-  AlertTopic:
+  OrderEventsToSNSRule:
 
-    Type: AWS::SNS::Topic
+    Type: AWS::Events::Rule
+
+    DependsOn:
+      - AlertTopicPolicy
 
     Properties:
 
-      TopicName:
-        !Sub "cloudmart-${Environment}-alerts"
+      Name:
+        !Sub "cloudmart-${Environment}-order-events-to-sns"
 
 
-  # ==========================================================
-  # SNS EMAIL SUBSCRIPTION
-  # ==========================================================
-
-  AlertSubscription:
-
-    Type: AWS::SNS::Subscription
-
-    Properties:
-
-      Protocol:
-        email
+      Description: >
+        Sends CloudMart order and stock events to SNS alerts
 
 
-      TopicArn:
-        !Ref AlertTopic
+      EventBusName:
+        !Ref CloudMartEventBus
 
 
-      Endpoint:
-        !Ref AlertEmail
+      EventPattern:
+
+        source:
+          - cloudmart.orders
+
+
+        detail-type:
+          - OrderPlaced
+          - OrderPending
+          - OrderConfirmed
+          - OrderUpdated
+          - LowStock
+
+
+      State:
+        ENABLED
+
+
+      Targets:
+
+        - Arn:
+            !Ref AlertTopic
+
+          Id:
+            SNSAlertTarget
 
 
 # ==========================================================
