@@ -1,95 +1,165 @@
-AWSTemplateFormatVersion: "2010-09-09"
+AWSTemplateFormatVersion: '2010-09-09'
 
 Description: >
-  CloudMart Application and Events Stack.
-  Creates Lambda functions, EventBridge resources,
-  SNS notifications, and Lambda integrations.
+  CloudMart Application-Events Stack.
+  Creates Lambda Authorizer, PyMySQL layer, Product Lambda,
+  Order Lambda, Order Processor Lambda, EventBridge order lifecycle events,
+  low-stock notifications, and SNS alerts.
 
-# ==========================================================
+
+# ============================================================
 # PARAMETERS
-# ==========================================================
+# ============================================================
 
 Parameters:
 
+
+  # ==========================================================
+  # ENVIRONMENT
+  # ==========================================================
+
   Environment:
+
     Type: String
+
     Default: dev
 
     AllowedValues:
+
       - dev
       - prod
 
 
+  # ==========================================================
+  # DATABASE SSM PARAMETERS
+  # ==========================================================
+
+  DBName:
+
+    Type: String
+
+    Default: /cloudmart/dev/db/name
+
+
+  DBEndpoint:
+
+    Type: String
+
+    Default: /cloudmart/dev/db/endpoint
+
+
+  DBPort:
+
+    Type: String
+
+    Default: /cloudmart/dev/db/port
+
+
+  DBUsername:
+
+    Type: String
+
+    Default: /cloudmart/dev/db/username
+
+
+  DBPassword:
+
+    Type: String
+
+    Default: /cloudmart/dev/db/password
+
+
+  # ==========================================================
+  # AUTHENTICATION
+  # ==========================================================
+
+  AuthTokenParameter:
+
+    Type: String
+
+    Default: /cloudmart/dev/auth/token
+
+
+  CustomerTokensParameter:
+
+    Type: String
+
+    Default: /cloudmart/dev/auth/customer-tokens
+
+
+  # ==========================================================
+  # LAMBDA ARTIFACTS
+  # ==========================================================
+
   LambdaArtifactBucket:
+
     Type: String
 
 
   PyMySQLLayerS3Key:
+
     Type: String
 
 
   ProductLambdaS3Key:
+
     Type: String
 
 
   OrderLambdaS3Key:
+
     Type: String
 
 
   OrderProcessorLambdaS3Key:
+
     Type: String
 
 
   AuthorizerLambdaS3Key:
+
     Type: String
 
 
   # Kept for deployment workflow compatibility
+
   SchemaS3Key:
+
     Type: String
 
 
-  DBName:
-    Type: String
-
-
-  DBEndpoint:
-    Type: String
-
-
-  DBPort:
-    Type: String
-
-
-  DBUsername:
-    Type: String
-
-
-  DBPassword:
-    Type: String
-
-
-  AuthTokenParameter:
-    Type: String
-
-
-  CustomerTokensParameter:
-    Type: String
-
+  # ==========================================================
+  # SNS ALERT EMAIL
+  # ==========================================================
 
   AlertEmail:
+
     Type: String
 
 
-# ==========================================================
+# ============================================================
 # RESOURCES
-# ==========================================================
+# ============================================================
 
 Resources:
 
 
   # ==========================================================
-  # PYMYSQL LAMBDA LAYER
+  # CUSTOM EVENTBRIDGE EVENT BUS
+  # ==========================================================
+
+  CloudMartEventBus:
+
+    Type: AWS::Events::EventBus
+
+    Properties:
+
+      Name:
+        !Sub "cloudmart-${Environment}-event-bus"
+
+
+  # ==========================================================
+  # PYMYSQL LAYER
   # ==========================================================
 
   PyMySQLLayer:
@@ -106,6 +176,16 @@ Resources:
         PyMySQL dependency layer for CloudMart Lambda functions
 
 
+      CompatibleRuntimes:
+
+        - python3.12
+
+
+      CompatibleArchitectures:
+
+        - x86_64
+
+
       Content:
 
         S3Bucket:
@@ -113,28 +193,6 @@ Resources:
 
         S3Key:
           !Ref PyMySQLLayerS3Key
-
-
-      CompatibleRuntimes:
-        - python3.12
-
-
-      CompatibleArchitectures:
-        - x86_64
-
-
-  # ==========================================================
-  # EVENTBRIDGE EVENT BUS
-  # ==========================================================
-
-  CloudMartEventBus:
-
-    Type: AWS::Events::EventBus
-
-    Properties:
-
-      Name:
-        !Sub "cloudmart-${Environment}-event-bus"
 
 
   # ==========================================================
@@ -173,7 +231,7 @@ Resources:
 
   # ==========================================================
   # SNS TOPIC POLICY
-  # ALLOWS EVENTBRIDGE TO PUBLISH ALERTS
+  # ALLOW EVENTBRIDGE TO PUBLISH
   # ==========================================================
 
   AlertTopicPolicy:
@@ -183,11 +241,14 @@ Resources:
     Properties:
 
       Topics:
+
         - !Ref AlertTopic
+
 
       PolicyDocument:
 
         Version: "2012-10-17"
+
 
         Statement:
 
@@ -195,12 +256,16 @@ Resources:
 
             Effect: Allow
 
+
             Principal:
 
-              Service: events.amazonaws.com
+              Service:
+                events.amazonaws.com
+
 
             Action:
-              - sns:Publish
+              sns:Publish
+
 
             Resource:
               !Ref AlertTopic
@@ -243,11 +308,6 @@ Resources:
         256
 
 
-      # ======================================================
-      # VPC CONFIGURATION
-      # Required for private RDS access
-      # ======================================================
-
       VpcConfig:
 
         SecurityGroupIds:
@@ -262,6 +322,7 @@ Resources:
           - Fn::ImportValue:
 
               Fn::Sub: "cloudmart-${Environment}-PrivateSubnetId"
+
 
           - Fn::ImportValue:
 
@@ -347,11 +408,6 @@ Resources:
         256
 
 
-      # ======================================================
-      # VPC CONFIGURATION
-      # Required for private RDS access
-      # ======================================================
-
       VpcConfig:
 
         SecurityGroupIds:
@@ -366,6 +422,7 @@ Resources:
           - Fn::ImportValue:
 
               Fn::Sub: "cloudmart-${Environment}-PrivateSubnetId"
+
 
           - Fn::ImportValue:
 
@@ -451,11 +508,6 @@ Resources:
         256
 
 
-      # ======================================================
-      # VPC CONFIGURATION
-      # Required for private RDS access
-      # ======================================================
-
       VpcConfig:
 
         SecurityGroupIds:
@@ -470,6 +522,7 @@ Resources:
           - Fn::ImportValue:
 
               Fn::Sub: "cloudmart-${Environment}-PrivateSubnetId"
+
 
           - Fn::ImportValue:
 
@@ -606,10 +659,12 @@ Resources:
       EventPattern:
 
         source:
+
           - cloudmart.orders
 
 
         detail-type:
+
           - OrderUpdated
 
 
@@ -652,9 +707,9 @@ Resources:
         !GetAtt OrderUpdatedEventRule.Arn
 
 
-  # ==========================================================
-  # ORDER EVENTS TO SNS
-  # ==========================================================
+  # ============================================================
+  # EVENTBRIDGE RULE - ORDER EVENTS TO SNS
+  # ============================================================
 
   OrderEventsToSNSRule:
 
@@ -669,7 +724,7 @@ Resources:
         !Sub "cloudmart-${Environment}-order-events-to-sns"
 
 
-      Description: >
+      Description:
         Sends CloudMart order and stock events to SNS alerts
 
 
@@ -677,36 +732,39 @@ Resources:
         !Ref CloudMartEventBus
 
 
-      EventPattern:
-
-        source:
-          - cloudmart.orders
-
-
-        detail-type:
-          - OrderPlaced
-          - OrderPending
-          - OrderConfirmed
-          - OrderUpdated
-          - LowStock
-
-
       State:
         ENABLED
 
 
+      EventPattern:
+
+        source:
+
+          - cloudmart.orders
+
+
+        detail-type:
+
+          - OrderPlaced
+          - OrderPending
+          - OrderConfirmed
+          - OrderFailed
+          - OrderUpdated
+          - LowStock
+
+
       Targets:
 
-        - Arn:
+        - Id:
+            CloudMartSNSTarget
+
+          Arn:
             !Ref AlertTopic
 
-          Id:
-            SNSAlertTarget
 
-
-# ==========================================================
+# ============================================================
 # OUTPUTS
-# ==========================================================
+# ============================================================
 
 Outputs:
 
@@ -842,7 +900,7 @@ Outputs:
   LambdaAuthorizerName:
 
     Description:
-      Lambda Authorizer Function Name
+      Lambda Authorizer Name
 
 
     Value:
