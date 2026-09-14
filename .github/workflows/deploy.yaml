@@ -247,7 +247,7 @@ jobs:
       - name: Validate DB Password
 
         env:
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_PASSWORD: ${{ secrets.CLOUDMART_DB_PASSWORD }}
 
         run: |
 
@@ -292,7 +292,7 @@ jobs:
       - name: Deploy Data Storage Stack
 
         env:
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_PASSWORD: ${{ secrets.CLOUDMART_DB_PASSWORD }}
 
         run: |
 
@@ -328,7 +328,7 @@ jobs:
           aws ssm put-parameter \
             --name "/cloudmart/${ENVIRONMENT}/db/password" \
             --type SecureString \
-            --value "${{ secrets.DB_PASSWORD }}" \
+            --value "${{ secrets.CLOUDMART_DB_PASSWORD }}" \
             --overwrite \
             --region "$AWS_REGION"
 
