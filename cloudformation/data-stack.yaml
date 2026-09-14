@@ -130,7 +130,7 @@ Resources:
 
       DeletionProtection: false
 
-      BackupRetentionPeriod: 7
+      BackupRetentionPeriod: 1
 
       CopyTagsToSnapshot: true
 
