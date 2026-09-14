@@ -1,9 +1,14 @@
 AWSTemplateFormatVersion: '2010-09-09'
 
 Description: >
-  CloudMart Data-Storage Stack.
-  Creates the private RDS MySQL database
-  and S3 report bucket.
+  CloudMart Data Storage Stack.
+  Creates the private RDS MySQL database, DB subnet group,
+  encrypted S3 report bucket, deployment artifact bucket,
+  and non-sensitive SSM configuration parameters.
+
+# ============================================================
+# PARAMETERS
+# ============================================================
 
 Parameters:
 
@@ -13,7 +18,7 @@ Parameters:
     AllowedValues:
       - dev
       - prod
-    Description: Deployment environment
+    Description: CloudMart deployment environment
 
   DBName:
     Type: String
@@ -43,7 +48,15 @@ Parameters:
     Description: Initial RDS storage in GB
 
 
+# ============================================================
+# RESOURCES
+# ============================================================
+
 Resources:
+
+  # ==========================================================
+  # RDS DB SUBNET GROUP
+  # ==========================================================
 
   CloudMartDBSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
@@ -51,7 +64,7 @@ Resources:
     Properties:
 
       DBSubnetGroupDescription:
-        !Sub CloudMart ${Environment} RDS private subnet group
+        !Sub CloudMart ${Environment} private RDS subnet group
 
       SubnetIds:
 
@@ -72,6 +85,10 @@ Resources:
         - Key: Environment
           Value: !Ref Environment
 
+
+  # ==========================================================
+  # PRIVATE RDS MYSQL DATABASE
+  # ==========================================================
 
   CloudMartRDS:
     Type: AWS::RDS::DBInstance
@@ -113,7 +130,7 @@ Resources:
 
       DeletionProtection: false
 
-      BackupRetentionPeriod: 0
+      BackupRetentionPeriod: 7
 
       CopyTagsToSnapshot: true
 
@@ -137,6 +154,11 @@ Resources:
           Value: !Ref Environment
 
 
+  # ==========================================================
+  # S3 REPORT BUCKET
+  # Application reports are stored here
+  # ==========================================================
+
   CloudMartReportBucket:
     Type: AWS::S3::Bucket
 
@@ -155,8 +177,11 @@ Resources:
       PublicAccessBlockConfiguration:
 
         BlockPublicAcls: true
+
         BlockPublicPolicy: true
+
         IgnorePublicAcls: true
+
         RestrictPublicBuckets: true
 
       VersioningConfiguration:
@@ -174,11 +199,185 @@ Resources:
           Value: !Ref Environment
 
 
+  # ==========================================================
+  # S3 DEPLOYMENT ARTIFACT BUCKET
+  # Stores Lambda ZIPs, Lambda layers and database schema
+  # ==========================================================
+
+  CloudMartArtifactBucket:
+    Type: AWS::S3::Bucket
+
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+
+    Properties:
+
+      BucketEncryption:
+
+        ServerSideEncryptionConfiguration:
+
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+      PublicAccessBlockConfiguration:
+
+        BlockPublicAcls: true
+
+        BlockPublicPolicy: true
+
+        IgnorePublicAcls: true
+
+        RestrictPublicBuckets: true
+
+      VersioningConfiguration:
+        Status: Enabled
+
+      LifecycleConfiguration:
+
+        Rules:
+
+          - Id: DeleteOldArtifactVersions
+
+            Status: Enabled
+
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 30
+
+      Tags:
+
+        - Key: Name
+          Value: !Sub cloudmart-${Environment}-artifacts
+
+        - Key: Project
+          Value: CloudMart
+
+        - Key: Environment
+          Value: !Ref Environment
+
+
+  # ==========================================================
+  # SSM DATABASE CONFIGURATION
+  #
+  # Non-sensitive database configuration is stored here.
+  #
+  # DB PASSWORD IS NOT CREATED HERE.
+  # It is created by deploy.yaml as SecureString.
+  # ==========================================================
+
+  DBEndpointParameter:
+    Type: AWS::SSM::Parameter
+
+    Properties:
+
+      Name:
+        !Sub /cloudmart/${Environment}/db/endpoint
+
+      Type: String
+
+      Value:
+        !GetAtt CloudMartRDS.Endpoint.Address
+
+      Description: CloudMart RDS MySQL endpoint
+
+
+  DBNameParameter:
+    Type: AWS::SSM::Parameter
+
+    Properties:
+
+      Name:
+        !Sub /cloudmart/${Environment}/db/name
+
+      Type: String
+
+      Value:
+        !Ref DBName
+
+      Description: CloudMart database name
+
+
+  DBPortParameter:
+    Type: AWS::SSM::Parameter
+
+    Properties:
+
+      Name:
+        !Sub /cloudmart/${Environment}/db/port
+
+      Type: String
+
+      Value:
+        !GetAtt CloudMartRDS.Endpoint.Port
+
+      Description: CloudMart RDS MySQL port
+
+
+  DBUsernameParameter:
+    Type: AWS::SSM::Parameter
+
+    Properties:
+
+      Name:
+        !Sub /cloudmart/${Environment}/db/username
+
+      Type: String
+
+      Value:
+        !Ref DBUsername
+
+      Description: CloudMart RDS MySQL username
+
+
+  # ==========================================================
+  # SSM S3 CONFIGURATION
+  # ==========================================================
+
+  ReportBucketParameter:
+    Type: AWS::SSM::Parameter
+
+    Properties:
+
+      Name:
+        !Sub /cloudmart/${Environment}/s3/report-bucket
+
+      Type: String
+
+      Value:
+        !Ref CloudMartReportBucket
+
+      Description: CloudMart report bucket name
+
+
+  ArtifactBucketParameter:
+    Type: AWS::SSM::Parameter
+
+    Properties:
+
+      Name:
+        !Sub /cloudmart/${Environment}/s3/artifact-bucket
+
+      Type: String
+
+      Value:
+        !Ref CloudMartArtifactBucket
+
+      Description: CloudMart deployment artifact bucket name
+
+
+# ============================================================
+# OUTPUTS
+# ============================================================
+
 Outputs:
+
+
+  # ==========================================================
+  # RDS OUTPUTS
+  # ==========================================================
 
   DBEndpoint:
 
-    Description: RDS MySQL endpoint
+    Description: CloudMart RDS MySQL endpoint
 
     Value:
       !GetAtt CloudMartRDS.Endpoint.Address
@@ -191,7 +390,7 @@ Outputs:
 
   DBPort:
 
-    Description: RDS MySQL port
+    Description: CloudMart RDS MySQL port
 
     Value:
       !GetAtt CloudMartRDS.Endpoint.Port
@@ -215,9 +414,22 @@ Outputs:
         !Sub cloudmart-${Environment}-DBName
 
 
+  DBUsername:
+
+    Description: CloudMart database username
+
+    Value:
+      !Ref DBUsername
+
+    Export:
+
+      Name:
+        !Sub cloudmart-${Environment}-DBUsername
+
+
   DBInstanceIdentifier:
 
-    Description: RDS instance identifier
+    Description: CloudMart RDS instance identifier
 
     Value:
       !Ref CloudMartRDS
@@ -228,9 +440,13 @@ Outputs:
         !Sub cloudmart-${Environment}-DBInstanceIdentifier
 
 
+  # ==========================================================
+  # RDS SECURITY GROUP
+  # ==========================================================
+
   RDSSecurityGroupId:
 
-    Description: RDS security group ID
+    Description: CloudMart RDS security group ID
 
     Value:
       Fn::ImportValue:
@@ -242,9 +458,13 @@ Outputs:
         !Sub cloudmart-${Environment}-DataStorageRDSSecurityGroupId
 
 
+  # ==========================================================
+  # REPORT BUCKET OUTPUTS
+  # ==========================================================
+
   ReportBucketName:
 
-    Description: S3 report bucket name
+    Description: CloudMart report bucket name
 
     Value:
       !Ref CloudMartReportBucket
@@ -257,7 +477,7 @@ Outputs:
 
   ReportBucketArn:
 
-    Description: S3 report bucket ARN
+    Description: CloudMart report bucket ARN
 
     Value:
       !GetAtt CloudMartReportBucket.Arn
@@ -266,3 +486,115 @@ Outputs:
 
       Name:
         !Sub cloudmart-${Environment}-ReportBucketArn
+
+
+  # ==========================================================
+  # ARTIFACT BUCKET OUTPUTS
+  # ==========================================================
+
+  ArtifactBucketName:
+
+    Description: CloudMart deployment artifact bucket name
+
+    Value:
+      !Ref CloudMartArtifactBucket
+
+    Export:
+
+      Name:
+        !Sub cloudmart-${Environment}-ArtifactBucketName
+
+
+  ArtifactBucketArn:
+
+    Description: CloudMart deployment artifact bucket ARN
+
+    Value:
+      !GetAtt CloudMartArtifactBucket.Arn
+
+    Export:
+
+      Name:
+        !Sub cloudmart-${Environment}-ArtifactBucketArn
+
+
+  # ==========================================================
+  # SSM PARAMETER PATH OUTPUTS
+  # ==========================================================
+
+  DBEndpointParameterName:
+
+    Description: SSM parameter path for RDS endpoint
+
+    Value:
+      !Ref DBEndpointParameter
+
+    Export:
+
+      Name:
+        !Sub cloudmart-${Environment}-DBEndpointParameterName
+
+
+  DBNameParameterName:
+
+    Description: SSM parameter path for database name
+
+    Value:
+      !Ref DBNameParameter
+
+    Export:
+
+      Name:
+        !Sub cloudmart-${Environment}-DBNameParameterName
+
+
+  DBPortParameterName:
+
+    Description: SSM parameter path for database port
+
+    Value:
+      !Ref DBPortParameter
+
+    Export:
+
+      Name:
+        !Sub cloudmart-${Environment}-DBPortParameterName
+
+
+  DBUsernameParameterName:
+
+    Description: SSM parameter path for database username
+
+    Value:
+      !Ref DBUsernameParameter
+
+    Export:
+
+      Name:
+        !Sub cloudmart-${Environment}-DBUsernameParameterName
+
+
+  ReportBucketParameterName:
+
+    Description: SSM parameter path for report bucket
+
+    Value:
+      !Ref ReportBucketParameter
+
+    Export:
+
+      Name:
+        !Sub cloudmart-${Environment}-ReportBucketParameterName
+
+
+  ArtifactBucketParameterName:
+
+    Description: SSM parameter path for artifact bucket
+
+    Value:
+      !Ref ArtifactBucketParameter
+
+    Export:
+
+      Name:
+        !Sub cloudmart-${Environment}-ArtifactBucketParameterName

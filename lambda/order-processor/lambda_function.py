@@ -39,12 +39,7 @@ def log_event(level, message, **details):
         **details
     }
 
-    print(
-        json.dumps(
-            record,
-            default=str
-        )
-    )
+    print(json.dumps(record, default=str))
 
 
 # ==========================================================
@@ -58,10 +53,7 @@ def response(status_code, body):
         "headers": {
             "Content-Type": "application/json"
         },
-        "body": json.dumps(
-            body,
-            default=str
-        )
+        "body": json.dumps(body, default=str)
     }
 
 
@@ -85,18 +77,12 @@ def get_parameter(name):
 
 def get_db_connection():
 
-    db_name = get_parameter(
-        DB_NAME_PARAMETER
-    )
+    db_name = get_parameter(DB_NAME_PARAMETER)
 
-    db_host = get_parameter(
-        DB_ENDPOINT_PARAMETER
-    )
+    db_host = get_parameter(DB_ENDPOINT_PARAMETER)
 
     db_port = int(
-        get_parameter(
-            DB_PORT_PARAMETER
-        )
+        get_parameter(DB_PORT_PARAMETER)
     )
 
     db_username = get_parameter(
@@ -119,6 +105,58 @@ def get_db_connection():
         cursorclass=pymysql.cursors.DictCursor,
         autocommit=False
     )
+
+
+# ==========================================================
+# PUBLISH EVENT
+# ==========================================================
+
+def publish_event(
+    source,
+    detail_type,
+    detail
+):
+
+    result = events.put_events(
+        Entries=[
+            {
+                "EventBusName": EVENT_BUS_NAME,
+                "Source": source,
+                "DetailType": detail_type,
+                "Detail": json.dumps(
+                    detail,
+                    default=str
+                )
+            }
+        ]
+    )
+
+    failed_count = result.get(
+        "FailedEntryCount",
+        0
+    )
+
+    if failed_count != 0:
+
+        log_event(
+            "ERROR",
+            "Event publishing failed",
+            source=source,
+            detail_type=detail_type,
+            event_result=result
+        )
+
+        return False
+
+    log_event(
+        "INFO",
+        "Event published successfully",
+        source=source,
+        detail_type=detail_type,
+        detail=detail
+    )
+
+    return True
 
 
 # ==========================================================
@@ -150,45 +188,11 @@ def publish_order_event(
 
         detail["reason"] = reason
 
-    result = events.put_events(
-        Entries=[
-            {
-                "EventBusName": EVENT_BUS_NAME,
-                "Source": "cloudmart.orders",
-                "DetailType": detail_type,
-                "Detail": json.dumps(
-                    detail,
-                    default=str
-                )
-            }
-        ]
+    return publish_event(
+        source="cloudmart.orders",
+        detail_type=detail_type,
+        detail=detail
     )
-
-    failed_count = result.get(
-        "FailedEntryCount",
-        0
-    )
-
-    if failed_count != 0:
-
-        log_event(
-            "ERROR",
-            "Order event publishing failed",
-            order_id=order_id,
-            detail_type=detail_type,
-            event_result=result
-        )
-
-        return False
-
-    log_event(
-        "INFO",
-        "Order event published",
-        order_id=order_id,
-        detail_type=detail_type
-    )
-
-    return True
 
 
 # ==========================================================
@@ -203,7 +207,6 @@ def publish_low_stock_event(
     low_stock_threshold
 ):
 
-    # Only publish when stock is actually low
     if new_stock > low_stock_threshold:
 
         log_event(
@@ -226,59 +229,11 @@ def publish_low_stock_event(
         "low_stock": True
     }
 
-    try:
-
-        result = events.put_events(
-            Entries=[
-                {
-                    "EventBusName": EVENT_BUS_NAME,
-                    "Source": "cloudmart.inventory",
-                    "DetailType": "LowStock",
-                    "Detail": json.dumps(
-                        detail,
-                        default=str
-                    )
-                }
-            ]
-        )
-
-        if result.get(
-            "FailedEntryCount",
-            0
-        ) != 0:
-
-            log_event(
-                "ERROR",
-                "Low stock event publishing failed",
-                product_id=product_id,
-                event_result=result
-            )
-
-            return False
-
-        log_event(
-            "INFO",
-            "Low stock event published",
-            product_id=product_id,
-            product_name=product_name,
-            old_stock=old_stock,
-            new_stock=new_stock,
-            low_stock_threshold=low_stock_threshold
-        )
-
-        return True
-
-    except Exception as exc:
-
-        log_event(
-            "ERROR",
-            "Low stock event publishing exception",
-            product_id=product_id,
-            error_type=type(exc).__name__,
-            error=str(exc)
-        )
-
-        return False
+    return publish_event(
+        source="cloudmart.inventory",
+        detail_type="LowStock",
+        detail=detail
+    )
 
 
 # ==========================================================
@@ -287,13 +242,8 @@ def publish_low_stock_event(
 
 def validate_order_payload(event):
 
-    customer_id = event.get(
-        "customer_id"
-    )
-
-    items = event.get(
-        "items"
-    )
+    customer_id = event.get("customer_id")
+    items = event.get("items")
 
     if customer_id is None:
 
@@ -303,9 +253,7 @@ def validate_order_payload(event):
 
     try:
 
-        customer_id = int(
-            customer_id
-        )
+        customer_id = int(customer_id)
 
     except (TypeError, ValueError):
 
@@ -335,13 +283,8 @@ def validate_order_payload(event):
                 "Each order item must be an object"
             )
 
-        product_id = item.get(
-            "product_id"
-        )
-
-        quantity = item.get(
-            "quantity"
-        )
+        product_id = item.get("product_id")
+        quantity = item.get("quantity")
 
         if product_id is None:
 
@@ -357,13 +300,8 @@ def validate_order_payload(event):
 
         try:
 
-            product_id = int(
-                product_id
-            )
-
-            quantity = int(
-                quantity
-            )
+            product_id = int(product_id)
+            quantity = int(quantity)
 
         except (TypeError, ValueError):
 
@@ -407,13 +345,8 @@ def create_pending_order(
 
     connection = None
 
-    customer_id = order_data[
-        "customer_id"
-    ]
-
-    items = order_data[
-        "items"
-    ]
+    customer_id = order_data["customer_id"]
+    items = order_data["items"]
 
     try:
 
@@ -444,24 +377,17 @@ def create_pending_order(
                 )
 
             # --------------------------------------------------
-            # READ PRODUCTS AND CALCULATE TOTAL
+            # READ PRODUCTS
             # --------------------------------------------------
 
             product_details = []
 
-            total_amount = Decimal(
-                "0.00"
-            )
+            total_amount = Decimal("0.00")
 
             for item in items:
 
-                product_id = item[
-                    "product_id"
-                ]
-
-                quantity = item[
-                    "quantity"
-                ]
+                product_id = item["product_id"]
+                quantity = item["quantity"]
 
                 cursor.execute(
                     """
@@ -487,9 +413,7 @@ def create_pending_order(
                     )
 
                 unit_price = Decimal(
-                    str(
-                        product["price"]
-                    )
+                    str(product["price"])
                 )
 
                 total_amount += (
@@ -499,31 +423,20 @@ def create_pending_order(
                 product_details.append(
                     {
                         "product_id": product_id,
-
-                        "name": product[
-                            "name"
-                        ],
-
+                        "name": product["name"],
                         "quantity": quantity,
-
                         "unit_price": unit_price,
-
                         "stock_quantity": int(
-                            product[
-                                "stock_quantity"
-                            ]
+                            product["stock_quantity"]
                         ),
-
                         "reorder_threshold": int(
-                            product[
-                                "reorder_threshold"
-                            ]
+                            product["reorder_threshold"]
                         )
                     }
                 )
 
             # --------------------------------------------------
-            # CREATE PENDING ORDER
+            # CREATE ORDER
             # --------------------------------------------------
 
             cursor.execute(
@@ -571,15 +484,9 @@ def create_pending_order(
                     """,
                     (
                         order_id,
-                        product[
-                            "product_id"
-                        ],
-                        product[
-                            "quantity"
-                        ],
-                        product[
-                            "unit_price"
-                        ]
+                        product["product_id"],
+                        product["quantity"],
+                        product["unit_price"]
                     )
                 )
 
@@ -613,10 +520,6 @@ def create_pending_order(
                 )
             )
 
-        # ------------------------------------------------------
-        # COMMIT ORDER CREATION
-        # ------------------------------------------------------
-
         connection.commit()
 
         log_event(
@@ -628,9 +531,9 @@ def create_pending_order(
             total_amount=total_amount
         )
 
-        # ------------------------------------------------------
-        # PUBLISH ORDER PLACED
-        # ------------------------------------------------------
+        # --------------------------------------------------
+        # ORDER PLACED
+        # --------------------------------------------------
 
         publish_order_event(
             detail_type="OrderPlaced",
@@ -640,9 +543,9 @@ def create_pending_order(
             total_amount=total_amount
         )
 
-        # ------------------------------------------------------
-        # PUBLISH ORDER PENDING
-        # ------------------------------------------------------
+        # --------------------------------------------------
+        # ORDER PENDING
+        # --------------------------------------------------
 
         publish_order_event(
             detail_type="OrderPending",
@@ -664,311 +567,6 @@ def create_pending_order(
         if connection is not None:
 
             connection.rollback()
-
-        raise
-
-    finally:
-
-        if connection is not None:
-
-            connection.close()
-
-
-# ==========================================================
-# CONFIRM ORDER
-# ==========================================================
-
-def confirm_order(
-    order,
-    context
-):
-
-    connection = None
-
-    order_id = order[
-        "order_id"
-    ]
-
-    customer_id = order[
-        "customer_id"
-    ]
-
-    total_amount = order[
-        "total_amount"
-    ]
-
-    try:
-
-        connection = get_db_connection()
-
-        with connection.cursor() as cursor:
-
-            # --------------------------------------------------
-            # LOCK PRODUCTS
-            # --------------------------------------------------
-
-            locked_products = []
-
-            for product in order[
-                "products"
-            ]:
-
-                product_id = product[
-                    "product_id"
-                ]
-
-                quantity = product[
-                    "quantity"
-                ]
-
-                cursor.execute(
-                    """
-                    SELECT
-                        product_id,
-                        name,
-                        stock_quantity,
-                        reorder_threshold
-                    FROM products
-                    WHERE product_id = %s
-                      AND deleted_at IS NULL
-                    FOR UPDATE
-                    """,
-                    (product_id,)
-                )
-
-                current_product = (
-                    cursor.fetchone()
-                )
-
-                if current_product is None:
-
-                    raise ValueError(
-                        f"Product {product_id} not found"
-                    )
-
-                current_stock = int(
-                    current_product[
-                        "stock_quantity"
-                    ]
-                )
-
-                if current_stock < quantity:
-
-                    raise ValueError(
-                        f"Insufficient stock for product "
-                        f"{product_id}. Available: "
-                        f"{current_stock}, Requested: "
-                        f"{quantity}"
-                    )
-
-                locked_products.append(
-                    {
-                        "product_id": product_id,
-
-                        "product_name": current_product[
-                            "name"
-                        ],
-
-                        "quantity": quantity,
-
-                        "stock_quantity": current_stock,
-
-                        "reorder_threshold": int(
-                            current_product[
-                                "reorder_threshold"
-                            ]
-                        )
-                    }
-                )
-
-            # --------------------------------------------------
-            # DEDUCT INVENTORY
-            # --------------------------------------------------
-
-            for product in locked_products:
-
-                new_stock = (
-                    product[
-                        "stock_quantity"
-                    ]
-                    -
-                    product[
-                        "quantity"
-                    ]
-                )
-
-                cursor.execute(
-                    """
-                    UPDATE products
-                    SET stock_quantity = %s
-                    WHERE product_id = %s
-                      AND deleted_at IS NULL
-                    """,
-                    (
-                        new_stock,
-                        product[
-                            "product_id"
-                        ]
-                    )
-                )
-
-            # --------------------------------------------------
-            # UPDATE ORDER STATUS
-            # --------------------------------------------------
-
-            cursor.execute(
-                """
-                UPDATE orders
-                SET status = %s
-                WHERE order_id = %s
-                  AND status = %s
-                """,
-                (
-                    "CONFIRMED",
-                    order_id,
-                    "PENDING"
-                )
-            )
-
-            if cursor.rowcount != 1:
-
-                raise ValueError(
-                    "Order could not be confirmed"
-                )
-
-            # --------------------------------------------------
-            # CREATE ORDER LOG
-            # --------------------------------------------------
-
-            cursor.execute(
-                """
-                INSERT INTO order_logs (
-                    order_id,
-                    previous_status,
-                    new_status,
-                    changed_by,
-                    note
-                )
-                VALUES (
-                    %s,
-                    %s,
-                    %s,
-                    %s,
-                    %s
-                )
-                """,
-                (
-                    order_id,
-                    "PENDING",
-                    "CONFIRMED",
-                    "system",
-                    "Order confirmed and inventory deducted"
-                )
-            )
-
-        # ------------------------------------------------------
-        # COMMIT EVERYTHING
-        # ------------------------------------------------------
-
-        connection.commit()
-
-        log_event(
-            "INFO",
-            "Order confirmed",
-            request_id=context.aws_request_id,
-            order_id=order_id,
-            customer_id=customer_id,
-            total_amount=total_amount
-        )
-
-        # ------------------------------------------------------
-        # PUBLISH ORDER CONFIRMED
-        # ------------------------------------------------------
-
-        publish_order_event(
-            detail_type="OrderConfirmed",
-            order_id=order_id,
-            customer_id=customer_id,
-            status="CONFIRMED",
-            total_amount=total_amount
-        )
-
-        # ------------------------------------------------------
-        # CHECK LOW STOCK
-        # ------------------------------------------------------
-
-        for product in locked_products:
-
-            new_stock = (
-                product[
-                    "stock_quantity"
-                ]
-                -
-                product[
-                    "quantity"
-                ]
-            )
-
-            publish_low_stock_event(
-                product_id=product[
-                    "product_id"
-                ],
-                product_name=product[
-                    "product_name"
-                ],
-                old_stock=product[
-                    "stock_quantity"
-                ],
-                new_stock=new_stock,
-                low_stock_threshold=product[
-                    "reorder_threshold"
-                ]
-            )
-
-        return {
-            "order_id": order_id,
-            "customer_id": customer_id,
-            "status": "CONFIRMED",
-            "total_amount": total_amount
-        }
-
-    except Exception as exc:
-
-        if connection is not None:
-
-            connection.rollback()
-
-        log_event(
-            "ERROR",
-            "Order confirmation failed",
-            request_id=context.aws_request_id,
-            order_id=order_id,
-            customer_id=customer_id,
-            error_type=type(exc).__name__,
-            error=str(exc)
-        )
-
-        # ------------------------------------------------------
-        # MARK ORDER FAILED FIRST
-        # ------------------------------------------------------
-
-        mark_order_failed(
-            order_id,
-            str(exc),
-            context
-        )
-
-        # ------------------------------------------------------
-        # THEN PUBLISH ORDER FAILED
-        # ------------------------------------------------------
-
-        publish_order_event(
-            detail_type="OrderFailed",
-            order_id=order_id,
-            customer_id=customer_id,
-            status="FAILED",
-            reason=str(exc)
-        )
 
         raise
 
@@ -1045,8 +643,11 @@ def mark_order_failed(
             "INFO",
             "Order marked as failed",
             request_id=context.aws_request_id,
-            order_id=order_id
+            order_id=order_id,
+            reason=reason
         )
+
+        return True
 
     except Exception as exc:
 
@@ -1056,12 +657,285 @@ def mark_order_failed(
 
         log_event(
             "ERROR",
-            "Failed to update order failure status",
+            "Failed to mark order as failed",
             request_id=context.aws_request_id,
             order_id=order_id,
             error_type=type(exc).__name__,
             error=str(exc)
         )
+
+        return False
+
+    finally:
+
+        if connection is not None:
+
+            connection.close()
+
+
+# ==========================================================
+# CONFIRM ORDER
+# ==========================================================
+
+def confirm_order(
+    order,
+    context
+):
+
+    connection = None
+
+    order_id = order["order_id"]
+    customer_id = order["customer_id"]
+    total_amount = order["total_amount"]
+
+    try:
+
+        connection = get_db_connection()
+
+        with connection.cursor() as cursor:
+
+            # --------------------------------------------------
+            # LOCK AND VALIDATE PRODUCTS
+            # --------------------------------------------------
+
+            locked_products = []
+
+            for product in order["products"]:
+
+                product_id = product["product_id"]
+                quantity = product["quantity"]
+
+                cursor.execute(
+                    """
+                    SELECT
+                        product_id,
+                        name,
+                        stock_quantity,
+                        reorder_threshold
+                    FROM products
+                    WHERE product_id = %s
+                      AND deleted_at IS NULL
+                    FOR UPDATE
+                    """,
+                    (product_id,)
+                )
+
+                current_product = cursor.fetchone()
+
+                if current_product is None:
+
+                    raise ValueError(
+                        f"Product {product_id} not found"
+                    )
+
+                current_stock = int(
+                    current_product["stock_quantity"]
+                )
+
+                if current_stock < quantity:
+
+                    raise ValueError(
+                        f"Insufficient stock for product "
+                        f"{product_id}. Available: "
+                        f"{current_stock}, Requested: "
+                        f"{quantity}"
+                    )
+
+                locked_products.append(
+                    {
+                        "product_id": product_id,
+                        "product_name": current_product["name"],
+                        "quantity": quantity,
+                        "stock_quantity": current_stock,
+                        "reorder_threshold": int(
+                            current_product[
+                                "reorder_threshold"
+                            ]
+                        )
+                    }
+                )
+
+            # --------------------------------------------------
+            # DEDUCT INVENTORY
+            # --------------------------------------------------
+
+            for product in locked_products:
+
+                new_stock = (
+                    product["stock_quantity"]
+                    -
+                    product["quantity"]
+                )
+
+                cursor.execute(
+                    """
+                    UPDATE products
+                    SET stock_quantity = %s
+                    WHERE product_id = %s
+                      AND deleted_at IS NULL
+                    """,
+                    (
+                        new_stock,
+                        product["product_id"]
+                    )
+                )
+
+            # --------------------------------------------------
+            # CONFIRM ORDER
+            # --------------------------------------------------
+
+            cursor.execute(
+                """
+                UPDATE orders
+                SET status = %s
+                WHERE order_id = %s
+                  AND status = %s
+                """,
+                (
+                    "CONFIRMED",
+                    order_id,
+                    "PENDING"
+                )
+            )
+
+            if cursor.rowcount != 1:
+
+                raise ValueError(
+                    "Order could not be confirmed"
+                )
+
+            # --------------------------------------------------
+            # CREATE ORDER LOG
+            # --------------------------------------------------
+
+            cursor.execute(
+                """
+                INSERT INTO order_logs (
+                    order_id,
+                    previous_status,
+                    new_status,
+                    changed_by,
+                    note
+                )
+                VALUES (
+                    %s,
+                    %s,
+                    %s,
+                    %s,
+                    %s
+                )
+                """,
+                (
+                    order_id,
+                    "PENDING",
+                    "CONFIRMED",
+                    "system",
+                    "Order confirmed and inventory deducted"
+                )
+            )
+
+        connection.commit()
+
+        log_event(
+            "INFO",
+            "Order confirmed",
+            request_id=context.aws_request_id,
+            order_id=order_id,
+            customer_id=customer_id,
+            total_amount=total_amount
+        )
+
+        # --------------------------------------------------
+        # ORDER CONFIRMED
+        # --------------------------------------------------
+
+        publish_order_event(
+            detail_type="OrderConfirmed",
+            order_id=order_id,
+            customer_id=customer_id,
+            status="CONFIRMED",
+            total_amount=total_amount
+        )
+
+        # --------------------------------------------------
+        # LOW STOCK CHECK
+        # --------------------------------------------------
+
+        for product in locked_products:
+
+            new_stock = (
+                product["stock_quantity"]
+                -
+                product["quantity"]
+            )
+
+            publish_low_stock_event(
+                product_id=product["product_id"],
+                product_name=product["product_name"],
+                old_stock=product["stock_quantity"],
+                new_stock=new_stock,
+                low_stock_threshold=product[
+                    "reorder_threshold"
+                ]
+            )
+
+        return {
+            "order_id": order_id,
+            "customer_id": customer_id,
+            "status": "CONFIRMED",
+            "total_amount": total_amount
+        }
+
+    except Exception as exc:
+
+        if connection is not None:
+
+            connection.rollback()
+
+        reason = str(exc)
+
+        log_event(
+            "ERROR",
+            "Order confirmation failed",
+            request_id=context.aws_request_id,
+            order_id=order_id,
+            customer_id=customer_id,
+            error_type=type(exc).__name__,
+            error=reason
+        )
+
+        # --------------------------------------------------
+        # MARK DATABASE ORDER FAILED
+        # --------------------------------------------------
+
+        mark_order_failed(
+            order_id,
+            reason,
+            context
+        )
+
+        # --------------------------------------------------
+        # PUBLISH ORDER FAILED
+        # --------------------------------------------------
+
+        event_published = publish_order_event(
+            detail_type="OrderFailed",
+            order_id=order_id,
+            customer_id=customer_id,
+            status="FAILED",
+            total_amount=total_amount,
+            reason=reason
+        )
+
+        log_event(
+            "INFO",
+            "OrderFailed event result",
+            request_id=context.aws_request_id,
+            order_id=order_id,
+            event_published=event_published
+        )
+
+        raise
 
     finally:
 
@@ -1079,9 +953,7 @@ def lambda_handler(
     context
 ):
 
-    request_id = (
-        context.aws_request_id
-    )
+    request_id = context.aws_request_id
 
     log_event(
         "INFO",
@@ -1091,26 +963,24 @@ def lambda_handler(
 
     try:
 
-        # ------------------------------------------------------
+        # --------------------------------------------------
         # VALIDATE REQUEST
-        # ------------------------------------------------------
+        # --------------------------------------------------
 
-        order_data = validate_order_payload(
-            event
-        )
+        order_data = validate_order_payload(event)
 
-        # ------------------------------------------------------
-        # STEP 1: CREATE ORDER
-        # ------------------------------------------------------
+        # --------------------------------------------------
+        # CREATE PENDING ORDER
+        # --------------------------------------------------
 
         order = create_pending_order(
             order_data,
             context
         )
 
-        # ------------------------------------------------------
-        # STEP 2: CONFIRM ORDER
-        # ------------------------------------------------------
+        # --------------------------------------------------
+        # CONFIRM ORDER
+        # --------------------------------------------------
 
         result = confirm_order(
             order,
