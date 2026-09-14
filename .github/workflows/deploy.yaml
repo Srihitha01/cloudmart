@@ -240,45 +240,78 @@ jobs:
           aws sts get-caller-identity
 
 
-      # ------------------------------------------------------
-      # VALIDATE DATA STACK
-      # ------------------------------------------------------
+            # ============================================================
+      # VALIDATE DATABASE PASSWORD
+      # ============================================================
 
-      - name: Validate Data Storage Stack
+      - name: Validate DB Password
+
+        env:
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
 
         run: |
 
           echo "========================================"
-          echo "VALIDATING DATA STORAGE STACK"
+
+          echo "VALIDATING DATABASE PASSWORD"
+
           echo "========================================"
 
-          aws cloudformation validate-template \
-            --template-body file://cloudformation/data-stack.yaml \
-            --region "$AWS_REGION"
+
+          if [ -z "$DB_PASSWORD" ]; then
+
+            echo "ERROR: DB_PASSWORD GitHub secret is missing or empty."
+
+            exit 1
+
+          fi
 
 
-      # ------------------------------------------------------
+          PASSWORD_LENGTH=${#DB_PASSWORD}
+
+
+          echo "DB_PASSWORD secret is available."
+
+
+          if [ "$PASSWORD_LENGTH" -lt 12 ]; then
+
+            echo "ERROR: DB_PASSWORD must contain at least 12 characters."
+
+            exit 1
+
+          fi
+
+
+          echo "DB_PASSWORD validation passed."
+
+
+      # ============================================================
       # DEPLOY DATA STORAGE STACK
-      # ------------------------------------------------------
+      # ============================================================
 
       - name: Deploy Data Storage Stack
 
+        env:
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+
         run: |
 
           echo "========================================"
+
           echo "DEPLOYING DATA STORAGE STACK"
+
           echo "========================================"
+
 
           aws cloudformation deploy \
             --template-file cloudformation/data-stack.yaml \
             --stack-name "$DATA_STACK_NAME" \
             --parameter-overrides \
               Environment="$ENVIRONMENT" \
-              DBPassword="${{ secrets.DB_PASSWORD }}" \
+              DBPassword="$DB_PASSWORD" \
             --region "$AWS_REGION" \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --no-fail-on-empty-changeset
-
 
       # ------------------------------------------------------
       # STORE DATABASE PASSWORD IN SSM
