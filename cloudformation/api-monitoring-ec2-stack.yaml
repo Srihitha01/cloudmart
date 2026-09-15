@@ -493,6 +493,106 @@ Resources:
 
 
   # ==========================================================
+  # POST /customers
+  # ADMIN ONLY - CREATE CUSTOMER
+  # ==========================================================
+
+  CreateCustomerMethod:
+
+    Type: AWS::ApiGateway::Method
+
+    Properties:
+
+      RestApiId:
+        !Ref CloudMartApi
+
+      ResourceId:
+        !Ref CustomersResource
+
+      HttpMethod:
+        POST
+
+      AuthorizationType:
+        CUSTOM
+
+      AuthorizerId:
+        !Ref CloudMartAuthorizer
+
+      Integration:
+
+        Type:
+          AWS_PROXY
+
+        IntegrationHttpMethod:
+          POST
+
+        Uri:
+
+          Fn::Sub:
+
+            - arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaArn}/invocations
+
+            - LambdaArn:
+
+                Fn::ImportValue:
+
+                  Fn::Sub:
+                    cloudmart-${Environment}-ProductLambdaArn
+
+
+  # ==========================================================
+  # DELETE /customers/{customer_id}
+  # ADMIN ONLY - SOFT DELETE CUSTOMER
+  # ==========================================================
+
+  DeleteCustomerMethod:
+
+    Type: AWS::ApiGateway::Method
+
+    Properties:
+
+      RestApiId:
+        !Ref CloudMartApi
+
+      ResourceId:
+        !Ref CustomerIdResource
+
+      HttpMethod:
+        DELETE
+
+      AuthorizationType:
+        CUSTOM
+
+      AuthorizerId:
+        !Ref CloudMartAuthorizer
+
+      RequestParameters:
+
+        method.request.path.customer_id: true
+
+      Integration:
+
+        Type:
+          AWS_PROXY
+
+        IntegrationHttpMethod:
+          POST
+
+        Uri:
+
+          Fn::Sub:
+
+            - arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaArn}/invocations
+
+            - LambdaArn:
+
+                Fn::ImportValue:
+
+                  Fn::Sub:
+                    cloudmart-${Environment}-ProductLambdaArn
+
+
+  # ==========================================================
   # CUSTOMER ORDERS RESOURCE
   # /customers/{customer_id}/orders
   # ==========================================================
@@ -898,6 +998,10 @@ Resources:
       - GetProductByIdMethod
       - UpdateProductMethod
       - DeleteProductMethod
+
+      # CUSTOMER MANAGEMENT METHODS
+      - CreateCustomerMethod
+      - DeleteCustomerMethod
 
       # CUSTOMER ORDER METHODS
       - CreateCustomerOrderMethod

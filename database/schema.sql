@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS customers (
     customer_id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(150) NOT NULL,
     email VARCHAR(255) NOT NULL,
+    bearer_token VARCHAR(255) NULL,
     address VARCHAR(500),
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -41,8 +42,57 @@ CREATE TABLE IF NOT EXISTS customers (
     CONSTRAINT uq_customers_email
         UNIQUE (email),
 
+    CONSTRAINT uq_customers_bearer_token
+        UNIQUE (bearer_token),
+
     INDEX idx_customers_deleted_at (deleted_at)
 );
+
+
+-- =========================================================
+-- CUSTOMER TOKEN MIGRATION FOR EXISTING DATABASES
+-- =========================================================
+-- Existing CloudMart databases may already contain the customers table.
+-- This block adds bearer_token without requiring the table to be recreated.
+-- The column remains nullable so existing customers are not broken during
+-- deployment; new customers created through POST /customers must provide it.
+-- =========================================================
+
+SET @customer_bearer_token_exists := (
+    SELECT COUNT(*)
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'customers'
+      AND COLUMN_NAME = 'bearer_token'
+);
+
+SET @customer_bearer_token_sql := IF(
+    @customer_bearer_token_exists = 0,
+    'ALTER TABLE customers ADD COLUMN bearer_token VARCHAR(255) NULL AFTER email',
+    'SELECT 1'
+);
+
+PREPARE customer_bearer_token_stmt FROM @customer_bearer_token_sql;
+EXECUTE customer_bearer_token_stmt;
+DEALLOCATE PREPARE customer_bearer_token_stmt;
+
+SET @customer_bearer_token_index_exists := (
+    SELECT COUNT(*)
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'customers'
+      AND INDEX_NAME = 'uq_customers_bearer_token'
+);
+
+SET @customer_bearer_token_index_sql := IF(
+    @customer_bearer_token_index_exists = 0,
+    'ALTER TABLE customers ADD UNIQUE INDEX uq_customers_bearer_token (bearer_token)',
+    'SELECT 1'
+);
+
+PREPARE customer_bearer_token_index_stmt FROM @customer_bearer_token_index_sql;
+EXECUTE customer_bearer_token_index_stmt;
+DEALLOCATE PREPARE customer_bearer_token_index_stmt;
 
 
 -- =========================================================

@@ -2,6 +2,7 @@ import json
 import os
 
 import boto3
+import pymysql
 
 
 # ==========================================================
@@ -19,9 +20,11 @@ ADMIN_TOKEN_PARAMETER = os.environ[
     "ADMIN_TOKEN_PARAMETER"
 ]
 
-CUSTOMER_TOKENS_PARAMETER = os.environ[
-    "CUSTOMER_TOKENS_PARAMETER"
-]
+DB_NAME_PARAMETER = os.environ["DB_NAME_PARAMETER"]
+DB_ENDPOINT_PARAMETER = os.environ["DB_ENDPOINT_PARAMETER"]
+DB_PORT_PARAMETER = os.environ["DB_PORT_PARAMETER"]
+DB_USERNAME_PARAMETER = os.environ["DB_USERNAME_PARAMETER"]
+DB_PASSWORD_PARAMETER = os.environ["DB_PASSWORD_PARAMETER"]
 
 
 # ==========================================================
@@ -130,58 +133,69 @@ def get_bearer_token(event):
 
 
 # ==========================================================
-# GET CUSTOMER TOKENS FROM SSM
+# DATABASE CONNECTION
 # ==========================================================
 
-def get_customer_tokens():
+def get_db_connection():
 
-    value = get_parameter(
-        CUSTOMER_TOKENS_PARAMETER
+    db_name = get_parameter(DB_NAME_PARAMETER)
+    db_host = get_parameter(DB_ENDPOINT_PARAMETER)
+    db_port = int(get_parameter(DB_PORT_PARAMETER))
+    db_username = get_parameter(DB_USERNAME_PARAMETER)
+    db_password = get_parameter(DB_PASSWORD_PARAMETER)
+
+    return pymysql.connect(
+        host=db_host,
+        port=db_port,
+        user=db_username,
+        password=db_password,
+        database=db_name,
+        connect_timeout=5,
+        read_timeout=5,
+        write_timeout=5,
+        cursorclass=pymysql.cursors.DictCursor,
+        autocommit=True
     )
+
+
+# ==========================================================
+# GET ACTIVE CUSTOMER BY BEARER TOKEN
+# ==========================================================
+
+def get_customer_by_token(token):
+
+    connection = None
 
     try:
 
-        customer_tokens = json.loads(
-            value
-        )
+        connection = get_db_connection()
 
-    except json.JSONDecodeError:
+        with connection.cursor() as cursor:
 
-        raise ValueError(
-            "Customer tokens parameter contains invalid JSON"
-        )
-
-    if not isinstance(
-        customer_tokens,
-        dict
-    ):
-
-        raise ValueError(
-            "Customer tokens parameter must be a JSON object"
-        )
-
-    normalized_tokens = {}
-
-    for token, customer_id in customer_tokens.items():
-
-        try:
-
-            normalized_customer_id = int(
-                customer_id
+            cursor.execute(
+                """
+                SELECT
+                    customer_id
+                FROM customers
+                WHERE bearer_token = %s
+                  AND deleted_at IS NULL
+                  AND status = 'ACTIVE'
+                LIMIT 1
+                """,
+                (token,)
             )
 
-        except (
-            TypeError,
-            ValueError
-        ):
+            customer = cursor.fetchone()
 
-            continue
+            if customer is None:
+                return None
 
-        normalized_tokens[
-            str(token)
-        ] = normalized_customer_id
+            return int(customer["customer_id"])
 
-    return normalized_tokens
+    finally:
+
+        if connection is not None:
+            connection.close()
 
 
 # ==========================================================
@@ -610,14 +624,11 @@ def authorize_customer(
 ):
 
     # ======================================================
-    # GET CUSTOMER TOKENS
+    # LOOK UP CUSTOMER TOKEN IN RDS
     # ======================================================
 
-    customer_tokens = get_customer_tokens()
-
-
     authenticated_customer_id = (
-        customer_tokens.get(token)
+        get_customer_by_token(token)
     )
 
 

@@ -262,6 +262,21 @@ Resources:
       Architectures:
         - x86_64
 
+      VpcConfig:
+
+        SecurityGroupIds:
+
+          - Fn::ImportValue:
+              Fn::Sub: cloudmart-${Environment}-LambdaSecurityGroupId
+
+        SubnetIds:
+
+          - Fn::ImportValue:
+              Fn::Sub: cloudmart-${Environment}-PrivateSubnetId
+
+          - Fn::ImportValue:
+              Fn::Sub: cloudmart-${Environment}-SecondaryPrivateSubnetId
+
       Environment:
 
         Variables:
@@ -269,8 +284,20 @@ Resources:
           ADMIN_TOKEN_PARAMETER:
             !Ref AuthTokenParameter
 
-          CUSTOMER_TOKENS_PARAMETER:
-            !Ref CustomerTokensParameter
+          DB_NAME_PARAMETER:
+            !Ref DBName
+
+          DB_ENDPOINT_PARAMETER:
+            !Ref DBEndpoint
+
+          DB_PORT_PARAMETER:
+            !Ref DBPort
+
+          DB_USERNAME_PARAMETER:
+            !Ref DBUsername
+
+          DB_PASSWORD_PARAMETER:
+            !Ref DBPassword
 
       Code:
 

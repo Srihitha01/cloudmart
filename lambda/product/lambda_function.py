@@ -316,6 +316,366 @@ def validate_create_payload(data):
     }
 
 
+
+
+# ==========================================================
+# CUSTOMER ID FROM PATH
+# ==========================================================
+
+def get_customer_id(event):
+
+    path_parameters = event.get(
+        "pathParameters"
+    ) or {}
+
+    customer_id = path_parameters.get(
+        "customer_id"
+    )
+
+    if customer_id is None:
+
+        return None
+
+    try:
+
+        customer_id = int(customer_id)
+
+    except (TypeError, ValueError):
+
+        raise ValueError(
+            "Customer id must be an integer"
+        )
+
+    if customer_id <= 0:
+
+        raise ValueError(
+            "Customer id must be greater than zero"
+        )
+
+    return customer_id
+
+
+# ==========================================================
+# CREATE CUSTOMER VALIDATION
+# ==========================================================
+
+def validate_customer_create_payload(data):
+
+    required_fields = [
+        "name",
+        "email",
+        "bearer_token"
+    ]
+
+    missing = [
+        field
+        for field in required_fields
+        if field not in data
+    ]
+
+    if missing:
+
+        raise ValueError(
+            "Missing required fields: "
+            + ", ".join(missing)
+        )
+
+    name = str(
+        data["name"]
+    ).strip()
+
+    email = str(
+        data["email"]
+    ).strip()
+
+    bearer_token = str(
+        data["bearer_token"]
+    ).strip()
+
+    if not name:
+
+        raise ValueError(
+            "name is required"
+        )
+
+    if not email:
+
+        raise ValueError(
+            "email is required"
+        )
+
+    if not bearer_token:
+
+        raise ValueError(
+            "bearer_token is required"
+        )
+
+    if len(bearer_token) > 255:
+
+        raise ValueError(
+            "bearer_token must not exceed 255 characters"
+        )
+
+    address = data.get(
+        "address"
+    )
+
+    if address is not None:
+
+        address = str(
+            address
+        ).strip()
+
+    return {
+        "name": name,
+        "email": email,
+        "address": address,
+        "bearer_token": bearer_token
+    }
+
+
+# ==========================================================
+# CREATE CUSTOMER
+# ==========================================================
+
+def create_customer(
+    event,
+    context
+):
+
+    data = parse_body(event)
+
+    customer = validate_customer_create_payload(
+        data
+    )
+
+    connection = None
+
+    try:
+
+        connection = get_db_connection()
+
+        with connection.cursor() as cursor:
+
+            cursor.execute(
+                """
+                INSERT INTO customers (
+                    name,
+                    email,
+                    bearer_token,
+                    address,
+                    status
+                )
+                VALUES (
+                    %s,
+                    %s,
+                    %s,
+                    %s,
+                    'ACTIVE'
+                )
+                """,
+                (
+                    customer["name"],
+                    customer["email"],
+                    customer["bearer_token"],
+                    customer["address"]
+                )
+            )
+
+            customer_id = cursor.lastrowid
+
+        connection.commit()
+
+        log_event(
+            "INFO",
+            "Customer created",
+            request_id=context.aws_request_id,
+            customer_id=customer_id
+        )
+
+        return response(
+            201,
+            {
+                "message":
+                    "Customer created successfully",
+                "customer_id":
+                    customer_id,
+                "name":
+                    customer["name"],
+                "email":
+                    customer["email"],
+                "address":
+                    customer["address"]
+            }
+        )
+
+    except pymysql.err.IntegrityError as exc:
+
+        if connection is not None:
+            connection.rollback()
+
+        log_event(
+            "WARN",
+            "Customer creation conflict",
+            request_id=context.aws_request_id,
+            error_type=type(exc).__name__
+        )
+
+        return response(
+            409,
+            {
+                "message":
+                    "Customer email or bearer token already exists"
+            }
+        )
+
+    except Exception as exc:
+
+        if connection is not None:
+            connection.rollback()
+
+        log_event(
+            "ERROR",
+            "Customer creation failed",
+            request_id=context.aws_request_id,
+            error_type=type(exc).__name__,
+            error=str(exc)
+        )
+
+        return response(
+            500,
+            {
+                "message":
+                    "Customer creation failed",
+                "request_id":
+                    context.aws_request_id
+            }
+        )
+
+    finally:
+
+        if connection is not None:
+            connection.close()
+
+
+# ==========================================================
+# SOFT DELETE CUSTOMER
+# ==========================================================
+
+def delete_customer(
+    event,
+    context
+):
+
+    customer_id = get_customer_id(
+        event
+    )
+
+    if customer_id is None:
+
+        return response(
+            400,
+            {
+                "message":
+                    "Customer id is required"
+            }
+        )
+
+    connection = None
+
+    try:
+
+        connection = get_db_connection()
+
+        with connection.cursor() as cursor:
+
+            cursor.execute(
+                """
+                SELECT
+                    customer_id
+                FROM customers
+                WHERE customer_id = %s
+                  AND deleted_at IS NULL
+                  AND status = 'ACTIVE'
+                """,
+                (customer_id,)
+            )
+
+            customer = cursor.fetchone()
+
+            if customer is None:
+
+                return response(
+                    404,
+                    {
+                        "message":
+                            "Customer not found"
+                    }
+                )
+
+            cursor.execute(
+                """
+                UPDATE customers
+                SET
+                    deleted_at = NOW(),
+                    deleted_by = 'admin',
+                    delete_reason = 'Customer soft deleted',
+                    status = 'INACTIVE'
+                WHERE customer_id = %s
+                  AND deleted_at IS NULL
+                """,
+                (customer_id,)
+            )
+
+        connection.commit()
+
+        log_event(
+            "INFO",
+            "Customer soft deleted",
+            request_id=context.aws_request_id,
+            customer_id=customer_id
+        )
+
+        return response(
+            200,
+            {
+                "message":
+                    "Customer deleted successfully",
+                "customer_id":
+                    customer_id
+            }
+        )
+
+    except Exception as exc:
+
+        if connection is not None:
+            connection.rollback()
+
+        log_event(
+            "ERROR",
+            "Customer deletion failed",
+            request_id=context.aws_request_id,
+            customer_id=customer_id,
+            error_type=type(exc).__name__,
+            error=str(exc)
+        )
+
+        return response(
+            500,
+            {
+                "message":
+                    "Customer deletion failed",
+                "request_id":
+                    context.aws_request_id
+            }
+        )
+
+    finally:
+
+        if connection is not None:
+            connection.close()
+
+
 # ==========================================================
 # CREATE PRODUCT
 # ==========================================================
@@ -1218,6 +1578,36 @@ def lambda_handler(
     )
 
     try:
+
+        # ----------------------------------------------------
+        # POST /customers
+        # Admin creates customer and supplies bearer token
+        # ----------------------------------------------------
+
+        if (
+            http_method == "POST"
+            and resource == "/customers"
+        ):
+
+            return create_customer(
+                event,
+                context
+            )
+
+        # ----------------------------------------------------
+        # DELETE /customers/{customer_id}
+        # Admin-only soft delete
+        # ----------------------------------------------------
+
+        if (
+            http_method == "DELETE"
+            and resource == "/customers/{customer_id}"
+        ):
+
+            return delete_customer(
+                event,
+                context
+            )
 
         # ----------------------------------------------------
         # POST /products
