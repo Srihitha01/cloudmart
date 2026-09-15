@@ -532,11 +532,11 @@ def create_pending_order(
         )
 
         # --------------------------------------------------
-        # ORDER PLACED
+        # ORDER PENDING
         # --------------------------------------------------
 
         publish_order_event(
-            detail_type="OrderPlaced",
+            detail_type="OrderPending",
             order_id=order_id,
             customer_id=customer_id,
             status="PENDING",
@@ -544,11 +544,11 @@ def create_pending_order(
         )
 
         # --------------------------------------------------
-        # ORDER PENDING
+        # ORDER PLACED
         # --------------------------------------------------
 
         publish_order_event(
-            detail_type="OrderPending",
+            detail_type="OrderPlaced",
             order_id=order_id,
             customer_id=customer_id,
             status="PENDING",
