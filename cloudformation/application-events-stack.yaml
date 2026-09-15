@@ -710,13 +710,150 @@ Resources:
       Code:
 
         ZipFile: |
-          def lambda_handler(event, context):
-              print("Schema Initializer Lambda deployed successfully")
+          import os
+          import boto3
+          import pymysql
 
-              return {
+          s3 = boto3.client("s3")
+          ssm = boto3.client("ssm")
+
+          DB_NAME_PARAMETER = os.environ["DB_NAME_PARAMETER"]
+          DB_ENDPOINT_PARAMETER = os.environ["DB_ENDPOINT_PARAMETER"]
+          DB_PORT_PARAMETER = os.environ["DB_PORT_PARAMETER"]
+          DB_USERNAME_PARAMETER = os.environ["DB_USERNAME_PARAMETER"]
+          DB_PASSWORD_PARAMETER = os.environ["DB_PASSWORD_PARAMETER"]
+          SCHEMA_BUCKET = os.environ["SCHEMA_BUCKET"]
+          SCHEMA_KEY = os.environ["SCHEMA_KEY"]
+
+          def get_parameter(name):
+              return ssm.get_parameter(
+                  Name=name,
+                  WithDecryption=True
+              )["Parameter"]["Value"]
+
+          def split_sql(sql):
+              statements = []
+              current = []
+              in_single = False
+              in_double = False
+              escape = False
+
+              for char in sql:
+                  if escape:
+                      current.append(char)
+                      escape = False
+                      continue
+
+                  if char == "\\":
+                      current.append(char)
+                      escape = True
+                      continue
+
+                  if char == "'" and not in_double:
+                      in_single = not in_single
+                      current.append(char)
+                      continue
+
+                  if char == '"' and not in_single:
+                      in_double = not in_double
+                      current.append(char)
+                      continue
+
+                  if char == ";" and not in_single and not in_double:
+                      statement = "".join(current).strip()
+                      if statement:
+                          statements.append(statement)
+                      current = []
+                      continue
+
+                  current.append(char)
+
+              statement = "".join(current).strip()
+              if statement:
+                  statements.append(statement)
+
+              return statements
+
+          def clean_statement(statement):
+              lines = []
+              for line in statement.splitlines():
+                  stripped = line.strip()
+                  if stripped.startswith("--"):
+                      continue
+                  lines.append(line)
+              return "\n".join(lines).strip()
+
+          def lambda_handler(event, context):
+              host = get_parameter(DB_ENDPOINT_PARAMETER)
+              port = int(get_parameter(DB_PORT_PARAMETER))
+              user = get_parameter(DB_USERNAME_PARAMETER)
+              password = get_parameter(DB_PASSWORD_PARAMETER)
+              database = get_parameter(DB_NAME_PARAMETER)
+
+              print({"message": "Starting CloudMart database schema initialization", "database": database, "schema_key": SCHEMA_KEY})
+
+              sql_bytes = s3.get_object(
+                  Bucket=SCHEMA_BUCKET,
+                  Key=SCHEMA_KEY
+              )["Body"].read()
+              sql = sql_bytes.decode("utf-8")
+
+              connection = pymysql.connect(
+                  host=host,
+                  port=port,
+                  user=user,
+                  password=password,
+                  database=database,
+                  connect_timeout=10,
+                  read_timeout=30,
+                  write_timeout=30,
+                  autocommit=False
+              )
+
+              executed = 0
+              skipped = 0
+
+              try:
+                  with connection.cursor() as cursor:
+                      for raw_statement in split_sql(sql):
+                          statement = clean_statement(raw_statement)
+                          if not statement:
+                              continue
+
+                          try:
+                              # The RDS connection already selects the target DB, so
+                              # database-selection statements are unnecessary.
+                              upper = statement.upper()
+                              if upper.startswith("CREATE DATABASE") or upper.startswith("USE "):
+                                  skipped += 1
+                                  continue
+
+                              cursor.execute(statement)
+                              executed += 1
+                          except pymysql.MySQLError as exc:
+                              # Safe to ignore only idempotency conflicts.
+                              code = exc.args[0] if exc.args else None
+                              if code in (1050, 1061, 1826):
+                                  skipped += 1
+                                  print({"message": "Skipping existing database object", "code": code})
+                                  continue
+                              raise
+
+                  connection.commit()
+              except Exception:
+                  connection.rollback()
+                  raise
+              finally:
+                  connection.close()
+
+              result = {
                   "statusCode": 200,
-                  "body": "Schema initializer Lambda is available"
+                  "message": "CloudMart database schema initialized",
+                  "executed": executed,
+                  "skipped": skipped
               }
+              print(result)
+              return result
 
       Tags:
 
