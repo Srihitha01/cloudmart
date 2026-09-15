@@ -1,7 +1,14 @@
 name: CloudMart Infrastructure Deployment
 
+
+# ============================================================
+# WORKFLOW TRIGGERS
+# ============================================================
+
 on:
+
   push:
+
     branches:
       - main
       - feature/order-flow
@@ -11,43 +18,195 @@ on:
       - 'lambda/**'
       - 'database/**'
       - 'dashboard/**'
+      - 'config/config.json'
       - '.github/workflows/deploy.yaml'
 
-  workflow_dispatch:
-    inputs:
-      environment:
-        description: Deployment environment
-        required: true
-        default: dev
-        type: choice
-        options:
-          - dev
-          - prod
 
+  workflow_dispatch:
+
+
+# ============================================================
+# GITHUB ACTIONS PERMISSIONS
+# ============================================================
 
 permissions:
+
   id-token: write
+
   contents: read
 
 
-env:
-
-  AWS_REGION: ap-south-1
-
-  ENVIRONMENT: ${{ github.event.inputs.environment || 'dev' }}
-
-  NETWORK_STACK_NAME: cloudmart-network-security-${{ github.event.inputs.environment || 'dev' }}
-
-  DATA_STACK_NAME: cloudmart-data-storage-${{ github.event.inputs.environment || 'dev' }}
-
-  IAM_STACK_NAME: cloudmart-iam-${{ github.event.inputs.environment || 'dev' }}
-
-  APPLICATION_EVENTS_STACK_NAME: cloudmart-application-events-${{ github.event.inputs.environment || 'dev' }}
-
-  API_MONITORING_EC2_STACK_NAME: cloudmart-api-monitoring-ec2-${{ github.event.inputs.environment || 'dev' }}
-
+# ============================================================
+# JOB 0
+# LOAD CENTRAL CLOUDMART CONFIGURATION
+#
+# config/config.json is the single source of truth.
+# ============================================================
 
 jobs:
+
+  load-config:
+
+    name: Load CloudMart Configuration
+
+    runs-on: ubuntu-latest
+
+    outputs:
+
+      environment: ${{ steps.config.outputs.environment }}
+
+      project: ${{ steps.config.outputs.project }}
+
+      managed_by: ${{ steps.config.outputs.managed_by }}
+
+      owner: ${{ steps.config.outputs.owner }}
+
+
+    steps:
+
+
+      # ------------------------------------------------------
+      # CHECKOUT
+      # ------------------------------------------------------
+
+      - name: Checkout Repository
+
+        uses: actions/checkout@v5
+
+
+      # ------------------------------------------------------
+      # LOAD CONFIGURATION
+      # ------------------------------------------------------
+
+      - name: Load CloudMart Configuration
+
+        id: config
+
+        shell: bash
+
+        run: |
+
+          echo "========================================"
+
+          echo "LOADING CLOUDMART CONFIGURATION"
+
+          echo "========================================"
+
+
+          CONFIG_FILE="config/config.json"
+
+
+          if [ ! -f "$CONFIG_FILE" ]; then
+
+            echo "ERROR: $CONFIG_FILE was not found."
+
+            exit 1
+
+          fi
+
+
+          ENVIRONMENT=$(jq -r '.Environment' "$CONFIG_FILE")
+
+          PROJECT=$(jq -r '.Project' "$CONFIG_FILE")
+
+          MANAGED_BY=$(jq -r '.ManagedBy' "$CONFIG_FILE")
+
+          OWNER=$(jq -r '.Owner' "$CONFIG_FILE")
+
+
+          # --------------------------------------------------
+          # VALIDATE ENVIRONMENT
+          # --------------------------------------------------
+
+          if [ -z "$ENVIRONMENT" ] || [ "$ENVIRONMENT" = "null" ]; then
+
+            echo "ERROR: Environment is missing from config/config.json."
+
+            exit 1
+
+          fi
+
+
+          if [ "$ENVIRONMENT" != "dev" ] && [ "$ENVIRONMENT" != "prod" ]; then
+
+            echo "ERROR: Invalid Environment: $ENVIRONMENT"
+
+            echo "Allowed values: dev or prod"
+
+            exit 1
+
+          fi
+
+
+          # --------------------------------------------------
+          # VALIDATE PROJECT
+          # --------------------------------------------------
+
+          if [ -z "$PROJECT" ] || [ "$PROJECT" = "null" ]; then
+
+            echo "ERROR: Project is missing from config/config.json."
+
+            exit 1
+
+          fi
+
+
+          # --------------------------------------------------
+          # VALIDATE MANAGED BY
+          # --------------------------------------------------
+
+          if [ -z "$MANAGED_BY" ] || [ "$MANAGED_BY" = "null" ]; then
+
+            echo "ERROR: ManagedBy is missing from config/config.json."
+
+            exit 1
+
+          fi
+
+
+          # --------------------------------------------------
+          # VALIDATE OWNER
+          # --------------------------------------------------
+
+          if [ -z "$OWNER" ] || [ "$OWNER" = "null" ]; then
+
+            echo "ERROR: Owner is missing from config/config.json."
+
+            exit 1
+
+          fi
+
+
+          # --------------------------------------------------
+          # GITHUB JOB OUTPUTS
+          # --------------------------------------------------
+
+          echo "environment=$ENVIRONMENT" >> "$GITHUB_OUTPUT"
+
+          echo "project=$PROJECT" >> "$GITHUB_OUTPUT"
+
+          echo "managed_by=$MANAGED_BY" >> "$GITHUB_OUTPUT"
+
+          echo "owner=$OWNER" >> "$GITHUB_OUTPUT"
+
+
+          echo ""
+
+          echo "========================================"
+
+          echo "CLOUDMART CONFIGURATION"
+
+          echo "========================================"
+
+          echo "Project:    $PROJECT"
+
+          echo "Environment: $ENVIRONMENT"
+
+          echo "ManagedBy:  $MANAGED_BY"
+
+          echo "Owner:      $OWNER"
+
+          echo "========================================"
 
 
   # ==========================================================
@@ -59,6 +218,24 @@ jobs:
     name: Deploy Network Security Stack
 
     runs-on: ubuntu-latest
+
+    needs:
+      - load-config
+
+
+    env:
+
+      AWS_REGION: ap-south-1
+
+      ENVIRONMENT: ${{ needs.load-config.outputs.environment }}
+
+      PROJECT: ${{ needs.load-config.outputs.project }}
+
+      MANAGED_BY: ${{ needs.load-config.outputs.managed_by }}
+
+      OWNER: ${{ needs.load-config.outputs.owner }}
+
+      NETWORK_STACK_NAME: cloudmart-network-security-${{ needs.load-config.outputs.environment }}
 
 
     steps:
@@ -97,7 +274,9 @@ jobs:
         run: |
 
           echo "========================================"
+
           echo "VERIFYING AWS IDENTITY"
+
           echo "========================================"
 
           aws sts get-caller-identity
@@ -112,8 +291,11 @@ jobs:
         run: |
 
           echo "========================================"
+
           echo "VALIDATING NETWORK STACK"
+
           echo "========================================"
+
 
           aws cloudformation validate-template \
             --template-body file://cloudformation/network-stack.yaml \
@@ -129,12 +311,18 @@ jobs:
         run: |
 
           echo "========================================"
+
           echo "DEPLOYING NETWORK SECURITY STACK"
+
           echo "========================================"
+
 
           echo "Environment: $ENVIRONMENT"
 
-          echo "Region: $AWS_REGION"
+          echo "Stack:       $NETWORK_STACK_NAME"
+
+          echo "Region:      $AWS_REGION"
+
 
           aws cloudformation deploy \
             --template-file cloudformation/network-stack.yaml \
@@ -154,8 +342,11 @@ jobs:
         run: |
 
           echo "========================================"
+
           echo "VERIFYING NETWORK SECURITY STACK"
+
           echo "========================================"
+
 
           aws cloudformation describe-stacks \
             --stack-name "$NETWORK_STACK_NAME" \
@@ -173,8 +364,11 @@ jobs:
         run: |
 
           echo "========================================"
+
           echo "NETWORK STACK OUTPUTS"
+
           echo "========================================"
+
 
           aws cloudformation describe-stacks \
             --stack-name "$NETWORK_STACK_NAME" \
@@ -195,7 +389,26 @@ jobs:
 
     needs:
 
+      - load-config
+
       - deploy-network
+
+
+    env:
+
+      AWS_REGION: ap-south-1
+
+      ENVIRONMENT: ${{ needs.load-config.outputs.environment }}
+
+      PROJECT: ${{ needs.load-config.outputs.project }}
+
+      MANAGED_BY: ${{ needs.load-config.outputs.managed_by }}
+
+      OWNER: ${{ needs.load-config.outputs.owner }}
+
+      NETWORK_STACK_NAME: cloudmart-network-security-${{ needs.load-config.outputs.environment }}
+
+      DATA_STACK_NAME: cloudmart-data-storage-${{ needs.load-config.outputs.environment }}
 
 
     steps:
@@ -234,19 +447,22 @@ jobs:
         run: |
 
           echo "========================================"
+
           echo "VERIFYING AWS IDENTITY"
+
           echo "========================================"
 
           aws sts get-caller-identity
 
 
-            # ============================================================
+      # ------------------------------------------------------
       # VALIDATE DATABASE PASSWORD
-      # ============================================================
+      # ------------------------------------------------------
 
       - name: Validate DB Password
 
         env:
+
           DB_PASSWORD: ${{ secrets.CLOUDMART_DB_PASSWORD }}
 
         run: |
@@ -260,7 +476,7 @@ jobs:
 
           if [ -z "$DB_PASSWORD" ]; then
 
-            echo "ERROR: DB_PASSWORD GitHub secret is missing or empty."
+            echo "ERROR: CLOUDMART_DB_PASSWORD GitHub secret is missing."
 
             exit 1
 
@@ -270,28 +486,49 @@ jobs:
           PASSWORD_LENGTH=${#DB_PASSWORD}
 
 
-          echo "DB_PASSWORD secret is available."
+          echo "Database password secret is available."
 
 
           if [ "$PASSWORD_LENGTH" -lt 12 ]; then
 
-            echo "ERROR: DB_PASSWORD must contain at least 12 characters."
+            echo "ERROR: Database password must contain at least 12 characters."
 
             exit 1
 
           fi
 
 
-          echo "DB_PASSWORD validation passed."
+          echo "Database password validation passed."
 
 
-      # ============================================================
+      # ------------------------------------------------------
+      # VALIDATE DATA STACK
+      # ------------------------------------------------------
+
+      - name: Validate Data Stack
+
+        run: |
+
+          echo "========================================"
+
+          echo "VALIDATING DATA STORAGE STACK"
+
+          echo "========================================"
+
+
+          aws cloudformation validate-template \
+            --template-body file://cloudformation/data-stack.yaml \
+            --region "$AWS_REGION"
+
+
+      # ------------------------------------------------------
       # DEPLOY DATA STORAGE STACK
-      # ============================================================
+      # ------------------------------------------------------
 
       - name: Deploy Data Storage Stack
 
         env:
+
           DB_PASSWORD: ${{ secrets.CLOUDMART_DB_PASSWORD }}
 
         run: |
@@ -301,6 +538,11 @@ jobs:
           echo "DEPLOYING DATA STORAGE STACK"
 
           echo "========================================"
+
+
+          echo "Environment: $ENVIRONMENT"
+
+          echo "Stack:       $DATA_STACK_NAME"
 
 
           aws cloudformation deploy \
@@ -313,30 +555,9 @@ jobs:
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --no-fail-on-empty-changeset
 
-      # ------------------------------------------------------
-      # STORE DATABASE PASSWORD IN SSM
-      # ------------------------------------------------------
-
-      - name: Store Database Password in SSM
-
-        run: |
-
-          echo "========================================"
-          echo "STORING DATABASE PASSWORD IN SSM"
-          echo "========================================"
-
-          aws ssm put-parameter \
-            --name "/cloudmart/${ENVIRONMENT}/db/password" \
-            --type SecureString \
-            --value "${{ secrets.CLOUDMART_DB_PASSWORD }}" \
-            --overwrite \
-            --region "$AWS_REGION"
-
-          echo "Database password stored successfully."
-
 
       # ------------------------------------------------------
-      # VERIFY SSM PARAMETERS
+      # VERIFY DATABASE SSM PARAMETERS
       # ------------------------------------------------------
 
       - name: Verify Database SSM Parameters
@@ -344,8 +565,11 @@ jobs:
         run: |
 
           echo "========================================"
+
           echo "VERIFYING DATABASE SSM PARAMETERS"
+
           echo "========================================"
+
 
           aws ssm get-parameters-by-path \
             --path "/cloudmart/${ENVIRONMENT}/db" \
@@ -364,8 +588,11 @@ jobs:
         run: |
 
           echo "========================================"
+
           echo "VERIFYING DATA STORAGE STACK"
+
           echo "========================================"
+
 
           aws cloudformation describe-stacks \
             --stack-name "$DATA_STACK_NAME" \
@@ -383,8 +610,11 @@ jobs:
         run: |
 
           echo "========================================"
+
           echo "DATA STORAGE STACK OUTPUTS"
+
           echo "========================================"
+
 
           aws cloudformation describe-stacks \
             --stack-name "$DATA_STACK_NAME" \
@@ -405,9 +635,26 @@ jobs:
 
     needs:
 
+      - load-config
+
       - deploy-network
 
       - deploy-data
+
+
+    env:
+
+      AWS_REGION: ap-south-1
+
+      ENVIRONMENT: ${{ needs.load-config.outputs.environment }}
+
+      PROJECT: ${{ needs.load-config.outputs.project }}
+
+      MANAGED_BY: ${{ needs.load-config.outputs.managed_by }}
+
+      OWNER: ${{ needs.load-config.outputs.owner }}
+
+      IAM_STACK_NAME: cloudmart-iam-${{ needs.load-config.outputs.environment }}
 
 
     steps:
@@ -446,14 +693,16 @@ jobs:
         run: |
 
           echo "========================================"
+
           echo "VERIFYING AWS IDENTITY"
+
           echo "========================================"
 
           aws sts get-caller-identity
 
 
       # ------------------------------------------------------
-      # VALIDATE IAM STACK
+      # VALIDATE IAM TEMPLATE
       # ------------------------------------------------------
 
       - name: Validate IAM Stack
@@ -461,8 +710,11 @@ jobs:
         run: |
 
           echo "========================================"
+
           echo "VALIDATING IAM STACK"
+
           echo "========================================"
+
 
           aws cloudformation validate-template \
             --template-body file://cloudformation/iam-stack.yaml \
@@ -478,8 +730,16 @@ jobs:
         run: |
 
           echo "========================================"
+
           echo "DEPLOYING IAM STACK"
+
           echo "========================================"
+
+
+          echo "Environment: $ENVIRONMENT"
+
+          echo "Stack:       $IAM_STACK_NAME"
+
 
           aws cloudformation deploy \
             --template-file cloudformation/iam-stack.yaml \
@@ -500,8 +760,11 @@ jobs:
         run: |
 
           echo "========================================"
+
           echo "VERIFYING IAM STACK"
+
           echo "========================================"
+
 
           aws cloudformation describe-stacks \
             --stack-name "$IAM_STACK_NAME" \
@@ -509,6 +772,26 @@ jobs:
             --query 'Stacks[0].[StackName,StackStatus]' \
             --output table
 
+
+      # ------------------------------------------------------
+      # VERIFY AUTHENTICATION SSM PARAMETERS
+      # ------------------------------------------------------
+
+      - name: Verify Authentication SSM Parameters
+
+        run: |
+
+          echo "========================================"
+
+          echo "VERIFYING AUTHENTICATION SSM PARAMETERS"
+
+          echo "========================================"
+
+
+          aws ssm describe-parameters \
+            --region "$AWS_REGION" \
+            --query "Parameters[?Name=='/cloudmart/${ENVIRONMENT}/auth/token' || Name=='/cloudmart/${ENVIRONMENT}/auth/customer-tokens'].[Name,Type]" \
+            --output table
 
       # ------------------------------------------------------
       # SHOW IAM OUTPUTS
@@ -519,8 +802,11 @@ jobs:
         run: |
 
           echo "========================================"
+
           echo "IAM STACK OUTPUTS"
+
           echo "========================================"
+
 
           aws cloudformation describe-stacks \
             --stack-name "$IAM_STACK_NAME" \
@@ -531,14 +817,6 @@ jobs:
 
   # ==========================================================
   # 4. DEPLOY APPLICATION EVENTS STACK
-  #
-  # THIS JOB ALSO:
-  # - VALIDATES PROJECT FILES
-  # - BUILDS PYMYSQL LAYER
-  # - PACKAGES ALL LAMBDAS
-  # - UPLOADS ARTIFACTS
-  # - DEPLOYS APPLICATION STACK
-  # - VERIFIES LAMBDAS
   # ==========================================================
 
   deploy-application-events:
@@ -549,9 +827,28 @@ jobs:
 
     needs:
 
+      - load-config
+
       - deploy-data
 
       - deploy-iam
+
+
+    env:
+
+      AWS_REGION: ap-south-1
+
+      ENVIRONMENT: ${{ needs.load-config.outputs.environment }}
+
+      PROJECT: ${{ needs.load-config.outputs.project }}
+
+      MANAGED_BY: ${{ needs.load-config.outputs.managed_by }}
+
+      OWNER: ${{ needs.load-config.outputs.owner }}
+
+      DATA_STACK_NAME: cloudmart-data-storage-${{ needs.load-config.outputs.environment }}
+
+      APPLICATION_EVENTS_STACK_NAME: cloudmart-application-events-${{ needs.load-config.outputs.environment }}
 
 
     steps:
@@ -590,7 +887,9 @@ jobs:
         run: |
 
           echo "========================================"
+
           echo "VERIFYING AWS IDENTITY"
+
           echo "========================================"
 
           aws sts get-caller-identity
@@ -605,8 +904,11 @@ jobs:
         run: |
 
           echo "========================================"
+
           echo "VERIFYING PROJECT FILES"
+
           echo "========================================"
+
 
           test -f lambda/authorizer/lambda_function.py
 
@@ -620,11 +922,12 @@ jobs:
 
           test -f dashboard/app.py
 
+
           echo "All required project files found."
 
 
       # ------------------------------------------------------
-      # VALIDATE APPLICATION EVENTS STACK
+      # VALIDATE APPLICATION EVENTS TEMPLATE
       # ------------------------------------------------------
 
       - name: Validate Application Events Stack
@@ -632,8 +935,11 @@ jobs:
         run: |
 
           echo "========================================"
+
           echo "VALIDATING APPLICATION EVENTS STACK"
+
           echo "========================================"
+
 
           aws cloudformation validate-template \
             --template-body file://cloudformation/application-events-stack.yaml \
@@ -641,7 +947,7 @@ jobs:
 
 
       # ------------------------------------------------------
-      # GET ARTIFACT BUCKET DYNAMICALLY
+      # GET ARTIFACT BUCKET FROM DATA STACK
       # ------------------------------------------------------
 
       - name: Get Artifact Bucket Name
@@ -649,14 +955,18 @@ jobs:
         run: |
 
           echo "========================================"
+
           echo "GETTING ARTIFACT BUCKET"
+
           echo "========================================"
+
 
           ARTIFACT_BUCKET=$(aws cloudformation describe-stacks \
             --stack-name "$DATA_STACK_NAME" \
             --region "$AWS_REGION" \
             --query "Stacks[0].Outputs[?OutputKey=='ArtifactBucketName'].OutputValue" \
             --output text)
+
 
           if [ -z "$ARTIFACT_BUCKET" ] || [ "$ARTIFACT_BUCKET" = "None" ]; then
 
@@ -666,13 +976,15 @@ jobs:
 
           fi
 
+
           echo "LAMBDA_ARTIFACT_BUCKET=$ARTIFACT_BUCKET" >> "$GITHUB_ENV"
 
-          echo "Artifact bucket retrieved successfully."
+
+          echo "Artifact bucket: $ARTIFACT_BUCKET"
 
 
       # ------------------------------------------------------
-      # CREATE BUILD DIRECTORY
+      # CREATE BUILD DIRECTORIES
       # ------------------------------------------------------
 
       - name: Create Build Directories
@@ -680,8 +992,11 @@ jobs:
         run: |
 
           echo "========================================"
+
           echo "PREPARING BUILD DIRECTORY"
+
           echo "========================================"
+
 
           rm -rf build
 
@@ -697,100 +1012,28 @@ jobs:
         run: |
 
           echo "========================================"
+
           echo "BUILDING PYMYSQL LAYER"
+
           echo "========================================"
+
 
           mkdir -p build/pymysql-layer/python
 
+
           python -m pip install --upgrade pip
+
 
           python -m pip install \
             PyMySQL \
             -t build/pymysql-layer/python
 
+
           cd build/pymysql-layer
+
 
           zip -r ../pymysql-layer.zip python
 
-          cd ../..
-
-
-      # ------------------------------------------------------
-      # BUILD PRODUCT LAMBDA
-      # ------------------------------------------------------
-
-      - name: Build Product Lambda
-
-        run: |
-
-          echo "========================================"
-          echo "BUILDING PRODUCT LAMBDA"
-          echo "========================================"
-
-          mkdir -p build/product
-
-          cp lambda/product/lambda_function.py \
-            build/product/
-
-          if [ -f lambda/product/requirements.txt ]; then
-
-            python -m pip install \
-              -r lambda/product/requirements.txt \
-              -t build/product
-
-          fi
-
-          cd build/product
-
-          zip -r ../product-lambda.zip .
-
-          cd ../..
-
-
-      # ------------------------------------------------------
-      # BUILD ORDER LAMBDA
-      # ------------------------------------------------------
-
-      - name: Build Order Lambda
-
-        run: |
-
-          echo "========================================"
-          echo "BUILDING ORDER LAMBDA"
-          echo "========================================"
-
-          mkdir -p build/order
-
-          cp lambda/order/lambda_function.py \
-            build/order/
-
-          cd build/order
-
-          zip -r ../order-lambda.zip .
-
-          cd ../..
-
-
-      # ------------------------------------------------------
-      # BUILD ORDER PROCESSOR LAMBDA
-      # ------------------------------------------------------
-
-      - name: Build Order Processor Lambda
-
-        run: |
-
-          echo "========================================"
-          echo "BUILDING ORDER PROCESSOR LAMBDA"
-          echo "========================================"
-
-          mkdir -p build/order-processor
-
-          cp lambda/order-processor/lambda_function.py \
-            build/order-processor/
-
-          cd build/order-processor
-
-          zip -r ../order-processor-lambda.zip .
 
           cd ../..
 
@@ -804,17 +1047,153 @@ jobs:
         run: |
 
           echo "========================================"
+
           echo "BUILDING AUTHORIZER LAMBDA"
+
           echo "========================================"
 
+
           mkdir -p build/authorizer
+
 
           cp lambda/authorizer/lambda_function.py \
             build/authorizer/
 
+
+          if [ -f lambda/authorizer/requirements.txt ]; then
+
+            python -m pip install \
+              -r lambda/authorizer/requirements.txt \
+              -t build/authorizer
+
+          fi
+
+
           cd build/authorizer
 
+
           zip -r ../authorizer-lambda.zip .
+
+
+          cd ../..
+
+
+      # ------------------------------------------------------
+      # BUILD PRODUCT LAMBDA
+      # ------------------------------------------------------
+
+      - name: Build Product Lambda
+
+        run: |
+
+          echo "========================================"
+
+          echo "BUILDING PRODUCT LAMBDA"
+
+          echo "========================================"
+
+
+          mkdir -p build/product
+
+
+          cp lambda/product/lambda_function.py \
+            build/product/
+
+
+          if [ -f lambda/product/requirements.txt ]; then
+
+            python -m pip install \
+              -r lambda/product/requirements.txt \
+              -t build/product
+
+          fi
+
+
+          cd build/product
+
+
+          zip -r ../product-lambda.zip .
+
+
+          cd ../..
+
+
+      # ------------------------------------------------------
+      # BUILD ORDER LAMBDA
+      # ------------------------------------------------------
+
+      - name: Build Order Lambda
+
+        run: |
+
+          echo "========================================"
+
+          echo "BUILDING ORDER LAMBDA"
+
+          echo "========================================"
+
+
+          mkdir -p build/order
+
+
+          cp lambda/order/lambda_function.py \
+            build/order/
+
+
+          if [ -f lambda/order/requirements.txt ]; then
+
+            python -m pip install \
+              -r lambda/order/requirements.txt \
+              -t build/order
+
+          fi
+
+
+          cd build/order
+
+
+          zip -r ../order-lambda.zip .
+
+
+          cd ../..
+
+
+      # ------------------------------------------------------
+      # BUILD ORDER PROCESSOR LAMBDA
+      # ------------------------------------------------------
+
+      - name: Build Order Processor Lambda
+
+        run: |
+
+          echo "========================================"
+
+          echo "BUILDING ORDER PROCESSOR LAMBDA"
+
+          echo "========================================"
+
+
+          mkdir -p build/order-processor
+
+
+          cp lambda/order-processor/lambda_function.py \
+            build/order-processor/
+
+
+          if [ -f lambda/order-processor/requirements.txt ]; then
+
+            python -m pip install \
+              -r lambda/order-processor/requirements.txt \
+              -t build/order-processor
+
+          fi
+
+
+          cd build/order-processor
+
+
+          zip -r ../order-processor-lambda.zip .
+
 
           cd ../..
 
@@ -828,8 +1207,11 @@ jobs:
         run: |
 
           echo "========================================"
+
           echo "PACKAGING DATABASE SCHEMA"
+
           echo "========================================"
+
 
           cp database/schema.sql \
             build/schema.sql
@@ -846,6 +1228,20 @@ jobs:
           aws s3 cp \
             build/pymysql-layer.zip \
             "s3://${LAMBDA_ARTIFACT_BUCKET}/layers/pymysql/pymysql-layer-${GITHUB_SHA}.zip" \
+            --region "$AWS_REGION"
+
+
+      # ------------------------------------------------------
+      # UPLOAD AUTHORIZER
+      # ------------------------------------------------------
+
+      - name: Upload Authorizer Lambda
+
+        run: |
+
+          aws s3 cp \
+            build/authorizer-lambda.zip \
+            "s3://${LAMBDA_ARTIFACT_BUCKET}/lambda/authorizer/authorizer-lambda-${GITHUB_SHA}.zip" \
             --region "$AWS_REGION"
 
 
@@ -878,7 +1274,7 @@ jobs:
 
 
       # ------------------------------------------------------
-      # UPLOAD ORDER PROCESSOR LAMBDA
+      # UPLOAD ORDER PROCESSOR
       # ------------------------------------------------------
 
       - name: Upload Order Processor Lambda
@@ -888,20 +1284,6 @@ jobs:
           aws s3 cp \
             build/order-processor-lambda.zip \
             "s3://${LAMBDA_ARTIFACT_BUCKET}/lambda/order-processor/order-processor-lambda-${GITHUB_SHA}.zip" \
-            --region "$AWS_REGION"
-
-
-      # ------------------------------------------------------
-      # UPLOAD AUTHORIZER LAMBDA
-      # ------------------------------------------------------
-
-      - name: Upload Authorizer Lambda
-
-        run: |
-
-          aws s3 cp \
-            build/authorizer-lambda.zip \
-            "s3://${LAMBDA_ARTIFACT_BUCKET}/lambda/authorizer/authorizer-lambda-${GITHUB_SHA}.zip" \
             --region "$AWS_REGION"
 
 
@@ -920,7 +1302,7 @@ jobs:
 
 
       # ------------------------------------------------------
-      # VERIFY UPLOADED ARTIFACTS
+      # VERIFY ARTIFACTS
       # ------------------------------------------------------
 
       - name: Verify Uploaded Artifacts
@@ -928,40 +1310,49 @@ jobs:
         run: |
 
           echo "========================================"
+
           echo "VERIFYING UPLOADED ARTIFACTS"
+
           echo "========================================"
+
 
           aws s3api head-object \
             --bucket "$LAMBDA_ARTIFACT_BUCKET" \
             --key "layers/pymysql/pymysql-layer-${GITHUB_SHA}.zip" \
             --region "$AWS_REGION"
 
-          aws s3api head-object \
-            --bucket "$LAMBDA_ARTIFACT_BUCKET" \
-            --key "lambda/product/product-lambda-${GITHUB_SHA}.zip" \
-            --region "$AWS_REGION"
-
-          aws s3api head-object \
-            --bucket "$LAMBDA_ARTIFACT_BUCKET" \
-            --key "lambda/order/order-lambda-${GITHUB_SHA}.zip" \
-            --region "$AWS_REGION"
-
-          aws s3api head-object \
-            --bucket "$LAMBDA_ARTIFACT_BUCKET" \
-            --key "lambda/order-processor/order-processor-lambda-${GITHUB_SHA}.zip" \
-            --region "$AWS_REGION"
 
           aws s3api head-object \
             --bucket "$LAMBDA_ARTIFACT_BUCKET" \
             --key "lambda/authorizer/authorizer-lambda-${GITHUB_SHA}.zip" \
             --region "$AWS_REGION"
 
+
+          aws s3api head-object \
+            --bucket "$LAMBDA_ARTIFACT_BUCKET" \
+            --key "lambda/product/product-lambda-${GITHUB_SHA}.zip" \
+            --region "$AWS_REGION"
+
+
+          aws s3api head-object \
+            --bucket "$LAMBDA_ARTIFACT_BUCKET" \
+            --key "lambda/order/order-lambda-${GITHUB_SHA}.zip" \
+            --region "$AWS_REGION"
+
+
+          aws s3api head-object \
+            --bucket "$LAMBDA_ARTIFACT_BUCKET" \
+            --key "lambda/order-processor/order-processor-lambda-${GITHUB_SHA}.zip" \
+            --region "$AWS_REGION"
+
+
           aws s3api head-object \
             --bucket "$LAMBDA_ARTIFACT_BUCKET" \
             --key "database/schema-${GITHUB_SHA}.sql" \
             --region "$AWS_REGION"
 
-          echo "All artifacts uploaded successfully."
+
+          echo "All Lambda artifacts verified successfully."
 
 
       # ------------------------------------------------------
@@ -970,11 +1361,32 @@ jobs:
 
       - name: Deploy Application Events Stack
 
+        env:
+
+          ALERT_EMAIL: ${{ secrets.CLOUDMART_ALERT_EMAIL }}
+
         run: |
 
           echo "========================================"
+
           echo "DEPLOYING APPLICATION EVENTS STACK"
+
           echo "========================================"
+
+
+          echo "Environment: $ENVIRONMENT"
+
+          echo "Stack:       $APPLICATION_EVENTS_STACK_NAME"
+
+
+          if [ -z "$ALERT_EMAIL" ]; then
+
+            echo "ERROR: CLOUDMART_ALERT_EMAIL secret is missing."
+
+            exit 1
+
+          fi
+
 
           aws cloudformation deploy \
             --template-file cloudformation/application-events-stack.yaml \
@@ -983,10 +1395,10 @@ jobs:
               Environment="$ENVIRONMENT" \
               LambdaArtifactBucket="$LAMBDA_ARTIFACT_BUCKET" \
               PyMySQLLayerS3Key="layers/pymysql/pymysql-layer-${GITHUB_SHA}.zip" \
+              AuthorizerLambdaS3Key="lambda/authorizer/authorizer-lambda-${GITHUB_SHA}.zip" \
               ProductLambdaS3Key="lambda/product/product-lambda-${GITHUB_SHA}.zip" \
               OrderLambdaS3Key="lambda/order/order-lambda-${GITHUB_SHA}.zip" \
               OrderProcessorLambdaS3Key="lambda/order-processor/order-processor-lambda-${GITHUB_SHA}.zip" \
-              AuthorizerLambdaS3Key="lambda/authorizer/authorizer-lambda-${GITHUB_SHA}.zip" \
               SchemaS3Key="database/schema-${GITHUB_SHA}.sql" \
               DBName="/cloudmart/${ENVIRONMENT}/db/name" \
               DBEndpoint="/cloudmart/${ENVIRONMENT}/db/endpoint" \
@@ -995,7 +1407,7 @@ jobs:
               DBPassword="/cloudmart/${ENVIRONMENT}/db/password" \
               AuthTokenParameter="/cloudmart/${ENVIRONMENT}/auth/token" \
               CustomerTokensParameter="/cloudmart/${ENVIRONMENT}/auth/customer-tokens" \
-              AlertEmail="${{ secrets.CLOUDMART_ALERT_EMAIL }}" \
+              AlertEmail="$ALERT_EMAIL" \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --region "$AWS_REGION" \
             --no-fail-on-empty-changeset
@@ -1010,8 +1422,11 @@ jobs:
         run: |
 
           echo "========================================"
+
           echo "VERIFYING APPLICATION EVENTS STACK"
+
           echo "========================================"
+
 
           aws cloudformation describe-stacks \
             --stack-name "$APPLICATION_EVENTS_STACK_NAME" \
@@ -1029,8 +1444,11 @@ jobs:
         run: |
 
           echo "========================================"
+
           echo "APPLICATION EVENTS STACK OUTPUTS"
+
           echo "========================================"
+
 
           aws cloudformation describe-stacks \
             --stack-name "$APPLICATION_EVENTS_STACK_NAME" \
@@ -1048,19 +1466,24 @@ jobs:
         run: |
 
           echo "========================================"
+
           echo "VERIFYING LAMBDA FUNCTIONS"
+
           echo "========================================"
+
 
           for FUNCTION_NAME in \
             "cloudmart-${ENVIRONMENT}-product-lambda" \
             "cloudmart-${ENVIRONMENT}-order-lambda" \
             "cloudmart-${ENVIRONMENT}-order-processor" \
             "cloudmart-${ENVIRONMENT}-lambda-authorizer"
+
           do
 
             echo ""
 
             echo "Checking Lambda: $FUNCTION_NAME"
+
 
             aws lambda get-function-configuration \
               --function-name "$FUNCTION_NAME" \
@@ -1072,7 +1495,7 @@ jobs:
 
 
   # ==========================================================
-  # 5. DEPLOY API MONITORING EC2 STACK
+  # 5. DEPLOY API MONITORING + EC2 STACK
   # ==========================================================
 
   deploy-api-monitoring-ec2:
@@ -1083,7 +1506,24 @@ jobs:
 
     needs:
 
+      - load-config
+
       - deploy-application-events
+
+
+    env:
+
+      AWS_REGION: ap-south-1
+
+      ENVIRONMENT: ${{ needs.load-config.outputs.environment }}
+
+      PROJECT: ${{ needs.load-config.outputs.project }}
+
+      MANAGED_BY: ${{ needs.load-config.outputs.managed_by }}
+
+      OWNER: ${{ needs.load-config.outputs.owner }}
+
+      API_MONITORING_EC2_STACK_NAME: cloudmart-api-monitoring-ec2-${{ needs.load-config.outputs.environment }}
 
 
     steps:
@@ -1122,14 +1562,16 @@ jobs:
         run: |
 
           echo "========================================"
+
           echo "VERIFYING AWS IDENTITY"
+
           echo "========================================"
 
           aws sts get-caller-identity
 
 
       # ------------------------------------------------------
-      # VALIDATE API MONITORING EC2 STACK
+      # VALIDATE API TEMPLATE
       # ------------------------------------------------------
 
       - name: Validate API Monitoring EC2 Stack
@@ -1137,8 +1579,11 @@ jobs:
         run: |
 
           echo "========================================"
+
           echo "VALIDATING API MONITORING EC2 STACK"
+
           echo "========================================"
+
 
           aws cloudformation validate-template \
             --template-body file://cloudformation/api-monitoring-ec2-stack.yaml \
@@ -1154,8 +1599,16 @@ jobs:
         run: |
 
           echo "========================================"
+
           echo "DEPLOYING API MONITORING EC2 STACK"
+
           echo "========================================"
+
+
+          echo "Environment: $ENVIRONMENT"
+
+          echo "Stack:       $API_MONITORING_EC2_STACK_NAME"
+
 
           aws cloudformation deploy \
             --template-file cloudformation/api-monitoring-ec2-stack.yaml \
@@ -1168,7 +1621,7 @@ jobs:
 
 
       # ------------------------------------------------------
-      # VERIFY API MONITORING EC2 STACK
+      # VERIFY API STACK
       # ------------------------------------------------------
 
       - name: Verify API Monitoring EC2 Stack
@@ -1176,8 +1629,11 @@ jobs:
         run: |
 
           echo "========================================"
+
           echo "VERIFYING API MONITORING EC2 STACK"
+
           echo "========================================"
+
 
           aws cloudformation describe-stacks \
             --stack-name "$API_MONITORING_EC2_STACK_NAME" \
@@ -1187,7 +1643,7 @@ jobs:
 
 
       # ------------------------------------------------------
-      # SHOW API STACK OUTPUTS
+      # SHOW API OUTPUTS
       # ------------------------------------------------------
 
       - name: Show API Monitoring EC2 Outputs
@@ -1195,8 +1651,11 @@ jobs:
         run: |
 
           echo "========================================"
+
           echo "API MONITORING EC2 STACK OUTPUTS"
+
           echo "========================================"
+
 
           aws cloudformation describe-stacks \
             --stack-name "$API_MONITORING_EC2_STACK_NAME" \
@@ -1205,9 +1664,9 @@ jobs:
             --output table
 
 
-      # ======================================================
-      # FINAL DEPLOYMENT SUMMARY
-      # ======================================================
+      # ------------------------------------------------------
+      # FINAL STACK STATUS
+      # ------------------------------------------------------
 
       - name: Display CloudMart Deployment Summary
 
@@ -1217,15 +1676,23 @@ jobs:
 
           echo "========================================"
 
-          echo "CLOUDMART DEPLOYMENT COMPLETED"
+          echo "CLOUDMART DEPLOYMENT SUMMARY"
 
           echo "========================================"
 
+
           echo ""
+
+          echo "Project:     $PROJECT"
 
           echo "Environment: $ENVIRONMENT"
 
-          echo "Region: $AWS_REGION"
+          echo "Managed By:  $MANAGED_BY"
+
+          echo "Owner:       $OWNER"
+
+          echo "Region:      $AWS_REGION"
+
 
           echo ""
 
@@ -1235,12 +1702,14 @@ jobs:
 
           echo "========================================"
 
+
           for STACK_NAME in \
-            "$NETWORK_STACK_NAME" \
-            "$DATA_STACK_NAME" \
-            "$IAM_STACK_NAME" \
-            "$APPLICATION_EVENTS_STACK_NAME" \
-            "$API_MONITORING_EC2_STACK_NAME"
+            "cloudmart-network-security-${ENVIRONMENT}" \
+            "cloudmart-data-storage-${ENVIRONMENT}" \
+            "cloudmart-iam-${ENVIRONMENT}" \
+            "cloudmart-application-events-${ENVIRONMENT}" \
+            "cloudmart-api-monitoring-ec2-${ENVIRONMENT}"
+
           do
 
             aws cloudformation describe-stacks \
@@ -1250,6 +1719,7 @@ jobs:
               --output table
 
           done
+
 
           echo ""
 

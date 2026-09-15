@@ -11,11 +11,10 @@ Parameters:
 
   Environment:
     Type: String
-    Default: dev
     AllowedValues:
       - dev
       - prod
-    Description: CloudMart deployment environment
+    Description: CloudMart deployment environment supplied by CI/CD
 
   VpcCidr:
     Type: String

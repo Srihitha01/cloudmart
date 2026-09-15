@@ -6,7 +6,6 @@ Description: >
   schema initialization, RDS administration EC2,
   and API monitoring dashboard EC2.
 
-
 # ============================================================
 # PARAMETERS
 # ============================================================
@@ -14,16 +13,11 @@ Description: >
 Parameters:
 
   Environment:
-
     Type: String
-
-    Default: dev
-
     AllowedValues:
       - dev
       - prod
-
-    Description: Deployment environment
+    Description: Deployment environment supplied by CI/CD configuration
 
 
 # ============================================================
@@ -31,7 +25,6 @@ Parameters:
 # ============================================================
 
 Resources:
-
 
   # ==========================================================
   # LAMBDA AUTHORIZER ROLE
@@ -46,7 +39,6 @@ Resources:
       RoleName:
         !Sub cloudmart-${Environment}-lambda-authorizer-role
 
-
       AssumeRolePolicyDocument:
 
         Version: '2012-10-17'
@@ -56,16 +48,13 @@ Resources:
           - Effect: Allow
 
             Principal:
-
               Service:
                 - lambda.amazonaws.com
 
             Action:
               - sts:AssumeRole
 
-
       Policies:
-
 
         # ------------------------------------------------------
         # CLOUDWATCH LOGGING
@@ -86,7 +75,6 @@ Resources:
 
                 Resource: '*'
 
-
               - Effect: Allow
 
                 Action:
@@ -95,7 +83,6 @@ Resources:
 
                 Resource:
                   - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/cloudmart-${Environment}-lambda-authorizer:*
-
 
         # ------------------------------------------------------
         # SSM AUTH PARAMETERS
@@ -117,7 +104,6 @@ Resources:
 
                 Resource:
                   - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/auth/*
-
 
         # ------------------------------------------------------
         # VPC ACCESS
@@ -142,7 +128,6 @@ Resources:
                   - ec2:UnassignPrivateIpAddresses
 
                 Resource: '*'
-
 
       Tags:
 
@@ -171,7 +156,6 @@ Resources:
       RoleName:
         !Sub cloudmart-${Environment}-product-lambda-role
 
-
       AssumeRolePolicyDocument:
 
         Version: '2012-10-17'
@@ -181,16 +165,13 @@ Resources:
           - Effect: Allow
 
             Principal:
-
               Service:
                 - lambda.amazonaws.com
 
             Action:
               - sts:AssumeRole
 
-
       Policies:
-
 
         # ------------------------------------------------------
         # CLOUDWATCH LOGGING
@@ -211,7 +192,6 @@ Resources:
 
                 Resource: '*'
 
-
               - Effect: Allow
 
                 Action:
@@ -220,7 +200,6 @@ Resources:
 
                 Resource:
                   - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/cloudmart-${Environment}-product:*
-
 
         # ------------------------------------------------------
         # SSM DATABASE PARAMETERS
@@ -243,7 +222,6 @@ Resources:
                 Resource:
                   - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/db/*
 
-
         # ------------------------------------------------------
         # S3 ARTIFACT ACCESS
         # ------------------------------------------------------
@@ -262,8 +240,7 @@ Resources:
                   - s3:GetObject
 
                 Resource:
-                  - !Sub arn:${AWS::Partition}:s3:::cloudmart-*/*
-
+                  - !Sub arn:${AWS::Partition}:s3:::cloudmart-${Environment}-artifacts/*
 
         # ------------------------------------------------------
         # EVENTBRIDGE
@@ -284,7 +261,6 @@ Resources:
 
                 Resource:
                   - !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/cloudmart-${Environment}-event-bus
-
 
         # ------------------------------------------------------
         # VPC ACCESS
@@ -309,7 +285,6 @@ Resources:
                   - ec2:UnassignPrivateIpAddresses
 
                 Resource: '*'
-
 
       Tags:
 
@@ -338,7 +313,6 @@ Resources:
       RoleName:
         !Sub cloudmart-${Environment}-order-lambda-role
 
-
       AssumeRolePolicyDocument:
 
         Version: '2012-10-17'
@@ -348,16 +322,13 @@ Resources:
           - Effect: Allow
 
             Principal:
-
               Service:
                 - lambda.amazonaws.com
 
             Action:
               - sts:AssumeRole
 
-
       Policies:
-
 
         # ------------------------------------------------------
         # CLOUDWATCH LOGGING
@@ -378,7 +349,6 @@ Resources:
 
                 Resource: '*'
 
-
               - Effect: Allow
 
                 Action:
@@ -387,7 +357,6 @@ Resources:
 
                 Resource:
                   - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/cloudmart-${Environment}-order:*
-
 
         # ------------------------------------------------------
         # SSM DATABASE PARAMETERS
@@ -410,7 +379,6 @@ Resources:
                 Resource:
                   - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/db/*
 
-
         # ------------------------------------------------------
         # EVENTBRIDGE
         # ------------------------------------------------------
@@ -430,7 +398,6 @@ Resources:
 
                 Resource:
                   - !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/cloudmart-${Environment}-event-bus
-
 
         # ------------------------------------------------------
         # VPC ACCESS
@@ -455,7 +422,6 @@ Resources:
                   - ec2:UnassignPrivateIpAddresses
 
                 Resource: '*'
-
 
       Tags:
 
@@ -484,7 +450,6 @@ Resources:
       RoleName:
         !Sub cloudmart-${Environment}-order-processor-role
 
-
       AssumeRolePolicyDocument:
 
         Version: '2012-10-17'
@@ -494,16 +459,13 @@ Resources:
           - Effect: Allow
 
             Principal:
-
               Service:
                 - lambda.amazonaws.com
 
             Action:
               - sts:AssumeRole
 
-
       Policies:
-
 
         # ------------------------------------------------------
         # CLOUDWATCH LOGGING
@@ -524,7 +486,6 @@ Resources:
 
                 Resource: '*'
 
-
               - Effect: Allow
 
                 Action:
@@ -533,7 +494,6 @@ Resources:
 
                 Resource:
                   - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/cloudmart-${Environment}-order-processor:*
-
 
         # ------------------------------------------------------
         # SSM DATABASE PARAMETERS
@@ -556,7 +516,6 @@ Resources:
                 Resource:
                   - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/db/*
 
-
         # ------------------------------------------------------
         # EVENTBRIDGE
         # ------------------------------------------------------
@@ -576,7 +535,6 @@ Resources:
 
                 Resource:
                   - !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/cloudmart-${Environment}-event-bus
-
 
         # ------------------------------------------------------
         # VPC ACCESS
@@ -601,7 +559,6 @@ Resources:
                   - ec2:UnassignPrivateIpAddresses
 
                 Resource: '*'
-
 
       Tags:
 
@@ -630,7 +587,6 @@ Resources:
       RoleName:
         !Sub cloudmart-${Environment}-schema-initializer-role
 
-
       AssumeRolePolicyDocument:
 
         Version: '2012-10-17'
@@ -640,16 +596,13 @@ Resources:
           - Effect: Allow
 
             Principal:
-
               Service:
                 - lambda.amazonaws.com
 
             Action:
               - sts:AssumeRole
 
-
       Policies:
-
 
         # ------------------------------------------------------
         # CLOUDWATCH LOGGING
@@ -670,7 +623,6 @@ Resources:
 
                 Resource: '*'
 
-
               - Effect: Allow
 
                 Action:
@@ -679,7 +631,6 @@ Resources:
 
                 Resource:
                   - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/cloudmart-${Environment}-schema-initializer:*
-
 
         # ------------------------------------------------------
         # SSM DATABASE CONFIGURATION
@@ -702,7 +653,6 @@ Resources:
                 Resource:
                   - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/db/*
 
-
         # ------------------------------------------------------
         # S3 SCHEMA ACCESS
         # ------------------------------------------------------
@@ -721,8 +671,7 @@ Resources:
                   - s3:GetObject
 
                 Resource:
-                  - !Sub arn:${AWS::Partition}:s3:::cloudmart-*/*
-
+                  - !Sub arn:${AWS::Partition}:s3:::cloudmart-${Environment}-artifacts/*
 
         # ------------------------------------------------------
         # VPC ACCESS
@@ -747,7 +696,6 @@ Resources:
                   - ec2:UnassignPrivateIpAddresses
 
                 Resource: '*'
-
 
       Tags:
 
@@ -776,7 +724,6 @@ Resources:
       RoleName:
         !Sub cloudmart-${Environment}-rds-admin-ec2-role
 
-
       AssumeRolePolicyDocument:
 
         Version: '2012-10-17'
@@ -786,21 +733,17 @@ Resources:
           - Effect: Allow
 
             Principal:
-
               Service:
                 - ec2.amazonaws.com
 
             Action:
               - sts:AssumeRole
 
-
       ManagedPolicyArns:
 
         - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
 
-
       Policies:
-
 
         # ------------------------------------------------------
         # RDS DATABASE INFORMATION
@@ -820,7 +763,6 @@ Resources:
                   - rds:DescribeDBInstances
 
                 Resource: '*'
-
 
         # ------------------------------------------------------
         # SSM DATABASE PARAMETERS
@@ -842,7 +784,6 @@ Resources:
 
                 Resource:
                   - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/db/*
-
 
       Tags:
 
@@ -871,7 +812,6 @@ Resources:
       InstanceProfileName:
         !Sub cloudmart-${Environment}-rds-admin-instance-profile
 
-
       Roles:
 
         - !Ref RDSAdminEC2Role
@@ -890,11 +830,8 @@ Resources:
       RoleName:
         !Sub cloudmart-${Environment}-ec2-dashboard-role
 
-
-      Description: >
-        IAM role for CloudMart API monitoring
-        and dashboard EC2 instance.
-
+      Description:
+        !Sub IAM role for CloudMart ${Environment} API monitoring dashboard EC2
 
       AssumeRolePolicyDocument:
 
@@ -905,21 +842,17 @@ Resources:
           - Effect: Allow
 
             Principal:
-
               Service:
                 - ec2.amazonaws.com
 
             Action:
               - sts:AssumeRole
 
-
       ManagedPolicyArns:
 
         - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
 
-
       Policies:
-
 
         # ------------------------------------------------------
         # CLOUDWATCH MONITORING
@@ -945,7 +878,6 @@ Resources:
 
                 Resource: '*'
 
-
         # ------------------------------------------------------
         # CLOUDWATCH LOGS
         # ------------------------------------------------------
@@ -970,7 +902,6 @@ Resources:
 
                 Resource: '*'
 
-
         # ------------------------------------------------------
         # LAMBDA MONITORING
         # ------------------------------------------------------
@@ -990,8 +921,8 @@ Resources:
                   - lambda:GetFunctionConfiguration
                   - lambda:ListFunctions
 
-                Resource: '*'
-
+                Resource:
+                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:cloudmart-${Environment}-*
 
         # ------------------------------------------------------
         # API GATEWAY MONITORING
@@ -1011,7 +942,6 @@ Resources:
                   - apigateway:GET
 
                 Resource: '*'
-
 
         # ------------------------------------------------------
         # RDS MONITORING
@@ -1033,7 +963,6 @@ Resources:
 
                 Resource: '*'
 
-
         # ------------------------------------------------------
         # EC2 MONITORING
         # ------------------------------------------------------
@@ -1053,7 +982,6 @@ Resources:
                   - ec2:DescribeInstanceStatus
 
                 Resource: '*'
-
 
       Tags:
 
@@ -1082,10 +1010,164 @@ Resources:
       InstanceProfileName:
         !Sub cloudmart-${Environment}-ec2-dashboard-instance-profile
 
-
       Roles:
 
         - !Ref EC2DashboardRole
+
+
+
+  # ==========================================================
+  # SECURE AUTH SSM PARAMETERS
+  # CloudFormation AWS::SSM::Parameter cannot create SecureString
+  # directly, so this stack owns the SecureString parameters
+  # through a CloudFormation custom resource.
+  # Authentication values are generated by this stack; no
+  # authentication GitHub Secrets are required.
+  # ==========================================================
+
+  AuthSSMWriterRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub cloudmart-${Environment}-auth-ssm-writer-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: SecureAuthParameterWriter
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:PutParameter
+                  - ssm:DeleteParameter
+                Resource:
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/auth/*
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+      Tags:
+        - Key: Name
+          Value: !Sub cloudmart-${Environment}-auth-ssm-writer-role
+        - Key: Project
+          Value: CloudMart
+        - Key: Environment
+          Value: !Ref Environment
+
+  AuthSSMWriterFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub cloudmart-${Environment}-auth-ssm-writer
+      Runtime: python3.12
+      Handler: index.handler
+      Role: !GetAtt AuthSSMWriterRole.Arn
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import json
+          import secrets
+          import urllib.request
+          import boto3
+
+          ssm = boto3.client("ssm")
+
+          def respond(event, context, status, physical_id, data=None, reason=None):
+              body = {
+                  "Status": status,
+                  "Reason": reason or "See CloudWatch Logs",
+                  "PhysicalResourceId": physical_id,
+                  "StackId": event["StackId"],
+                  "RequestId": event["RequestId"],
+                  "LogicalResourceId": event["LogicalResourceId"],
+                  "Data": data or {}
+              }
+              encoded = json.dumps(body).encode("utf-8")
+              request = urllib.request.Request(
+                  event["ResponseURL"],
+                  data=encoded,
+                  method="PUT",
+                  headers={"content-type": "", "content-length": str(len(encoded))}
+              )
+              urllib.request.urlopen(request)
+
+          def parameter_exists(name):
+              try:
+                  response = ssm.get_parameter(Name=name)
+                  return response["Parameter"]["Type"] == "SecureString"
+              except ssm.exceptions.ParameterNotFound:
+                  return False
+
+          def ensure_parameter(name, value, description):
+              if parameter_exists(name):
+                  return
+              ssm.put_parameter(
+                  Name=name,
+                  Value=value,
+                  Type="SecureString",
+                  Description=description,
+                  Overwrite=False
+              )
+
+          def handler(event, context):
+              physical_id = event.get("PhysicalResourceId") or event["ResourceProperties"]["ParameterPrefix"]
+              try:
+                  prefix = event["ResourceProperties"]["ParameterPrefix"]
+                  admin_name = prefix + "/token"
+                  customer_name = prefix + "/customer-tokens"
+
+                  if event["RequestType"] in ("Create", "Update"):
+                      # Generate values only when the parameters do not already exist.
+                      # This prevents normal stack updates from rotating credentials.
+                      admin_token = secrets.token_urlsafe(32)
+                      customer_token = secrets.token_urlsafe(32)
+                      customer_tokens = json.dumps({customer_token: 1}, separators=(",", ":"))
+
+                      ensure_parameter(
+                          admin_name,
+                          admin_token,
+                          "CloudMart administrator authentication token"
+                      )
+                      ensure_parameter(
+                          customer_name,
+                          customer_tokens,
+                          "CloudMart customer authentication token mapping"
+                      )
+
+                  elif event["RequestType"] == "Delete":
+                      for name in (admin_name, customer_name):
+                          try:
+                              ssm.delete_parameter(Name=name)
+                          except ssm.exceptions.ParameterNotFound:
+                              pass
+
+                  respond(event, context, "SUCCESS", physical_id)
+              except Exception:
+                  respond(
+                      event,
+                      context,
+                      "FAILED",
+                      physical_id,
+                      reason="Authentication parameter provisioning failed; see CloudWatch Logs"
+                  )
+                  raise
+
+  AuthSSMParameters:
+    Type: Custom::CloudMartAuthParameters
+    DependsOn:
+      - AuthSSMWriterFunction
+    Properties:
+      ServiceToken: !GetAtt AuthSSMWriterFunction.Arn
+      ParameterPrefix: !Sub /cloudmart/${Environment}/auth
 
 
 # ============================================================
@@ -1093,11 +1175,6 @@ Resources:
 # ============================================================
 
 Outputs:
-
-
-  # ==========================================================
-  # LAMBDA AUTHORIZER
-  # ==========================================================
 
   LambdaAuthorizerRoleArn:
 
@@ -1107,14 +1184,9 @@ Outputs:
       !GetAtt LambdaAuthorizerRole.Arn
 
     Export:
-
       Name:
         !Sub cloudmart-${Environment}-LambdaAuthorizerRoleArn
 
-
-  # ==========================================================
-  # PRODUCT LAMBDA
-  # ==========================================================
 
   ProductLambdaRoleArn:
 
@@ -1124,14 +1196,9 @@ Outputs:
       !GetAtt ProductLambdaRole.Arn
 
     Export:
-
       Name:
         !Sub cloudmart-${Environment}-ProductLambdaRoleArn
 
-
-  # ==========================================================
-  # ORDER LAMBDA
-  # ==========================================================
 
   OrderLambdaRoleArn:
 
@@ -1141,14 +1208,9 @@ Outputs:
       !GetAtt OrderLambdaRole.Arn
 
     Export:
-
       Name:
         !Sub cloudmart-${Environment}-OrderLambdaRoleArn
 
-
-  # ==========================================================
-  # ORDER PROCESSOR
-  # ==========================================================
 
   OrderProcessorLambdaRoleArn:
 
@@ -1158,14 +1220,9 @@ Outputs:
       !GetAtt OrderProcessorLambdaRole.Arn
 
     Export:
-
       Name:
         !Sub cloudmart-${Environment}-OrderProcessorLambdaRoleArn
 
-
-  # ==========================================================
-  # SCHEMA INITIALIZER
-  # ==========================================================
 
   SchemaInitializerLambdaRoleArn:
 
@@ -1175,14 +1232,9 @@ Outputs:
       !GetAtt SchemaInitializerLambdaRole.Arn
 
     Export:
-
       Name:
         !Sub cloudmart-${Environment}-SchemaInitializerLambdaRoleArn
 
-
-  # ==========================================================
-  # RDS ADMIN EC2 ROLE
-  # ==========================================================
 
   RDSAdminEC2RoleArn:
 
@@ -1192,14 +1244,9 @@ Outputs:
       !GetAtt RDSAdminEC2Role.Arn
 
     Export:
-
       Name:
         !Sub cloudmart-${Environment}-RDSAdminEC2RoleArn
 
-
-  # ==========================================================
-  # RDS ADMIN INSTANCE PROFILE
-  # ==========================================================
 
   RDSAdminEC2InstanceProfile:
 
@@ -1209,14 +1256,9 @@ Outputs:
       !Ref RDSAdminEC2InstanceProfile
 
     Export:
-
       Name:
         !Sub cloudmart-${Environment}-RDSAdminEC2InstanceProfile
 
-
-  # ==========================================================
-  # EC2 DASHBOARD ROLE
-  # ==========================================================
 
   EC2DashboardRoleArn:
 
@@ -1226,16 +1268,9 @@ Outputs:
       !GetAtt EC2DashboardRole.Arn
 
     Export:
-
       Name:
         !Sub cloudmart-${Environment}-EC2DashboardRoleArn
 
-
-  # ==========================================================
-  # EC2 DASHBOARD INSTANCE PROFILE
-  # THIS EXPORT IS REQUIRED BY
-  # api-monitoring-ec2-stack.yaml
-  # ==========================================================
 
   EC2DashboardInstanceProfile:
 
@@ -1245,6 +1280,5 @@ Outputs:
       !Ref EC2DashboardInstanceProfile
 
     Export:
-
       Name:
         !Sub cloudmart-${Environment}-EC2DashboardInstanceProfile

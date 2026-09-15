@@ -24,13 +24,11 @@ Parameters:
 
     Type: String
 
-    Default: dev
-
     AllowedValues:
       - dev
       - prod
 
-    Description: CloudMart deployment environment
+    Description: CloudMart deployment environment supplied by CI/CD
 
 
   # ==========================================================
@@ -960,9 +958,9 @@ Resources:
   #
   # Matches:
   #
-  # source      = cloudmart.product
-  # detail-type = Inventory Changed
-  # low_stock   = true
+  # source       = cloudmart.product
+  # detail-type  = Inventory Changed
+  # low_stock    = true
   #
   # Then publishes to Product SNS topic.
   # ==========================================================

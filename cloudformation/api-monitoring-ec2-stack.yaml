@@ -7,6 +7,10 @@ Description: >
   CloudWatch monitoring and alarms,
   and an EC2 Flask Dashboard.
 
+# ============================================================
+# PARAMETERS
+# ============================================================
+
 Parameters:
 
   # ==========================================================
@@ -14,16 +18,11 @@ Parameters:
   # ==========================================================
 
   Environment:
-
     Type: String
-
-    Default: dev
-
     AllowedValues:
       - dev
       - prod
-
-    Description: Deployment environment
+    Description: CloudMart deployment environment supplied by CI/CD
 
 
   # ==========================================================
@@ -31,25 +30,22 @@ Parameters:
   # ==========================================================
 
   EC2InstanceType:
-
     Type: String
-
     Default: t3.micro
-
     Description: EC2 instance type for CloudMart dashboard
 
 
   DashboardPort:
-
     Type: Number
-
     Default: 5000
-
     Description: Flask dashboard port
 
 
-Resources:
+# ============================================================
+# RESOURCES
+# ============================================================
 
+Resources:
 
   # ==========================================================
   # API GATEWAY REST API
@@ -144,8 +140,6 @@ Resources:
       IdentitySource:
         method.request.header.Authorization
 
-      # Disable caching because authorization depends
-      # on token, HTTP method and resource path.
       AuthorizerResultTtlInSeconds: 0
 
       AuthorizerUri:
@@ -178,7 +172,6 @@ Resources:
       ParentId:
 
         Fn::GetAtt:
-
           - CloudMartApi
           - RootResourceId
 
@@ -471,7 +464,6 @@ Resources:
       ParentId:
 
         Fn::GetAtt:
-
           - CloudMartApi
           - RootResourceId
 
@@ -926,12 +918,31 @@ Resources:
 
 
   # ==========================================================
+  # API GATEWAY ACCESS LOG GROUP
+  # ==========================================================
+
+  ApiGatewayLogGroup:
+
+    Type: AWS::Logs::LogGroup
+
+    Properties:
+
+      LogGroupName:
+        !Sub /aws/apigateway/cloudmart-${Environment}
+
+      RetentionInDays: 14
+
+
+  # ==========================================================
   # API STAGE
   # ==========================================================
 
   ApiStage:
 
     Type: AWS::ApiGateway::Stage
+
+    DependsOn:
+      - ApiGatewayLogGroup
 
     Properties:
 
@@ -960,22 +971,6 @@ Resources:
           LoggingLevel: INFO
 
           DataTraceEnabled: false
-
-
-  # ==========================================================
-  # CLOUDWATCH LOG GROUP FOR API GATEWAY
-  # ==========================================================
-
-  ApiGatewayLogGroup:
-
-    Type: AWS::Logs::LogGroup
-
-    Properties:
-
-      LogGroupName:
-        !Sub /aws/apigateway/cloudmart-${Environment}
-
-      RetentionInDays: 14
 
 
   # ==========================================================
@@ -1248,13 +1243,10 @@ Resources:
       InstanceType:
         !Ref EC2InstanceType
 
-
       # Latest Amazon Linux 2023 AMI from SSM
       # No AMI ID hardcoding
       ImageId:
-
         '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64}}'
-
 
       SubnetId:
 
@@ -1263,7 +1255,6 @@ Resources:
           Fn::Sub:
             cloudmart-${Environment}-PublicSubnetId
 
-
       SecurityGroupIds:
 
         - Fn::ImportValue:
@@ -1271,14 +1262,12 @@ Resources:
             Fn::Sub:
               cloudmart-${Environment}-EC2SecurityGroupId
 
-
       IamInstanceProfile:
 
         Fn::ImportValue:
 
           Fn::Sub:
             cloudmart-${Environment}-EC2DashboardInstanceProfile
-
 
       Tags:
 
@@ -1342,8 +1331,11 @@ Resources:
         notBreaching
 
 
-Outputs:
+# ============================================================
+# OUTPUTS
+# ============================================================
 
+Outputs:
 
   # ==========================================================
   # API ID
