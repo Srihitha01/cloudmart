@@ -248,7 +248,7 @@ Resources:
 
       Runtime: python3.12
 
-      Handler: index.lambda_handler
+      Handler: lambda_function.lambda_handler
 
       Role:
 
@@ -351,7 +351,7 @@ Resources:
 
       Runtime: python3.12
 
-      Handler: index.lambda_handler
+      Handler: lambda_function.lambda_handler
 
       Role:
 
@@ -454,7 +454,7 @@ Resources:
 
       Runtime: python3.12
 
-      Handler: index.lambda_handler
+      Handler: lambda_function.lambda_handler
 
       Role:
 
@@ -552,7 +552,7 @@ Resources:
 
       Runtime: python3.12
 
-      Handler: index.lambda_handler
+      Handler: lambda_function.lambda_handler
 
       Role:
 
@@ -650,6 +650,7 @@ Resources:
 
       Runtime: python3.12
 
+      # Code.ZipFile creates the inline Python file as index.py.
       Handler: index.lambda_handler
 
       Role:
@@ -732,6 +733,17 @@ Resources:
               )["Parameter"]["Value"]
 
           def split_sql(sql):
+              # Remove MySQL single-line comments before splitting. This avoids
+              # comment text being accidentally sent as SQL to PyMySQL.
+              cleaned_lines = []
+              for line in sql.splitlines():
+                  stripped = line.lstrip()
+                  if stripped.startswith("--") or stripped.startswith("#"):
+                      continue
+                  cleaned_lines.append(line)
+
+              sql = "\n".join(cleaned_lines)
+
               statements = []
               current = []
               in_single = False
@@ -774,14 +786,35 @@ Resources:
 
               return statements
 
-          def clean_statement(statement):
-              lines = []
-              for line in statement.splitlines():
-                  stripped = line.strip()
-                  if stripped.startswith("--"):
-                      continue
-                  lines.append(line)
-              return "\n".join(lines).strip()
+          def ensure_customer_token_schema(cursor):
+              # Handle databases created by the older CloudMart schema.
+              cursor.execute("""
+                  SELECT COUNT(*)
+                  FROM information_schema.COLUMNS
+                  WHERE TABLE_SCHEMA = DATABASE()
+                    AND TABLE_NAME = 'customers'
+                    AND COLUMN_NAME = 'bearer_token'
+              """)
+              exists = cursor.fetchone()[0]
+
+              if not exists:
+                  cursor.execute(
+                      "ALTER TABLE customers ADD COLUMN bearer_token VARCHAR(255) NULL AFTER email"
+                  )
+
+              cursor.execute("""
+                  SELECT COUNT(*)
+                  FROM information_schema.STATISTICS
+                  WHERE TABLE_SCHEMA = DATABASE()
+                    AND TABLE_NAME = 'customers'
+                    AND INDEX_NAME = 'uq_customers_bearer_token'
+              """)
+              index_exists = cursor.fetchone()[0]
+
+              if not index_exists:
+                  cursor.execute(
+                      "ALTER TABLE customers ADD UNIQUE INDEX uq_customers_bearer_token (bearer_token)"
+                  )
 
           def lambda_handler(event, context):
               host = get_parameter(DB_ENDPOINT_PARAMETER)
@@ -790,7 +823,11 @@ Resources:
               password = get_parameter(DB_PASSWORD_PARAMETER)
               database = get_parameter(DB_NAME_PARAMETER)
 
-              print({"message": "Starting CloudMart database schema initialization", "database": database, "schema_key": SCHEMA_KEY})
+              print({
+                  "message": "Starting CloudMart database schema initialization",
+                  "database": database,
+                  "schema_key": SCHEMA_KEY
+              })
 
               sql_bytes = s3.get_object(
                   Bucket=SCHEMA_BUCKET,
@@ -815,29 +852,31 @@ Resources:
 
               try:
                   with connection.cursor() as cursor:
-                      for raw_statement in split_sql(sql):
-                          statement = clean_statement(raw_statement)
-                          if not statement:
+                      for statement in split_sql(sql):
+                          upper = statement.upper()
+
+                          # The connection already selects the target DB.
+                          if upper.startswith("CREATE DATABASE") or upper.startswith("USE "):
+                              skipped += 1
                               continue
 
                           try:
-                              # The RDS connection already selects the target DB, so
-                              # database-selection statements are unnecessary.
-                              upper = statement.upper()
-                              if upper.startswith("CREATE DATABASE") or upper.startswith("USE "):
-                                  skipped += 1
-                                  continue
-
                               cursor.execute(statement)
                               executed += 1
                           except pymysql.MySQLError as exc:
-                              # Safe to ignore only idempotency conflicts.
                               code = exc.args[0] if exc.args else None
                               if code in (1050, 1061, 1826):
                                   skipped += 1
-                                  print({"message": "Skipping existing database object", "code": code})
+                                  print({
+                                      "message": "Skipping existing database object",
+                                      "code": code
+                                  })
                                   continue
                               raise
+
+                      # Apply the customer bearer-token migration separately so
+                      # existing databases are upgraded safely.
+                      ensure_customer_token_schema(cursor)
 
                   connection.commit()
               except Exception:

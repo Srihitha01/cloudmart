@@ -1,0 +1,12 @@
+{
+  "httpMethod": "GET",
+  "resource": "/products",
+  "path": "/products",
+  "headers": {},
+  "requestContext": {
+    "authorizer": {
+      "role": "ADMIN",
+      "customer_id": ""
+    }
+  }
+}

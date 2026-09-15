@@ -1,0 +1,1 @@
+{"principalId": "admin", "policyDocument": {"Version": "2012-10-17", "Statement": [{"Action": "execute-api:Invoke", "Effect": "Allow", "Resource": "arn:aws:execute-api:ap-south-1:285150348844:l2ixns188b/dev/GET/products"}]}, "context": {"role": "ADMIN", "customer_id": ""}}

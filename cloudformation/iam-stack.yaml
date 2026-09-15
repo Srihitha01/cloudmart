@@ -261,7 +261,11 @@ Resources:
                   - s3:GetObject
 
                 Resource:
-                  - !Sub arn:${AWS::Partition}:s3:::cloudmart-${Environment}-artifacts/*
+                  - Fn::Sub:
+                      - "${ArtifactBucketArn}/*"
+                      - ArtifactBucketArn:
+                          Fn::ImportValue:
+                            Fn::Sub: cloudmart-${Environment}-ArtifactBucketArn
 
         # ------------------------------------------------------
         # EVENTBRIDGE
@@ -692,7 +696,11 @@ Resources:
                   - s3:GetObject
 
                 Resource:
-                  - !Sub arn:${AWS::Partition}:s3:::cloudmart-${Environment}-artifacts/*
+                  - Fn::Sub:
+                      - "${ArtifactBucketArn}/*"
+                      - ArtifactBucketArn:
+                          Fn::ImportValue:
+                            Fn::Sub: cloudmart-${Environment}-ArtifactBucketArn
 
         # ------------------------------------------------------
         # VPC ACCESS
