@@ -1581,7 +1581,7 @@ def lambda_handler(
 
         # ----------------------------------------------------
         # POST /customers
-        # Admin creates customer and supplies bearer token
+        # Public customer registration; bearer token is supplied in body.
         # ----------------------------------------------------
 
         if (

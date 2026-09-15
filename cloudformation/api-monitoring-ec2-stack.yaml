@@ -494,7 +494,8 @@ Resources:
 
   # ==========================================================
   # POST /customers
-  # ADMIN ONLY - CREATE CUSTOMER
+  # PUBLIC - CREATE CUSTOMER
+  # No bearer token is required for registration.
   # ==========================================================
 
   CreateCustomerMethod:
@@ -513,10 +514,7 @@ Resources:
         POST
 
       AuthorizationType:
-        CUSTOM
-
-      AuthorizerId:
-        !Ref CloudMartAuthorizer
+        NONE
 
       Integration:
 
