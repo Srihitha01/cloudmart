@@ -220,7 +220,7 @@ Resources:
                   - logs:PutLogEvents
 
                 Resource:
-                  - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/cloudmart-${Environment}-product:*
+                  - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/cloudmart-${Environment}-product-lambda:*
 
         # ------------------------------------------------------
         # SSM DATABASE PARAMETERS
@@ -377,7 +377,7 @@ Resources:
                   - logs:PutLogEvents
 
                 Resource:
-                  - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/cloudmart-${Environment}-order:*
+                  - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/cloudmart-${Environment}-order-lambda:*
 
         # ------------------------------------------------------
         # SSM DATABASE PARAMETERS
