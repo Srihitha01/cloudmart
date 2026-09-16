@@ -918,6 +918,8 @@ jobs:
 
           test -f lambda/order-processor/lambda_function.py
 
+          test -f lambda/daily-report/lambda_function.py
+
           test -f database/schema.sql
 
           test -f dashboard/app.py
@@ -1199,6 +1201,46 @@ jobs:
 
 
       # ------------------------------------------------------
+      # BUILD DAILY REPORT LAMBDA
+      # ------------------------------------------------------
+
+      - name: Build Daily Report Lambda
+
+        run: |
+
+          echo "========================================"
+
+          echo "BUILDING DAILY REPORT LAMBDA"
+
+          echo "========================================"
+
+
+          mkdir -p build/daily-report
+
+
+          cp lambda/daily-report/lambda_function.py \
+            build/daily-report/
+
+
+          if [ -f lambda/daily-report/requirements.txt ]; then
+
+            python -m pip install \
+              -r lambda/daily-report/requirements.txt \
+              -t build/daily-report
+
+          fi
+
+
+          cd build/daily-report
+
+
+          zip -r ../daily-report-lambda.zip .
+
+
+          cd ../..
+
+
+      # ------------------------------------------------------
       # PACKAGE DATABASE SCHEMA
       # ------------------------------------------------------
 
@@ -1288,6 +1330,20 @@ jobs:
 
 
       # ------------------------------------------------------
+      # UPLOAD DAILY REPORT LAMBDA
+      # ------------------------------------------------------
+
+      - name: Upload Daily Report Lambda
+
+        run: |
+
+          aws s3 cp \
+            build/daily-report-lambda.zip \
+            "s3://${LAMBDA_ARTIFACT_BUCKET}/lambda/daily-report/daily-report-lambda-${GITHUB_SHA}.zip" \
+            --region "$AWS_REGION"
+
+
+      # ------------------------------------------------------
       # UPLOAD DATABASE SCHEMA
       # ------------------------------------------------------
 
@@ -1345,6 +1401,11 @@ jobs:
             --key "lambda/order-processor/order-processor-lambda-${GITHUB_SHA}.zip" \
             --region "$AWS_REGION"
 
+          aws s3api head-object \
+            --bucket "$LAMBDA_ARTIFACT_BUCKET" \
+            --key "lambda/daily-report/daily-report-lambda-${GITHUB_SHA}.zip" \
+            --region "$AWS_REGION" 
+
 
           aws s3api head-object \
             --bucket "$LAMBDA_ARTIFACT_BUCKET" \
@@ -1399,6 +1460,7 @@ jobs:
               ProductLambdaS3Key="lambda/product/product-lambda-${GITHUB_SHA}.zip" \
               OrderLambdaS3Key="lambda/order/order-lambda-${GITHUB_SHA}.zip" \
               OrderProcessorLambdaS3Key="lambda/order-processor/order-processor-lambda-${GITHUB_SHA}.zip" \
+              DailyReportLambdaS3Key="lambda/daily-report/daily-report-lambda-${GITHUB_SHA}.zip" \
               SchemaS3Key="database/schema-${GITHUB_SHA}.sql" \
               DBName="/cloudmart/${ENVIRONMENT}/db/name" \
               DBEndpoint="/cloudmart/${ENVIRONMENT}/db/endpoint" \
@@ -1476,6 +1538,7 @@ jobs:
             "cloudmart-${ENVIRONMENT}-product-lambda" \
             "cloudmart-${ENVIRONMENT}-order-lambda" \
             "cloudmart-${ENVIRONMENT}-order-processor" \
+            "cloudmart-${ENVIRONMENT}-daily-report" \
             "cloudmart-${ENVIRONMENT}-lambda-authorizer"
 
           do

@@ -640,7 +640,7 @@ Resources:
 
       Role:
         Fn::ImportValue:
-          Fn::Sub: cloudmart-${Environment}-ProductLambdaRoleArn
+          Fn::Sub: cloudmart-${Environment}-DailyReportLambdaRoleArn
 
       Timeout:
         60
