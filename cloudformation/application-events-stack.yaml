@@ -240,7 +240,7 @@ Resources:
         python3.12
 
       Handler:
-        index.lambda_handler
+        lambda_function.lambda_handler
 
       Role:
         Fn::ImportValue:
@@ -789,7 +789,7 @@ Resources:
         python3.12
 
       Handler:
-        index.lambda_handler
+        lambda_function.lambda_handler
 
       Role:
         Fn::ImportValue:

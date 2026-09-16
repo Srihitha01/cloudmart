@@ -1,0 +1,1 @@
+{"statusCode": 200, "message": "Daily CloudMart report generated", "bucket": "cloudmart-data-storage-dev-cloudmartreportbucket-phrhscgbttnx", "key": "daily-reports/cloudmart-daily-report-2026-09-16.csv", "products": 6, "orders": 7}
