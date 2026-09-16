@@ -252,6 +252,25 @@ Resources:
       MemorySize:
         256
 
+      Layers:
+
+        - !Ref PyMySQLLayer
+
+      VpcConfig:
+
+        SecurityGroupIds:
+
+          - Fn::ImportValue:
+              Fn::Sub: cloudmart-${Environment}-LambdaSecurityGroupId
+
+        SubnetIds:
+
+          - Fn::ImportValue:
+              Fn::Sub: cloudmart-${Environment}-PrivateSubnetId
+
+          - Fn::ImportValue:
+              Fn::Sub: cloudmart-${Environment}-SecondaryPrivateSubnetId
+
       Environment:
 
         Variables:
@@ -789,7 +808,7 @@ Resources:
         python3.12
 
       Handler:
-        lambda_function.lambda_handler
+        index.lambda_handler
 
       Role:
         Fn::ImportValue:
@@ -1645,4 +1664,4 @@ Outputs:
     Export:
 
       Name:
-        !Sub cloudmart-${Environment}-OrderEventsToSNSRuleArn
+        !Sub cloudmart-${Environment}-OrderEventsToSNSRuleArn 
