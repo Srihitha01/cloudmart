@@ -3,8 +3,9 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: >
   CloudMart IAM Stack.
   Creates IAM execution roles for Lambda functions,
-  schema initialization, RDS administration EC2,
+  schema initialization, daily reporting, RDS administration EC2,
   and API monitoring dashboard EC2.
+
 
 # ============================================================
 # PARAMETERS
@@ -14,10 +15,13 @@ Parameters:
 
   Environment:
     Type: String
+
     AllowedValues:
       - dev
       - prod
-    Description: Deployment environment supplied by CI/CD configuration
+
+    Description:
+      Deployment environment supplied by CI/CD configuration
 
 
 # ============================================================
@@ -25,6 +29,7 @@ Parameters:
 # ============================================================
 
 Resources:
+
 
   # ==========================================================
   # LAMBDA AUTHORIZER ROLE
@@ -56,10 +61,6 @@ Resources:
 
       Policies:
 
-        # ------------------------------------------------------
-        # CLOUDWATCH LOGGING
-        # ------------------------------------------------------
-
         - PolicyName: LambdaAuthorizerLogging
 
           PolicyDocument:
@@ -84,10 +85,6 @@ Resources:
                 Resource:
                   - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/cloudmart-${Environment}-lambda-authorizer:*
 
-        # ------------------------------------------------------
-        # SSM AUTH PARAMETERS
-        # ------------------------------------------------------
-
         - PolicyName: LambdaAuthorizerSSM
 
           PolicyDocument:
@@ -105,10 +102,6 @@ Resources:
                 Resource:
                   - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/auth/*
 
-        # ------------------------------------------------------
-        # SSM DATABASE PARAMETERS
-        # ------------------------------------------------------
-
         - PolicyName: LambdaAuthorizerDatabaseSSM
 
           PolicyDocument:
@@ -125,10 +118,6 @@ Resources:
 
                 Resource:
                   - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/db/*
-
-        # ------------------------------------------------------
-        # VPC ACCESS
-        # ------------------------------------------------------
 
         - PolicyName: LambdaAuthorizerVPCAccess
 
@@ -194,10 +183,6 @@ Resources:
 
       Policies:
 
-        # ------------------------------------------------------
-        # CLOUDWATCH LOGGING
-        # ------------------------------------------------------
-
         - PolicyName: ProductLambdaLogging
 
           PolicyDocument:
@@ -222,10 +207,6 @@ Resources:
                 Resource:
                   - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/cloudmart-${Environment}-product-lambda:*
 
-        # ------------------------------------------------------
-        # SSM DATABASE PARAMETERS
-        # ------------------------------------------------------
-
         - PolicyName: ProductLambdaSSM
 
           PolicyDocument:
@@ -243,10 +224,6 @@ Resources:
                 Resource:
                   - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/db/*
 
-        # ------------------------------------------------------
-        # S3 ARTIFACT ACCESS
-        # ------------------------------------------------------
-
         - PolicyName: ProductLambdaS3
 
           PolicyDocument:
@@ -261,15 +238,16 @@ Resources:
                   - s3:GetObject
 
                 Resource:
-                  - Fn::Sub:
-                      - "${ArtifactBucketArn}/*"
-                      - ArtifactBucketArn:
-                          Fn::ImportValue:
-                            Fn::Sub: cloudmart-${Environment}-ArtifactBucketArn
 
-        # ------------------------------------------------------
-        # EVENTBRIDGE
-        # ------------------------------------------------------
+                  - Fn::Sub:
+
+                      - "${ArtifactBucketArn}/*"
+
+                      - ArtifactBucketArn:
+
+                          Fn::ImportValue:
+
+                            Fn::Sub: cloudmart-${Environment}-ArtifactBucketArn
 
         - PolicyName: ProductLambdaEventBridge
 
@@ -286,10 +264,6 @@ Resources:
 
                 Resource:
                   - !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/cloudmart-${Environment}-event-bus
-
-        # ------------------------------------------------------
-        # VPC ACCESS
-        # ------------------------------------------------------
 
         - PolicyName: ProductLambdaVPCAccess
 
@@ -355,10 +329,6 @@ Resources:
 
       Policies:
 
-        # ------------------------------------------------------
-        # CLOUDWATCH LOGGING
-        # ------------------------------------------------------
-
         - PolicyName: OrderLambdaLogging
 
           PolicyDocument:
@@ -383,10 +353,6 @@ Resources:
                 Resource:
                   - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/cloudmart-${Environment}-order-lambda:*
 
-        # ------------------------------------------------------
-        # SSM DATABASE PARAMETERS
-        # ------------------------------------------------------
-
         - PolicyName: OrderLambdaSSM
 
           PolicyDocument:
@@ -404,10 +370,6 @@ Resources:
                 Resource:
                   - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/db/*
 
-        # ------------------------------------------------------
-        # EVENTBRIDGE
-        # ------------------------------------------------------
-
         - PolicyName: OrderLambdaEventBridge
 
           PolicyDocument:
@@ -423,10 +385,6 @@ Resources:
 
                 Resource:
                   - !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/cloudmart-${Environment}-event-bus
-
-        # ------------------------------------------------------
-        # VPC ACCESS
-        # ------------------------------------------------------
 
         - PolicyName: OrderLambdaVPCAccess
 
@@ -492,10 +450,6 @@ Resources:
 
       Policies:
 
-        # ------------------------------------------------------
-        # CLOUDWATCH LOGGING
-        # ------------------------------------------------------
-
         - PolicyName: OrderProcessorLogging
 
           PolicyDocument:
@@ -520,10 +474,6 @@ Resources:
                 Resource:
                   - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/cloudmart-${Environment}-order-processor:*
 
-        # ------------------------------------------------------
-        # SSM DATABASE PARAMETERS
-        # ------------------------------------------------------
-
         - PolicyName: OrderProcessorSSM
 
           PolicyDocument:
@@ -541,10 +491,6 @@ Resources:
                 Resource:
                   - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/db/*
 
-        # ------------------------------------------------------
-        # EVENTBRIDGE
-        # ------------------------------------------------------
-
         - PolicyName: OrderProcessorEventBridge
 
           PolicyDocument:
@@ -560,10 +506,6 @@ Resources:
 
                 Resource:
                   - !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/cloudmart-${Environment}-event-bus
-
-        # ------------------------------------------------------
-        # VPC ACCESS
-        # ------------------------------------------------------
 
         - PolicyName: OrderProcessorVPCAccess
 
@@ -629,10 +571,6 @@ Resources:
 
       Policies:
 
-        # ------------------------------------------------------
-        # CLOUDWATCH LOGGING
-        # ------------------------------------------------------
-
         - PolicyName: SchemaInitializerLogging
 
           PolicyDocument:
@@ -657,10 +595,6 @@ Resources:
                 Resource:
                   - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/cloudmart-${Environment}-schema-initializer:*
 
-        # ------------------------------------------------------
-        # SSM DATABASE CONFIGURATION
-        # ------------------------------------------------------
-
         - PolicyName: SchemaInitializerSSM
 
           PolicyDocument:
@@ -678,10 +612,6 @@ Resources:
                 Resource:
                   - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/db/*
 
-        # ------------------------------------------------------
-        # S3 SCHEMA ACCESS
-        # ------------------------------------------------------
-
         - PolicyName: SchemaInitializerS3
 
           PolicyDocument:
@@ -696,15 +626,16 @@ Resources:
                   - s3:GetObject
 
                 Resource:
-                  - Fn::Sub:
-                      - "${ArtifactBucketArn}/*"
-                      - ArtifactBucketArn:
-                          Fn::ImportValue:
-                            Fn::Sub: cloudmart-${Environment}-ArtifactBucketArn
 
-        # ------------------------------------------------------
-        # VPC ACCESS
-        # ------------------------------------------------------
+                  - Fn::Sub:
+
+                      - "${ArtifactBucketArn}/*"
+
+                      - ArtifactBucketArn:
+
+                          Fn::ImportValue:
+
+                            Fn::Sub: cloudmart-${Environment}-ArtifactBucketArn
 
         - PolicyName: SchemaInitializerVPCAccess
 
@@ -731,6 +662,149 @@ Resources:
         - Key: Name
           Value:
             !Sub cloudmart-${Environment}-schema-initializer-role
+
+        - Key: Project
+          Value: CloudMart
+
+        - Key: Environment
+          Value:
+            !Ref Environment
+
+
+  # ==========================================================
+  # DAILY REPORT LAMBDA ROLE
+  # ==========================================================
+
+  DailyReportLambdaRole:
+
+    Type: AWS::IAM::Role
+
+    Properties:
+
+      RoleName:
+        !Sub cloudmart-${Environment}-daily-report-role
+
+      AssumeRolePolicyDocument:
+
+        Version: '2012-10-17'
+
+        Statement:
+
+          - Effect: Allow
+
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+
+            Action:
+              - sts:AssumeRole
+
+      Policies:
+
+        # ------------------------------------------------------
+        # CLOUDWATCH LOGGING
+        # ------------------------------------------------------
+
+        - PolicyName: DailyReportLogging
+
+          PolicyDocument:
+
+            Version: '2012-10-17'
+
+            Statement:
+
+              - Effect: Allow
+
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+
+                Resource: '*'
+
+
+        # ------------------------------------------------------
+        # SSM DATABASE PARAMETERS
+        # ------------------------------------------------------
+
+        - PolicyName: DailyReportSSM
+
+          PolicyDocument:
+
+            Version: '2012-10-17'
+
+            Statement:
+
+              - Effect: Allow
+
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+
+                Resource:
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/db/*
+
+
+        # ------------------------------------------------------
+        # REPORT S3 BUCKET
+        # ------------------------------------------------------
+
+        - PolicyName: DailyReportS3
+
+          PolicyDocument:
+
+            Version: '2012-10-17'
+
+            Statement:
+
+              - Effect: Allow
+
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+
+                Resource:
+
+                  - Fn::Sub:
+
+                      - "${ReportBucketArn}/*"
+
+                      - ReportBucketArn:
+
+                          Fn::ImportValue:
+
+                            Fn::Sub: cloudmart-${Environment}-ReportBucketArn
+
+
+        # ------------------------------------------------------
+        # VPC ACCESS
+        # ------------------------------------------------------
+
+        - PolicyName: DailyReportVPCAccess
+
+          PolicyDocument:
+
+            Version: '2012-10-17'
+
+            Statement:
+
+              - Effect: Allow
+
+                Action:
+                  - ec2:CreateNetworkInterface
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DescribeSubnets
+                  - ec2:DeleteNetworkInterface
+                  - ec2:AssignPrivateIpAddresses
+                  - ec2:UnassignPrivateIpAddresses
+
+                Resource: '*'
+
+      Tags:
+
+        - Key: Name
+          Value:
+            !Sub cloudmart-${Environment}-daily-report-role
 
         - Key: Project
           Value: CloudMart
@@ -768,15 +842,12 @@ Resources:
             Action:
               - sts:AssumeRole
 
+      # Dynamic AWS managed policy ARN
       ManagedPolicyArns:
 
-        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore
 
       Policies:
-
-        # ------------------------------------------------------
-        # RDS DATABASE INFORMATION
-        # ------------------------------------------------------
 
         - PolicyName: RDSAdminDatabaseAccess
 
@@ -792,10 +863,6 @@ Resources:
                   - rds:DescribeDBInstances
 
                 Resource: '*'
-
-        # ------------------------------------------------------
-        # SSM DATABASE PARAMETERS
-        # ------------------------------------------------------
 
         - PolicyName: RDSAdminDatabaseSSM
 
@@ -877,14 +944,15 @@ Resources:
             Action:
               - sts:AssumeRole
 
+      # Dynamic AWS managed policy ARN
       ManagedPolicyArns:
 
-        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore
 
       Policies:
 
         # ------------------------------------------------------
-        # CLOUDWATCH MONITORING
+        # CLOUDWATCH
         # ------------------------------------------------------
 
         - PolicyName: EC2DashboardCloudWatchAccess
@@ -906,6 +974,7 @@ Resources:
                   - cloudwatch:DescribeAlarmHistory
 
                 Resource: '*'
+
 
         # ------------------------------------------------------
         # CLOUDWATCH LOGS
@@ -931,8 +1000,9 @@ Resources:
 
                 Resource: '*'
 
+
         # ------------------------------------------------------
-        # LAMBDA MONITORING
+        # LAMBDA
         # ------------------------------------------------------
 
         - PolicyName: EC2DashboardLambdaAccess
@@ -953,8 +1023,9 @@ Resources:
                 Resource:
                   - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:cloudmart-${Environment}-*
 
+
         # ------------------------------------------------------
-        # API GATEWAY MONITORING
+        # API GATEWAY
         # ------------------------------------------------------
 
         - PolicyName: EC2DashboardAPIGatewayAccess
@@ -972,8 +1043,9 @@ Resources:
 
                 Resource: '*'
 
+
         # ------------------------------------------------------
-        # RDS MONITORING
+        # RDS
         # ------------------------------------------------------
 
         - PolicyName: EC2DashboardRDSAccess
@@ -992,8 +1064,9 @@ Resources:
 
                 Resource: '*'
 
+
         # ------------------------------------------------------
-        # EC2 MONITORING
+        # EC2
         # ------------------------------------------------------
 
         - PolicyName: EC2DashboardEC2Access
@@ -1044,159 +1117,376 @@ Resources:
         - !Ref EC2DashboardRole
 
 
-
   # ==========================================================
   # SECURE AUTH SSM PARAMETERS
-  # CloudFormation AWS::SSM::Parameter cannot create SecureString
-  # directly, so this stack owns the SecureString parameters
-  # through a CloudFormation custom resource.
-  # Authentication values are generated by this stack; no
-  # authentication GitHub Secrets are required.
   # ==========================================================
 
   AuthSSMWriterRole:
+
     Type: AWS::IAM::Role
+
     Properties:
-      RoleName: !Sub cloudmart-${Environment}-auth-ssm-writer-role
+
+      RoleName:
+        !Sub cloudmart-${Environment}-auth-ssm-writer-role
+
       AssumeRolePolicyDocument:
+
         Version: '2012-10-17'
+
         Statement:
+
           - Effect: Allow
+
             Principal:
               Service:
                 - lambda.amazonaws.com
+
             Action:
               - sts:AssumeRole
+
       Policies:
+
         - PolicyName: SecureAuthParameterWriter
+
           PolicyDocument:
+
             Version: '2012-10-17'
+
             Statement:
+
               - Effect: Allow
+
                 Action:
                   - ssm:GetParameter
                   - ssm:PutParameter
                   - ssm:DeleteParameter
+
                 Resource:
                   - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/auth/*
+
               - Effect: Allow
+
                 Action:
                   - logs:CreateLogGroup
                   - logs:CreateLogStream
                   - logs:PutLogEvents
+
                 Resource: '*'
+
       Tags:
+
         - Key: Name
-          Value: !Sub cloudmart-${Environment}-auth-ssm-writer-role
+          Value:
+            !Sub cloudmart-${Environment}-auth-ssm-writer-role
+
         - Key: Project
           Value: CloudMart
+
         - Key: Environment
-          Value: !Ref Environment
+          Value:
+            !Ref Environment
+
+
+  # ==========================================================
+  # AUTH SSM WRITER FUNCTION
+  # ==========================================================
 
   AuthSSMWriterFunction:
+
     Type: AWS::Lambda::Function
+
     Properties:
-      FunctionName: !Sub cloudmart-${Environment}-auth-ssm-writer
-      Runtime: python3.12
-      Handler: index.handler
-      Role: !GetAtt AuthSSMWriterRole.Arn
-      Timeout: 60
+
+      FunctionName:
+        !Sub cloudmart-${Environment}-auth-ssm-writer
+
+      Runtime:
+        python3.12
+
+      Handler:
+        index.handler
+
+      Role:
+        !GetAtt AuthSSMWriterRole.Arn
+
+      Timeout:
+        60
+
       Code:
+
         ZipFile: |
+
           import json
           import secrets
           import urllib.request
           import boto3
 
+
           ssm = boto3.client("ssm")
 
-          def respond(event, context, status, physical_id, data=None, reason=None):
+
+          def respond(
+              event,
+              context,
+              status,
+              physical_id,
+              data=None,
+              reason=None
+          ):
+
               body = {
+
                   "Status": status,
-                  "Reason": reason or "See CloudWatch Logs",
-                  "PhysicalResourceId": physical_id,
-                  "StackId": event["StackId"],
-                  "RequestId": event["RequestId"],
-                  "LogicalResourceId": event["LogicalResourceId"],
-                  "Data": data or {}
+
+                  "Reason":
+                      reason or "See CloudWatch Logs",
+
+                  "PhysicalResourceId":
+                      physical_id,
+
+                  "StackId":
+                      event["StackId"],
+
+                  "RequestId":
+                      event["RequestId"],
+
+                  "LogicalResourceId":
+                      event["LogicalResourceId"],
+
+                  "Data":
+                      data or {}
+
               }
-              encoded = json.dumps(body).encode("utf-8")
+
+              encoded = json.dumps(
+                  body
+              ).encode("utf-8")
+
               request = urllib.request.Request(
+
                   event["ResponseURL"],
+
                   data=encoded,
+
                   method="PUT",
-                  headers={"content-type": "", "content-length": str(len(encoded))}
+
+                  headers={
+
+                      "content-type": "",
+
+                      "content-length":
+                          str(len(encoded))
+
+                  }
+
               )
-              urllib.request.urlopen(request)
+
+              urllib.request.urlopen(
+                  request
+              )
+
 
           def parameter_exists(name):
+
               try:
-                  response = ssm.get_parameter(Name=name)
-                  return response["Parameter"]["Type"] == "SecureString"
+
+                  response = ssm.get_parameter(
+                      Name=name
+                  )
+
+                  return (
+                      response["Parameter"]["Type"]
+                      == "SecureString"
+                  )
+
               except ssm.exceptions.ParameterNotFound:
+
                   return False
 
-          def ensure_parameter(name, value, description):
+
+          def ensure_parameter(
+              name,
+              value,
+              description
+          ):
+
               if parameter_exists(name):
+
                   return
+
               ssm.put_parameter(
+
                   Name=name,
+
                   Value=value,
+
                   Type="SecureString",
+
                   Description=description,
+
                   Overwrite=False
+
               )
 
+
           def handler(event, context):
-              physical_id = event.get("PhysicalResourceId") or event["ResourceProperties"]["ParameterPrefix"]
+
+              physical_id = (
+
+                  event.get(
+                      "PhysicalResourceId"
+                  )
+
+                  or event[
+                      "ResourceProperties"
+                  ][
+                      "ParameterPrefix"
+                  ]
+
+              )
+
               try:
-                  prefix = event["ResourceProperties"]["ParameterPrefix"]
-                  admin_name = prefix + "/token"
-                  customer_name = prefix + "/customer-tokens"
 
-                  if event["RequestType"] in ("Create", "Update"):
-                      # Generate values only when the parameters do not already exist.
-                      # This prevents normal stack updates from rotating credentials.
-                      admin_token = secrets.token_urlsafe(32)
-                      customer_token = secrets.token_urlsafe(32)
-                      customer_tokens = json.dumps({customer_token: 1}, separators=(",", ":"))
+                  prefix = (
+                      event[
+                          "ResourceProperties"
+                      ][
+                          "ParameterPrefix"
+                      ]
+                  )
+
+                  admin_name = (
+                      prefix
+                      + "/token"
+                  )
+
+                  customer_name = (
+                      prefix
+                      + "/customer-tokens"
+                  )
+
+                  if event[
+                      "RequestType"
+                  ] in (
+                      "Create",
+                      "Update"
+                  ):
+
+                      admin_token = (
+                          secrets.token_urlsafe(
+                              32
+                          )
+                      )
+
+                      customer_token = (
+                          secrets.token_urlsafe(
+                              32
+                          )
+                      )
+
+                      customer_tokens = json.dumps(
+
+                          {
+                              customer_token: 1
+                          },
+
+                          separators=(
+                              ",",
+                              ":"
+                          )
+
+                      )
 
                       ensure_parameter(
+
                           admin_name,
+
                           admin_token,
+
                           "CloudMart administrator authentication token"
-                      )
-                      ensure_parameter(
-                          customer_name,
-                          customer_tokens,
-                          "CloudMart customer authentication token mapping"
+
                       )
 
-                  elif event["RequestType"] == "Delete":
-                      for name in (admin_name, customer_name):
+                      ensure_parameter(
+
+                          customer_name,
+
+                          customer_tokens,
+
+                          "CloudMart customer authentication token mapping"
+
+                      )
+
+                  elif event[
+                      "RequestType"
+                  ] == "Delete":
+
+                      for name in (
+                          admin_name,
+                          customer_name
+                      ):
+
                           try:
-                              ssm.delete_parameter(Name=name)
+
+                              ssm.delete_parameter(
+                                  Name=name
+                              )
+
                           except ssm.exceptions.ParameterNotFound:
+
                               pass
 
-                  respond(event, context, "SUCCESS", physical_id)
-              except Exception:
                   respond(
+
                       event,
+
                       context,
-                      "FAILED",
-                      physical_id,
-                      reason="Authentication parameter provisioning failed; see CloudWatch Logs"
+
+                      "SUCCESS",
+
+                      physical_id
+
                   )
+
+              except Exception:
+
+                  respond(
+
+                      event,
+
+                      context,
+
+                      "FAILED",
+
+                      physical_id,
+
+                      reason="Authentication parameter provisioning failed; see CloudWatch Logs"
+
+                  )
+
                   raise
 
+
+  # ==========================================================
+  # AUTH SSM PARAMETERS
+  # ==========================================================
+
   AuthSSMParameters:
+
     Type: Custom::CloudMartAuthParameters
+
     DependsOn:
+
       - AuthSSMWriterFunction
+
     Properties:
-      ServiceToken: !GetAtt AuthSSMWriterFunction.Arn
-      ParameterPrefix: !Sub /cloudmart/${Environment}/auth
+
+      ServiceToken:
+        !GetAtt AuthSSMWriterFunction.Arn
+
+      ParameterPrefix:
+        !Sub /cloudmart/${Environment}/auth
 
 
 # ============================================================
@@ -1205,9 +1495,15 @@ Resources:
 
 Outputs:
 
+
+  # ==========================================================
+  # LAMBDA ROLES
+  # ==========================================================
+
   LambdaAuthorizerRoleArn:
 
-    Description: Lambda Authorizer execution role ARN
+    Description:
+      Lambda Authorizer execution role ARN
 
     Value:
       !GetAtt LambdaAuthorizerRole.Arn
@@ -1219,7 +1515,8 @@ Outputs:
 
   ProductLambdaRoleArn:
 
-    Description: Product Lambda execution role ARN
+    Description:
+      Product Lambda execution role ARN
 
     Value:
       !GetAtt ProductLambdaRole.Arn
@@ -1231,7 +1528,8 @@ Outputs:
 
   OrderLambdaRoleArn:
 
-    Description: Order Lambda execution role ARN
+    Description:
+      Order Lambda execution role ARN
 
     Value:
       !GetAtt OrderLambdaRole.Arn
@@ -1243,7 +1541,8 @@ Outputs:
 
   OrderProcessorLambdaRoleArn:
 
-    Description: Order Processor Lambda execution role ARN
+    Description:
+      Order Processor Lambda execution role ARN
 
     Value:
       !GetAtt OrderProcessorLambdaRole.Arn
@@ -1255,7 +1554,8 @@ Outputs:
 
   SchemaInitializerLambdaRoleArn:
 
-    Description: Schema Initializer Lambda execution role ARN
+    Description:
+      Schema Initializer Lambda execution role ARN
 
     Value:
       !GetAtt SchemaInitializerLambdaRole.Arn
@@ -1265,9 +1565,27 @@ Outputs:
         !Sub cloudmart-${Environment}-SchemaInitializerLambdaRoleArn
 
 
+  DailyReportLambdaRoleArn:
+
+    Description:
+      Daily Report Lambda execution role ARN
+
+    Value:
+      !GetAtt DailyReportLambdaRole.Arn
+
+    Export:
+      Name:
+        !Sub cloudmart-${Environment}-DailyReportLambdaRoleArn
+
+
+  # ==========================================================
+  # RDS ADMIN EC2
+  # ==========================================================
+
   RDSAdminEC2RoleArn:
 
-    Description: RDS administration EC2 role ARN
+    Description:
+      RDS administration EC2 role ARN
 
     Value:
       !GetAtt RDSAdminEC2Role.Arn
@@ -1279,7 +1597,8 @@ Outputs:
 
   RDSAdminEC2InstanceProfile:
 
-    Description: EC2 instance profile for RDS administration instance
+    Description:
+      EC2 instance profile for RDS administration instance
 
     Value:
       !Ref RDSAdminEC2InstanceProfile
@@ -1289,9 +1608,14 @@ Outputs:
         !Sub cloudmart-${Environment}-RDSAdminEC2InstanceProfile
 
 
+  # ==========================================================
+  # EC2 DASHBOARD
+  # ==========================================================
+
   EC2DashboardRoleArn:
 
-    Description: EC2 API monitoring dashboard role ARN
+    Description:
+      EC2 API monitoring dashboard role ARN
 
     Value:
       !GetAtt EC2DashboardRole.Arn
@@ -1303,7 +1627,8 @@ Outputs:
 
   EC2DashboardInstanceProfile:
 
-    Description: EC2 instance profile for API monitoring dashboard
+    Description:
+      EC2 instance profile for API monitoring dashboard
 
     Value:
       !Ref EC2DashboardInstanceProfile
