@@ -500,7 +500,7 @@ jobs:
             --template-file cloudformation/data-stack.yaml \
             --stack-name "$DATA_STACK_NAME" \
             --parameter-overrides \
-              Environment="$ENVIRONMENT" \ \
+              Environment="$ENVIRONMENT" \
             --region "$AWS_REGION" \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --no-fail-on-empty-changeset
@@ -1428,7 +1428,7 @@ jobs:
               DBUsername="/cloudmart/${ENVIRONMENT}/db/username" \
               DBPassword="/cloudmart/${ENVIRONMENT}/db/password" \
               AuthTokenParameter="/cloudmart/${ENVIRONMENT}/auth/token" \
-              CustomerTokensParameter="/cloudmart/${ENVIRONMENT}/auth/customer-tokens" \ \
+              CustomerTokensParameter="/cloudmart/${ENVIRONMENT}/auth/customer-tokens" \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --region "$AWS_REGION" \
             --no-fail-on-empty-changeset
