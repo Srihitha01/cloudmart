@@ -191,10 +191,12 @@ def get_auth_context(event):
         {}
     )
 
-    role = authorizer.get(
-        "role",
-        ""
-    )
+    role = str(
+        authorizer.get(
+            "role",
+            ""
+        )
+    ).strip().upper()
 
     customer_id = authorizer.get(
         "customer_id",
@@ -1716,19 +1718,45 @@ def update_order_status(
             event
         )
 
-        requested_status = (
-            request_body.get(
-                "status",
-                ""
-            )
-            .strip()
-            .upper()
+        raw_status = request_body.get(
+            "status",
+            ""
         )
 
-        note = request_body.get(
+        if not isinstance(raw_status, str):
+            return response(
+                400,
+                {
+                    "message": "status must be a string"
+                }
+            )
+
+        requested_status = raw_status.strip().upper()
+
+        if requested_status == "":
+            return response(
+                400,
+                {
+                    "message": "status is required"
+                }
+            )
+
+        raw_note = request_body.get(
             "note",
             ""
         )
+
+        if raw_note is None:
+            note = ""
+        elif isinstance(raw_note, str):
+            note = raw_note.strip()
+        else:
+            return response(
+                400,
+                {
+                    "message": "note must be a string"
+                }
+            )
 
         role, authenticated_customer_id = (
             get_auth_context(event)
@@ -2159,6 +2187,19 @@ def update_order_status(
             }
         )
 
+    except PermissionError as exc:
+
+        if connection is not None:
+            connection.rollback()
+
+        return response(
+            403,
+            {
+                "message":
+                    str(exc)
+            }
+        )
+
     except ValueError as exc:
 
         if connection is not None:
@@ -2493,6 +2534,19 @@ def lambda_handler(
         "resource",
         ""
     )
+
+    route_key = (
+        event.get(
+            "routeKey",
+            ""
+        )
+    )
+
+    if not resource and route_key:
+        resource = route_key.split(
+            " ",
+            1
+        )[1] if " " in route_key else route_key
 
     log_event(
         "INFO",

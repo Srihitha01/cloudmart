@@ -156,7 +156,8 @@ Parameters:
     Default: gajjalasrihitha01@gmail.com
 
     Description:
-      Email address used for CloudMart SNS alerts
+      Email address used for CloudMart SNS alerts.
+      Defined in the CloudFormation template; no GitHub Secret is required.
 
 
 # ============================================================
@@ -276,7 +277,7 @@ Resources:
 
         Variables:
 
-          AUTH_TOKEN_PARAMETER:
+          ADMIN_TOKEN_PARAMETER:
             !Ref AuthTokenParameter
 
           CUSTOMER_TOKENS_PARAMETER:

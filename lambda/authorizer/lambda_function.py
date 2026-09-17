@@ -224,7 +224,8 @@ def get_request_details(method_arn):
     try:
 
         execute_api_part = method_arn.split(
-            ":"
+            ":",
+            5
         )[5]
 
         parts = execute_api_part.split(
@@ -769,8 +770,11 @@ def lambda_handler(
     # GET METHOD ARN
     # ======================================================
 
-    method_arn = event.get(
-        "methodArn"
+    # REST API authorizers provide methodArn; HTTP API v2
+    # authorizer events commonly provide routeArn instead.
+    method_arn = (
+        event.get("methodArn")
+        or event.get("routeArn")
     )
 
 

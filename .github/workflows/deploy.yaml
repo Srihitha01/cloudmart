@@ -1439,7 +1439,6 @@ jobs:
 
         env:
 
-          ALERT_EMAIL: ${{ secrets.CLOUDMART_ALERT_EMAIL }}
 
         run: |
 
@@ -1455,13 +1454,6 @@ jobs:
           echo "Stack:       $APPLICATION_EVENTS_STACK_NAME"
 
 
-          if [ -z "$ALERT_EMAIL" ]; then
-
-            echo "ERROR: CLOUDMART_ALERT_EMAIL secret is missing."
-
-            exit 1
-
-          fi
 
 
           aws cloudformation deploy \
@@ -1484,7 +1476,6 @@ jobs:
               DBPassword="/cloudmart/${ENVIRONMENT}/db/password" \
               AuthTokenParameter="/cloudmart/${ENVIRONMENT}/auth/token" \
               CustomerTokensParameter="/cloudmart/${ENVIRONMENT}/auth/customer-tokens" \
-              AlertEmail="$ALERT_EMAIL" \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --region "$AWS_REGION" \
             --no-fail-on-empty-changeset

@@ -274,6 +274,7 @@ def validate_order_payload(event):
         )
 
     validated_items = []
+    product_ids = set()
 
     for item in items:
 
@@ -320,6 +321,14 @@ def validate_order_payload(event):
             raise ValueError(
                 "quantity must be greater than zero"
             )
+
+        if product_id in product_ids:
+
+            raise ValueError(
+                "Duplicate product_id is not allowed"
+            )
+
+        product_ids.add(product_id)
 
         validated_items.append(
             {
@@ -400,6 +409,7 @@ def create_pending_order(
                     FROM products
                     WHERE product_id = %s
                       AND deleted_at IS NULL
+                      AND status = 'ACTIVE'
                     """,
                     (product_id,)
                 )
@@ -715,6 +725,7 @@ def confirm_order(
                     FROM products
                     WHERE product_id = %s
                       AND deleted_at IS NULL
+                      AND status = 'ACTIVE'
                     FOR UPDATE
                     """,
                     (product_id,)
