@@ -7,23 +7,21 @@ name: CloudMart Infrastructure Deployment
 
 on:
 
-  push:
-
-    branches:
-      - main
-      - feature/order-flow
-
-    paths:
-      - 'cloudformation/**'
-      - 'lambda/**'
-      - 'database/**'
-      - 'dashboard/**'
-      - 'config/config.json'
-      - '.github/workflows/deploy.yaml'
-
-
   workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - prod
 
+      db_password:
+        description: 'RDS database password (minimum 12 characters)'
+        required: true
+        type: string
 
 # ============================================================
 # GITHUB ACTIONS PERMISSIONS
@@ -459,6 +457,51 @@ jobs:
       # VALIDATE DATABASE PASSWORD
       # ------------------------------------------------------
 
+      - name: Validate DB Password
+
+        env:
+
+          DB_PASSWORD: ${{ inputs.db_password }}
+
+        run: |
+
+          echo "========================================"
+
+          echo "VALIDATING DATABASE PASSWORD"
+
+          echo "========================================"
+
+
+          if [ -z "$DB_PASSWORD" ]; then
+
+            echo "ERROR: DB password was not entered in the workflow input."
+
+            exit 1
+
+          fi
+
+
+          PASSWORD_LENGTH=${#DB_PASSWORD}
+
+
+          echo "Database password secret is available."
+
+
+          if [ "$PASSWORD_LENGTH" -lt 12 ]; then
+
+            echo "ERROR: Database password must contain at least 12 characters."
+
+            exit 1
+
+          fi
+
+
+          echo "Database password validation passed."
+
+
+      # ------------------------------------------------------
+      # VALIDATE DATA STACK
+      # ------------------------------------------------------
 
       - name: Validate Data Stack
 
@@ -482,6 +525,10 @@ jobs:
 
       - name: Deploy Data Storage Stack
 
+        env:
+
+          DB_PASSWORD: ${{ inputs.db_password }}
+
         run: |
 
           echo "========================================"
@@ -501,6 +548,7 @@ jobs:
             --stack-name "$DATA_STACK_NAME" \
             --parameter-overrides \
               Environment="$ENVIRONMENT" \
+              DBPassword="$DB_PASSWORD" \
             --region "$AWS_REGION" \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --no-fail-on-empty-changeset
@@ -991,23 +1039,6 @@ jobs:
 
 
       # ------------------------------------------------------
-      # VALIDATE PYMYSQL LAYER PACKAGE
-      # ------------------------------------------------------
-
-      - name: Validate PyMySQL Layer Package
-
-        run: |
-
-          echo "Validating PyMySQL layer contents..."
-
-          test -f build/pymysql-layer/python/pymysql/__init__.py
-
-          unzip -l build/pymysql-layer.zip | grep -q "python/pymysql/__init__.py"
-
-          echo "PyMySQL layer validation passed."
-
-
-      # ------------------------------------------------------
       # BUILD AUTHORIZER LAMBDA
       # ------------------------------------------------------
 
@@ -1389,6 +1420,10 @@ jobs:
 
       - name: Deploy Application Events Stack
 
+        env:
+
+          ALERT_EMAIL: ${{ secrets.CLOUDMART_ALERT_EMAIL }}
+
         run: |
 
           echo "========================================"
@@ -1405,6 +1440,9 @@ jobs:
 
           if [ -z "$ALERT_EMAIL" ]; then
 
+            echo "ERROR: CLOUDMART_ALERT_EMAIL secret is missing."
+
+            exit 1
 
           fi
 
@@ -1429,6 +1467,7 @@ jobs:
               DBPassword="/cloudmart/${ENVIRONMENT}/db/password" \
               AuthTokenParameter="/cloudmart/${ENVIRONMENT}/auth/token" \
               CustomerTokensParameter="/cloudmart/${ENVIRONMENT}/auth/customer-tokens" \
+              AlertEmail="$ALERT_EMAIL" \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --region "$AWS_REGION" \
             --no-fail-on-empty-changeset
