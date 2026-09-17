@@ -42,58 +42,20 @@ Parameters:
     Description: Initial RDS storage in GB
 
 
+  DBPassword:
+    Type: String
+    NoEcho: true
+    MinLength: 12
+    MaxLength: 41
+    Description: >
+      RDS master password entered manually during deployment.
+      Must contain at least 12 characters.
+
 # ============================================================
 # RESOURCES
 # ============================================================
 
 Resources:
-
-  # ==========================================================
-  # DATABASE CREDENTIAL SECRET
-  #
-  # AWS generates the password.
-  # No database password is stored in GitHub.
-  # ==========================================================
-
-  CloudMartDatabaseSecret:
-    Type: AWS::SecretsManager::Secret
-
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
-
-    Properties:
-
-      Name:
-        !Sub cloudmart/${Environment}/database
-
-      Description:
-        !Sub CloudMart ${Environment} RDS MySQL credentials
-
-      GenerateSecretString:
-
-        SecretStringTemplate:
-          !Sub |
-            {
-              "username": "${DBUsername}"
-            }
-
-        GenerateStringKey: password
-
-        PasswordLength: 24
-
-        ExcludeCharacters: '"@/\'
-
-      Tags:
-
-        - Key: Name
-          Value: !Sub cloudmart-${Environment}-database-secret
-
-        - Key: Project
-          Value: CloudMart
-
-        - Key: Environment
-          Value: !Ref Environment
-
 
   # ==========================================================
   # RDS DB SUBNET GROUP
@@ -151,9 +113,7 @@ Resources:
         !Ref DBUsername
 
       MasterUserPassword:
-        !Sub
-          - '{{resolve:secretsmanager:${SecretArn}:SecretString:password}}'
-          - SecretArn: !Ref CloudMartDatabaseSecret
+        !Ref DBPassword
 
       DBInstanceClass:
         !Ref DBInstanceClass
@@ -365,6 +325,30 @@ Resources:
 
 
   # ==========================================================
+  # SSM DATABASE PASSWORD
+  # ==========================================================
+
+  DBPasswordParameter:
+    Type: AWS::SSM::Parameter
+
+    Properties:
+
+      Name:
+        !Sub /cloudmart/${Environment}/db/password
+
+      Type: SecureString
+
+      Value:
+        !Ref DBPassword
+
+      Description:
+        CloudMart RDS MySQL master password
+
+      Tags:
+        Project: CloudMart
+        Environment: !Ref Environment
+
+  # ==========================================================
   # SSM S3 CONFIGURATION
   # ==========================================================
 
@@ -398,315 +382,6 @@ Resources:
         !Ref CloudMartArtifactBucket
 
       Description: CloudMart deployment artifact bucket name
-
-
-  # ==========================================================
-  # IAM ROLE FOR SSM PASSWORD WRITER
-  # ==========================================================
-
-  DBPasswordSSMWriterRole:
-    Type: AWS::IAM::Role
-
-    Properties:
-
-      RoleName:
-        !Sub cloudmart-${Environment}-data-ssm-writer-role
-
-      AssumeRolePolicyDocument:
-
-        Version: '2012-10-17'
-
-        Statement:
-
-          - Effect: Allow
-
-            Principal:
-
-              Service:
-                - lambda.amazonaws.com
-
-            Action:
-              - sts:AssumeRole
-
-      Policies:
-
-        - PolicyName: SSMParameterWriter
-
-          PolicyDocument:
-
-            Version: '2012-10-17'
-
-            Statement:
-
-              # ------------------------------------------------
-              # SSM
-              # ------------------------------------------------
-
-              - Effect: Allow
-
-                Action:
-
-                  - ssm:PutParameter
-
-                  - ssm:DeleteParameter
-
-                Resource:
-                  !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/db/password
-
-
-              # ------------------------------------------------
-              # READ DATABASE SECRET
-              # ------------------------------------------------
-
-              - Effect: Allow
-
-                Action:
-
-                  - secretsmanager:GetSecretValue
-
-                Resource:
-                  !Ref CloudMartDatabaseSecret
-
-
-              # ------------------------------------------------
-              # CLOUDWATCH LOGGING
-              # ------------------------------------------------
-
-              - Effect: Allow
-
-                Action:
-
-                  - logs:CreateLogGroup
-
-                  - logs:CreateLogStream
-
-                  - logs:PutLogEvents
-
-                Resource: '*'
-
-
-      Tags:
-
-        - Key: Name
-          Value: !Sub cloudmart-${Environment}-data-ssm-writer-role
-
-        - Key: Project
-          Value: CloudMart
-
-        - Key: Environment
-          Value: !Ref Environment
-
-
-  # ==========================================================
-  # SECURE PASSWORD WRITER LAMBDA
-  #
-  # Reads generated password from Secrets Manager and writes
-  # it into SSM Parameter Store as SecureString.
-  # ==========================================================
-
-  DBPasswordSSMWriterFunction:
-    Type: AWS::Lambda::Function
-
-    Properties:
-
-      FunctionName:
-        !Sub cloudmart-${Environment}-data-ssm-writer
-
-      Runtime: python3.12
-
-      Handler: index.handler
-
-      Role:
-        !GetAtt DBPasswordSSMWriterRole.Arn
-
-      Timeout: 60
-
-      Code:
-
-        ZipFile: |
-
-          import json
-          import urllib.request
-          import boto3
-          import logging
-
-          logger = logging.getLogger()
-          logger.setLevel(logging.INFO)
-
-          ssm = boto3.client("ssm")
-          secretsmanager = boto3.client("secretsmanager")
-
-
-          def send_response(
-              event,
-              context,
-              status,
-              reason=None,
-              data=None,
-              physical_id=None
-          ):
-
-              body = {
-                  "Status": status,
-                  "Reason": reason or "See CloudWatch Logs",
-                  "PhysicalResourceId": (
-                      physical_id
-                      or context.log_stream_name
-                  ),
-                  "StackId": event["StackId"],
-                  "RequestId": event["RequestId"],
-                  "LogicalResourceId": event["LogicalResourceId"],
-                  "Data": data or {}
-              }
-
-              encoded = json.dumps(body).encode("utf-8")
-
-              request = urllib.request.Request(
-                  event["ResponseURL"],
-                  data=encoded,
-                  method="PUT",
-                  headers={
-                      "content-type": "",
-                      "content-length": str(len(encoded))
-                  }
-              )
-
-              urllib.request.urlopen(request)
-
-
-          def handler(event, context):
-
-              physical_id = (
-                  event.get("PhysicalResourceId")
-                  or event["ResourceProperties"]["ParameterName"]
-              )
-
-              try:
-
-                  request_type = event["RequestType"]
-
-                  properties = event["ResourceProperties"]
-
-                  parameter_name = properties["ParameterName"]
-
-                  secret_arn = properties["SecretArn"]
-
-
-                  logger.info(
-                      "Processing secure database parameter request: %s",
-                      request_type
-                  )
-
-
-                  if request_type in ("Create", "Update"):
-
-                      secret_response = secretsmanager.get_secret_value(
-                          SecretId=secret_arn
-                      )
-
-                      secret_string = secret_response["SecretString"]
-
-                      secret_data = json.loads(secret_string)
-
-                      password = secret_data["password"]
-
-
-                      ssm.put_parameter(
-
-                          Name=parameter_name,
-
-                          Value=password,
-
-                          Type="SecureString",
-
-                          Description=properties.get(
-                              "Description",
-                              "CloudMart secure database parameter"
-                          ),
-
-                          Overwrite=True
-                      )
-
-
-                      logger.info(
-                          "Secure database password parameter updated successfully."
-                      )
-
-
-                  elif request_type == "Delete":
-
-                      try:
-
-                          ssm.delete_parameter(
-                              Name=parameter_name
-                          )
-
-                          logger.info(
-                              "Secure database password parameter deleted."
-                          )
-
-                      except ssm.exceptions.ParameterNotFound:
-
-                          logger.info(
-                              "Secure database password parameter already absent."
-                          )
-
-
-                  send_response(
-                      event,
-                      context,
-                      "SUCCESS",
-                      physical_id=physical_id
-                  )
-
-
-              except Exception as exc:
-
-                  logger.exception(
-                      "Failed to process secure database parameter."
-                  )
-
-                  try:
-
-                      send_response(
-                          event,
-                          context,
-                          "FAILED",
-                          reason=str(exc),
-                          physical_id=physical_id
-                      )
-
-                  finally:
-
-                      raise
-
-
-  # ==========================================================
-  # CUSTOM RESOURCE
-  # ==========================================================
-
-  DBPasswordSSMParameter:
-    Type: Custom::CloudMartSecureParameter
-
-    DependsOn:
-
-      - DBPasswordSSMWriterFunction
-
-      - CloudMartDatabaseSecret
-
-    Properties:
-
-      ServiceToken:
-        !GetAtt DBPasswordSSMWriterFunction.Arn
-
-      ParameterName:
-        !Sub /cloudmart/${Environment}/db/password
-
-      SecretArn:
-        !Ref CloudMartDatabaseSecret
-
-      Description:
-        CloudMart RDS MySQL master password stored as SecureString
 
 
 # ============================================================
@@ -772,21 +447,6 @@ Outputs:
     Export:
       Name:
         !Sub cloudmart-${Environment}-DBInstanceIdentifier
-
-
-  # ==========================================================
-  # DATABASE SECRET
-  # ==========================================================
-
-  DatabaseSecretArn:
-    Description: ARN of the CloudMart database credentials secret
-
-    Value:
-      !Ref CloudMartDatabaseSecret
-
-    Export:
-      Name:
-        !Sub cloudmart-${Environment}-DatabaseSecretArn
 
 
   # ==========================================================
@@ -909,7 +569,7 @@ Outputs:
     Description: SSM parameter path for secure RDS password
 
     Value:
-      !Sub /cloudmart/${Environment}/db/password
+      !Ref DBPasswordParameter
 
     Export:
       Name:
