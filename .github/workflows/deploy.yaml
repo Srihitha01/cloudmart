@@ -1437,9 +1437,6 @@ jobs:
 
       - name: Deploy Application Events Stack
 
-        env:
-
-
         run: |
 
           echo "========================================"
