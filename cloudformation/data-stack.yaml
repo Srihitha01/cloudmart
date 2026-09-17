@@ -4,7 +4,7 @@ Description: >
   CloudMart Data Storage Stack.
   Creates the private RDS MySQL database, DB subnet group,
   encrypted S3 report bucket, deployment artifact bucket,
-  Secrets Manager generated database credentials,
+  manually supplied database credentials stored in SSM SecureString,
   and SSM configuration parameters.
 
 # ============================================================
@@ -325,28 +325,163 @@ Resources:
 
 
   # ==========================================================
-  # SSM DATABASE PASSWORD
+  # IAM ROLE FOR SSM PASSWORD WRITER
+  # ==========================================================
+
+  DBPasswordSSMWriterRole:
+    Type: AWS::IAM::Role
+
+    Properties:
+      RoleName:
+        !Sub cloudmart-${Environment}-data-ssm-writer-role
+
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+
+      Policies:
+        - PolicyName: SSMParameterWriter
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:PutParameter
+                  - ssm:DeleteParameter
+                Resource:
+                  !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/db/password
+
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+
+      Tags:
+        - Key: Name
+          Value: !Sub cloudmart-${Environment}-data-ssm-writer-role
+        - Key: Project
+          Value: CloudMart
+        - Key: Environment
+          Value: !Ref Environment
+
+
+  # ==========================================================
+  # SECURE PASSWORD WRITER LAMBDA
+  # ==========================================================
+
+  DBPasswordSSMWriterFunction:
+    Type: AWS::Lambda::Function
+
+    Properties:
+      FunctionName:
+        !Sub cloudmart-${Environment}-data-ssm-writer
+
+      Runtime: python3.12
+      Handler: index.handler
+      Role:
+        !GetAtt DBPasswordSSMWriterRole.Arn
+      Timeout: 60
+
+      Code:
+        ZipFile: |
+          import json
+          import logging
+          import urllib.request
+          import boto3
+
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+          ssm = boto3.client("ssm")
+
+          def send_response(event, context, status, reason=None, physical_id=None):
+              body = {
+                  "Status": status,
+                  "Reason": reason or "See CloudWatch Logs",
+                  "PhysicalResourceId": physical_id or context.log_stream_name,
+                  "StackId": event["StackId"],
+                  "RequestId": event["RequestId"],
+                  "LogicalResourceId": event["LogicalResourceId"],
+                  "Data": {}
+              }
+              encoded = json.dumps(body).encode("utf-8")
+              request = urllib.request.Request(
+                  event["ResponseURL"],
+                  data=encoded,
+                  method="PUT",
+                  headers={"content-type": "", "content-length": str(len(encoded))}
+              )
+              urllib.request.urlopen(request)
+
+          def handler(event, context):
+              properties = event["ResourceProperties"]
+              parameter_name = properties["ParameterName"]
+              physical_id = event.get("PhysicalResourceId") or parameter_name
+
+              try:
+                  request_type = event["RequestType"]
+                  logger.info("Processing SSM password parameter request: %s", request_type)
+
+                  if request_type in ("Create", "Update"):
+                      ssm.put_parameter(
+                          Name=parameter_name,
+                          Value=properties["Password"],
+                          Type="SecureString",
+                          Description=properties.get(
+                              "Description",
+                              "CloudMart secure database password"
+                          ),
+                          Overwrite=True
+                      )
+                      logger.info("SSM secure password parameter updated: %s", parameter_name)
+
+                  elif request_type == "Delete":
+                      try:
+                          ssm.delete_parameter(Name=parameter_name)
+                          logger.info("SSM secure password parameter deleted: %s", parameter_name)
+                      except ssm.exceptions.ParameterNotFound:
+                          logger.info("SSM parameter already absent: %s", parameter_name)
+
+                  send_response(event, context, "SUCCESS", physical_id=physical_id)
+
+              except Exception as exc:
+                  logger.exception("Failed to manage SSM secure password parameter")
+                  try:
+                      send_response(event, context, "FAILED", reason=str(exc), physical_id=physical_id)
+                  finally:
+                      raise
+
+
+  # ==========================================================
+  # SSM DATABASE PASSWORD CUSTOM RESOURCE
   # ==========================================================
 
   DBPasswordParameter:
-    Type: AWS::SSM::Parameter
+    Type: Custom::CloudMartSecureParameter
+
+    DependsOn:
+      - DBPasswordSSMWriterFunction
 
     Properties:
+      ServiceToken:
+        !GetAtt DBPasswordSSMWriterFunction.Arn
 
-      Name:
+      ParameterName:
         !Sub /cloudmart/${Environment}/db/password
 
-      Type: SecureString
-
-      Value:
+      Password:
         !Ref DBPassword
 
       Description:
-        CloudMart RDS MySQL master password
+        CloudMart RDS MySQL master password stored as SecureString
 
-      Tags:
-        Project: CloudMart
-        Environment: !Ref Environment
 
   # ==========================================================
   # SSM S3 CONFIGURATION
@@ -416,7 +551,7 @@ Outputs:
         !Sub cloudmart-${Environment}-DBPort
 
 
-  DBName:
+  DBNameOutput:
     Description: CloudMart database name
 
     Value:
@@ -427,7 +562,7 @@ Outputs:
         !Sub cloudmart-${Environment}-DBName
 
 
-  DBUsername:
+  DBUsernameOutput:
     Description: CloudMart database username
 
     Value:

@@ -454,6 +454,23 @@ jobs:
 
 
       # ------------------------------------------------------
+      # MASK DATABASE PASSWORD
+      # Prevent the manually entered password from appearing
+      # in GitHub Actions logs.
+      # ------------------------------------------------------
+
+      - name: Mask DB Password
+        env:
+          DB_PASSWORD_INPUT: ${{ inputs.db_password }}
+        run: |
+          if [ -z "$DB_PASSWORD_INPUT" ]; then
+            echo "ERROR: Database password was not entered."
+            exit 1
+          fi
+
+          echo "::add-mask::$DB_PASSWORD_INPUT"
+
+      # ------------------------------------------------------
       # VALIDATE DATABASE PASSWORD
       # ------------------------------------------------------
 
