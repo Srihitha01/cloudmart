@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 from decimal import Decimal
@@ -455,6 +456,10 @@ def create_customer(
 
         connection = get_db_connection()
 
+        token_hash = hashlib.sha256(
+            customer["bearer_token"].encode("utf-8")
+        ).hexdigest()
+
         with connection.cursor() as cursor:
 
             cursor.execute(
@@ -477,7 +482,7 @@ def create_customer(
                 (
                     customer["name"],
                     customer["email"],
-                    customer["bearer_token"],
+                    token_hash,
                     customer["address"]
                 )
             )
@@ -490,7 +495,8 @@ def create_customer(
             "INFO",
             "Customer created",
             request_id=context.aws_request_id,
-            customer_id=customer_id
+            customer_id=customer_id,
+            token_hash_prefix=token_hash[:8]
         )
 
         return response(
@@ -525,7 +531,7 @@ def create_customer(
             409,
             {
                 "message":
-                    "Customer email or bearer token already exists"
+                    "Customer email already exists or customer data violates a database constraint"
             }
         )
 

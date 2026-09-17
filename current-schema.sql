@@ -1,3 +1,8 @@
+-- CLOUDMART SCHEMA CORRECTIONS
+-- bearer_token stores a SHA-256 hash (64 hexadecimal characters).
+-- bearer_token is intentionally NOT UNIQUE, as requested.
+-- customer_id remains the only primary key for customers.
+--
 -- =========================================================
 -- CLOUDMART RDS MYSQL DATABASE SCHEMA
 -- =========================================================
@@ -29,7 +34,7 @@ CREATE TABLE IF NOT EXISTS customers (
     customer_id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(150) NOT NULL,
     email VARCHAR(255) NOT NULL,
-    bearer_token VARCHAR(255) NULL,
+    bearer_token CHAR(64) NULL,
     address VARCHAR(500),
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -41,10 +46,6 @@ CREATE TABLE IF NOT EXISTS customers (
 
     CONSTRAINT uq_customers_email
         UNIQUE (email),
-
-    CONSTRAINT uq_customers_bearer_token
-        UNIQUE (bearer_token),
-
     INDEX idx_customers_deleted_at (deleted_at)
 );
 

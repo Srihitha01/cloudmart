@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 
@@ -172,6 +173,10 @@ def get_customer_by_token(token):
 
         with connection.cursor() as cursor:
 
+            token_hash = hashlib.sha256(
+                token.encode("utf-8")
+            ).hexdigest()
+
             cursor.execute(
                 """
                 SELECT
@@ -182,15 +187,27 @@ def get_customer_by_token(token):
                   AND status = 'ACTIVE'
                 LIMIT 1
                 """,
-                (token,)
+                (token_hash,)
             )
 
             customer = cursor.fetchone()
 
             if customer is None:
+                print(json.dumps({
+                    "message": "Customer token lookup failed",
+                    "token_hash_prefix": token_hash[:8]
+                }))
                 return None
 
-            return int(customer["customer_id"])
+            customer_id = int(customer["customer_id"])
+
+            print(json.dumps({
+                "message": "Customer token lookup succeeded",
+                "customer_id": customer_id,
+                "token_hash_prefix": token_hash[:8]
+            }))
+
+            return customer_id
 
     finally:
 

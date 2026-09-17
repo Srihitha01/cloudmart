@@ -153,6 +153,7 @@ Parameters:
 
   AlertEmail:
     Type: String
+    Default: gajjalasrihitha01@gmail.com
 
     Description:
       Email address used for CloudMart SNS alerts
@@ -1276,6 +1277,19 @@ Resources:
           RoleArn:
             !GetAtt EventBridgeProductSNSRole.Arn
 
+          InputTransformer:
+            InputPathsMap:
+              productId: "$.detail.product_id"
+              productName: "$.detail.product_name"
+              oldStock: "$.detail.old_stock"
+              newStock: "$.detail.new_stock"
+              threshold: "$.detail.low_stock_threshold"
+
+            InputTemplate: >
+              "CloudMart LOW STOCK ALERT: Product <productName>
+              (ID: <productId>) stock changed from <oldStock> to
+              <newStock>. Reorder threshold: <threshold>."
+
 
   # ==========================================================
   # ORDER EVENTS -> ORDER SNS
@@ -1324,6 +1338,21 @@ Resources:
 
           RoleArn:
             !GetAtt EventBridgeOrderSNSRole.Arn
+
+          InputTransformer:
+            InputPathsMap:
+              eventType: "$.detail-type"
+              orderId: "$.detail.order_id"
+              customerId: "$.detail.customer_id"
+              status: "$.detail.status"
+              totalAmount: "$.detail.total_amount"
+              failureReason: "$.detail.failure_reason"
+
+            InputTemplate: >
+              "CloudMart ORDER ALERT: Event <eventType>.
+              Order ID: <orderId>, Customer ID: <customerId>,
+              Status: <status>, Total Amount: <totalAmount>,
+              Failure Reason: <failureReason>."
 
 
 # ============================================================
