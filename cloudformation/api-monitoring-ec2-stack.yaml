@@ -63,6 +63,9 @@ Resources:
       Description:
         !Sub CloudMart ${Environment} REST API
 
+      Mode:
+        overwrite
+
       EndpointConfiguration:
 
         Types:
@@ -1224,7 +1227,7 @@ Resources:
   # API DEPLOYMENT
   # ==========================================================
 
-  ApiDeploymentV4:
+  ApiDeploymentV5:
 
     Type: AWS::ApiGateway::Deployment
 
@@ -1263,7 +1266,7 @@ Resources:
 
       Description:
         !Sub >
-          CloudMart ${Environment} API deployment with
+          CloudMart ${Environment} API deployment V5 with
           customer-specific order routes and Lambda Authorizer
 
 
@@ -1300,7 +1303,7 @@ Resources:
         !Ref CloudMartApi
 
       DeploymentId:
-        !Ref ApiDeploymentV4
+        !Ref ApiDeploymentV5
 
       StageName:
         !Ref Environment
