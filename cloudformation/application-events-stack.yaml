@@ -119,6 +119,13 @@ Parameters:
       S3 key for the Product Lambda artifact
 
 
+  CustomerLambdaS3Key:
+    Type: String
+
+    Description:
+      S3 key for the Customer Lambda artifact
+
+
   OrderLambdaS3Key:
     Type: String
 
@@ -318,6 +325,104 @@ Resources:
         - Key: Environment
           Value:
             !Ref Environment
+
+
+  # ==========================================================
+  # CUSTOMER LAMBDA
+  #
+  # Handles customer creation and soft deletion.
+  # The Customer Lambda artifact must contain:
+  #   POST /customers
+  #   DELETE /customers/{customer_id}
+  #
+  # Uses the dedicated Customer Lambda IAM role exported by the IAM stack.
+  # ==========================================================
+
+  CustomerLambda:
+
+    Type: AWS::Lambda::Function
+
+    Properties:
+
+      FunctionName:
+        !Sub cloudmart-${Environment}-customer-lambda
+
+      Runtime:
+        python3.12
+
+      Handler:
+        lambda_function.lambda_handler
+
+      Role:
+        Fn::ImportValue:
+          Fn::Sub: cloudmart-${Environment}-CustomerLambdaRoleArn
+
+      Timeout:
+        30
+
+      MemorySize:
+        256
+
+      Layers:
+
+        - !Ref PyMySQLLayer
+
+      VpcConfig:
+
+        SecurityGroupIds:
+
+          - Fn::ImportValue:
+              Fn::Sub: cloudmart-${Environment}-LambdaSecurityGroupId
+
+        SubnetIds:
+
+          - Fn::ImportValue:
+              Fn::Sub: cloudmart-${Environment}-PrivateSubnetId
+
+          - Fn::ImportValue:
+              Fn::Sub: cloudmart-${Environment}-SecondaryPrivateSubnetId
+
+      Environment:
+
+        Variables:
+
+          DB_NAME_PARAMETER:
+            !Ref DBName
+
+          DB_ENDPOINT_PARAMETER:
+            !Ref DBEndpoint
+
+          DB_PORT_PARAMETER:
+            !Ref DBPort
+
+          DB_USERNAME_PARAMETER:
+            !Ref DBUsername
+
+          DB_PASSWORD_PARAMETER:
+            !Ref DBPassword
+
+          EVENT_BUS_NAME:
+            !Ref CloudMartEventBus
+
+      Code:
+
+        S3Bucket:
+          !Ref LambdaArtifactBucket
+
+        S3Key:
+          !Ref CustomerLambdaS3Key
+
+      Tags:
+
+        - Key: Name
+          Value:
+            !Sub cloudmart-${Environment}-customer-lambda
+
+        - Key: Project
+          Value: CloudMart
+
+        - Key: Environment
+          Value: !Ref Environment
 
 
   # ==========================================================
@@ -1472,6 +1577,38 @@ Outputs:
 
       Name:
         !Sub cloudmart-${Environment}-LambdaAuthorizerName
+
+
+  # ==========================================================
+  # CUSTOMER LAMBDA
+  # ==========================================================
+
+  CustomerLambdaArn:
+
+    Description:
+      Customer Lambda ARN
+
+    Value:
+      !GetAtt CustomerLambda.Arn
+
+    Export:
+
+      Name:
+        !Sub cloudmart-${Environment}-CustomerLambdaArn
+
+
+  CustomerLambdaName:
+
+    Description:
+      Customer Lambda name
+
+    Value:
+      !Ref CustomerLambda
+
+    Export:
+
+      Name:
+        !Sub cloudmart-${Environment}-CustomerLambdaName
 
 
   # ==========================================================

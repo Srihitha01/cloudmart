@@ -243,7 +243,7 @@ Resources:
                 Fn::ImportValue:
 
                   Fn::Sub:
-                    cloudmart-${Environment}-ProductLambdaArn
+                    cloudmart-${Environment}-CustomerLambdaArn
 
 
   # ==========================================================
@@ -290,7 +290,7 @@ Resources:
                 Fn::ImportValue:
 
                   Fn::Sub:
-                    cloudmart-${Environment}-ProductLambdaArn
+                    cloudmart-${Environment}-CustomerLambdaArn
 
 
   # ==========================================================
@@ -914,6 +914,94 @@ Resources:
                     cloudmart-${Environment}-OrderLambdaArn
 
 
+
+  # ==========================================================
+  # ADMIN ORDERS RESOURCES
+  # /orders, /orders/{id}, /orders/{id}/status
+  # ==========================================================
+
+  AdminOrdersResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref CloudMartApi
+      ParentId:
+        Fn::GetAtt:
+          - CloudMartApi
+          - RootResourceId
+      PathPart: orders
+
+  AdminOrderIdResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref CloudMartApi
+      ParentId: !Ref AdminOrdersResource
+      PathPart: '{id}'
+
+  AdminOrderStatusResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref CloudMartApi
+      ParentId: !Ref AdminOrderIdResource
+      PathPart: status
+
+  GetAdminOrdersMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref CloudMartApi
+      ResourceId: !Ref AdminOrdersResource
+      HttpMethod: GET
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref CloudMartAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri:
+          Fn::Sub:
+            - arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaArn}/invocations
+            - LambdaArn:
+                Fn::ImportValue:
+                  Fn::Sub: cloudmart-${Environment}-OrderLambdaArn
+
+  GetAdminOrderByIdMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref CloudMartApi
+      ResourceId: !Ref AdminOrderIdResource
+      HttpMethod: GET
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref CloudMartAuthorizer
+      RequestParameters:
+        method.request.path.id: true
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri:
+          Fn::Sub:
+            - arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaArn}/invocations
+            - LambdaArn:
+                Fn::ImportValue:
+                  Fn::Sub: cloudmart-${Environment}-OrderLambdaArn
+
+  UpdateAdminOrderStatusMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref CloudMartApi
+      ResourceId: !Ref AdminOrderStatusResource
+      HttpMethod: PATCH
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref CloudMartAuthorizer
+      RequestParameters:
+        method.request.path.id: true
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri:
+          Fn::Sub:
+            - arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaArn}/invocations
+            - LambdaArn:
+                Fn::ImportValue:
+                  Fn::Sub: cloudmart-${Environment}-OrderLambdaArn
+
   # ==========================================================
   # API GATEWAY -> PRODUCT LAMBDA PERMISSION
   # ==========================================================
@@ -1000,6 +1088,11 @@ Resources:
       # CUSTOMER MANAGEMENT METHODS
       - CreateCustomerMethod
       - DeleteCustomerMethod
+
+      # ADMIN ORDER METHODS
+      - GetAdminOrdersMethod
+      - GetAdminOrderByIdMethod
+      - UpdateAdminOrderStatusMethod
 
       # CUSTOMER ORDER METHODS
       - CreateCustomerOrderMethod

@@ -82,6 +82,9 @@ jobs:
 
         shell: bash
 
+        env:
+          DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment }}
+
         run: |
 
           echo "========================================"
@@ -103,7 +106,9 @@ jobs:
           fi
 
 
-          ENVIRONMENT=$(jq -r '.Environment' "$CONFIG_FILE")
+          CONFIG_ENVIRONMENT=$(jq -r '.Environment' "$CONFIG_FILE")
+
+          ENVIRONMENT="$DEPLOYMENT_ENVIRONMENT"
 
           PROJECT=$(jq -r '.Project' "$CONFIG_FILE")
 
@@ -118,7 +123,7 @@ jobs:
 
           if [ -z "$ENVIRONMENT" ] || [ "$ENVIRONMENT" = "null" ]; then
 
-            echo "ERROR: Environment is missing from config/config.json."
+            echo "ERROR: Deployment environment is missing."
 
             exit 1
 
@@ -929,6 +934,8 @@ jobs:
 
           test -f lambda/product/lambda_function.py
 
+          test -f lambda/customer/lambda_function.py
+
           test -f lambda/order/lambda_function.py
 
           test -f lambda/order-processor/lambda_function.py
@@ -1136,6 +1143,40 @@ jobs:
 
 
       # ------------------------------------------------------
+      # BUILD CUSTOMER LAMBDA
+      # ------------------------------------------------------
+
+      - name: Build Customer Lambda
+
+        run: |
+
+          echo "========================================"
+
+          echo "BUILDING CUSTOMER LAMBDA"
+
+          echo "========================================"
+
+          mkdir -p build/customer
+
+          cp lambda/customer/lambda_function.py \
+            build/customer/
+
+          if [ -f lambda/customer/requirements.txt ]; then
+
+            python -m pip install \
+              -r lambda/customer/requirements.txt \
+              -t build/customer
+
+          fi
+
+          cd build/customer
+
+          zip -r ../customer-lambda.zip .
+
+          cd ../..
+
+
+      # ------------------------------------------------------
       # BUILD ORDER LAMBDA
       # ------------------------------------------------------
 
@@ -1317,6 +1358,20 @@ jobs:
 
 
       # ------------------------------------------------------
+      # UPLOAD CUSTOMER LAMBDA
+      # ------------------------------------------------------
+
+      - name: Upload Customer Lambda
+
+        run: |
+
+          aws s3 cp \
+            build/customer-lambda.zip \
+            "s3://${LAMBDA_ARTIFACT_BUCKET}/lambda/customer/customer-lambda-${GITHUB_SHA}.zip" \
+            --region "$AWS_REGION"
+
+
+      # ------------------------------------------------------
       # UPLOAD ORDER LAMBDA
       # ------------------------------------------------------
 
@@ -1407,6 +1462,11 @@ jobs:
 
           aws s3api head-object \
             --bucket "$LAMBDA_ARTIFACT_BUCKET" \
+            --key "lambda/customer/customer-lambda-${GITHUB_SHA}.zip" \
+            --region "$AWS_REGION"
+
+          aws s3api head-object \
+            --bucket "$LAMBDA_ARTIFACT_BUCKET" \
             --key "lambda/order/order-lambda-${GITHUB_SHA}.zip" \
             --region "$AWS_REGION"
 
@@ -1462,6 +1522,7 @@ jobs:
               PyMySQLLayerS3Key="layers/pymysql/pymysql-layer-${GITHUB_SHA}.zip" \
               AuthorizerLambdaS3Key="lambda/authorizer/authorizer-lambda-${GITHUB_SHA}.zip" \
               ProductLambdaS3Key="lambda/product/product-lambda-${GITHUB_SHA}.zip" \
+              CustomerLambdaS3Key="lambda/customer/customer-lambda-${GITHUB_SHA}.zip" \
               OrderLambdaS3Key="lambda/order/order-lambda-${GITHUB_SHA}.zip" \
               OrderProcessorLambdaS3Key="lambda/order-processor/order-processor-lambda-${GITHUB_SHA}.zip" \
               DailyReportLambdaS3Key="lambda/daily-report/daily-report-lambda-${GITHUB_SHA}.zip" \
@@ -1539,6 +1600,7 @@ jobs:
 
           for FUNCTION_NAME in \
             "cloudmart-${ENVIRONMENT}-product-lambda" \
+            "cloudmart-${ENVIRONMENT}-customer-lambda" \
             "cloudmart-${ENVIRONMENT}-order-lambda" \
             "cloudmart-${ENVIRONMENT}-order-processor" \
             "cloudmart-${ENVIRONMENT}-daily-report" \
@@ -1917,6 +1979,8 @@ jobs:
 
           echo "========================================"
 
-          echo "CLOUDMART DEPLOYMENT SUCCESSFUL"
+          echo "CLOUDMART DEPLOYMENT COMPLETED"
+
+          echo "All deployment commands completed. Review stack statuses above."
 
           echo "========================================"

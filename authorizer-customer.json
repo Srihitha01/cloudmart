@@ -1,5 +1,0 @@
-{
-  "type": "TOKEN",
-  "authorizationToken": "Bearer CUSTOMER_TEST_001",
-  "methodArn": "arn:aws:execute-api:ap-south-1:285150348844:l2ixns188b/dev/GET/customers/1/orders"
-}

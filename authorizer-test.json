@@ -1,5 +1,0 @@
-{
-  "type": "TOKEN",
-  "authorizationToken": "Bearer Srihitha@2004",
-  "methodArn": "arn:aws:execute-api:ap-south-1:285150348844:t5c7pkf5u4/dev/GET/products"
-}
