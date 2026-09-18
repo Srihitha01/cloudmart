@@ -870,7 +870,9 @@ Resources:
 
         ZipFile: |
 
+          import json
           import os
+          import urllib.request
           import boto3
           import pymysql
 
@@ -878,19 +880,16 @@ Resources:
           s3 = boto3.client("s3")
           ssm = boto3.client("ssm")
 
-
           DB_NAME_PARAMETER = os.environ["DB_NAME_PARAMETER"]
           DB_ENDPOINT_PARAMETER = os.environ["DB_ENDPOINT_PARAMETER"]
           DB_PORT_PARAMETER = os.environ["DB_PORT_PARAMETER"]
           DB_USERNAME_PARAMETER = os.environ["DB_USERNAME_PARAMETER"]
           DB_PASSWORD_PARAMETER = os.environ["DB_PASSWORD_PARAMETER"]
-
           SCHEMA_BUCKET = os.environ["SCHEMA_BUCKET"]
           SCHEMA_KEY = os.environ["SCHEMA_KEY"]
 
 
           def get_parameter(name):
-
               return ssm.get_parameter(
                   Name=name,
                   WithDecryption=True
@@ -898,87 +897,135 @@ Resources:
 
 
           def get_connection():
-
               return pymysql.connect(
-
-                  host=get_parameter(
-                      DB_ENDPOINT_PARAMETER
-                  ),
-
-                  port=int(
-                      get_parameter(
-                          DB_PORT_PARAMETER
-                      )
-                  ),
-
-                  user=get_parameter(
-                      DB_USERNAME_PARAMETER
-                  ),
-
-                  password=get_parameter(
-                      DB_PASSWORD_PARAMETER
-                  ),
-
-                  database=get_parameter(
-                      DB_NAME_PARAMETER
-                  ),
-
+                  host=get_parameter(DB_ENDPOINT_PARAMETER),
+                  port=int(get_parameter(DB_PORT_PARAMETER)),
+                  user=get_parameter(DB_USERNAME_PARAMETER),
+                  password=get_parameter(DB_PASSWORD_PARAMETER),
+                  database=get_parameter(DB_NAME_PARAMETER),
                   connect_timeout=10,
-
                   read_timeout=30,
-
-                  write_timeout=30
+                  write_timeout=30,
+                  autocommit=False
               )
+
+
+          def send_cfn_response(event, context, status, reason=None):
+              response_body = {
+                  "Status": status,
+                  "Reason": reason or "See CloudWatch logs for details",
+                  "PhysicalResourceId": event.get(
+                      "PhysicalResourceId",
+                      context.log_stream_name
+                  ),
+                  "StackId": event["StackId"],
+                  "RequestId": event["RequestId"],
+                  "LogicalResourceId": event["LogicalResourceId"],
+                  "Data": {
+                      "Message": "CloudMart database schema initialization " + status
+                  }
+              }
+
+              request = urllib.request.Request(
+                  event["ResponseURL"],
+                  data=json.dumps(response_body).encode("utf-8"),
+                  headers={"content-type": ""},
+                  method="PUT"
+              )
+
+              with urllib.request.urlopen(request, timeout=15) as response:
+                  response.read()
+
+
+          def initialize_schema():
+              schema_object = s3.get_object(
+                  Bucket=SCHEMA_BUCKET,
+                  Key=SCHEMA_KEY
+              )
+              schema_sql = schema_object["Body"].read().decode("utf-8")
+
+              connection = get_connection()
+              try:
+                  with connection.cursor() as cursor:
+                      for statement in schema_sql.split(";"):
+                          statement = statement.strip()
+                          if not statement:
+                              continue
+                          try:
+                              cursor.execute(statement)
+                          except pymysql.err.OperationalError as error:
+                              # MySQL error 1061 means an index already exists.
+                              # Ignore it so repeated stack deployments remain idempotent.
+                              if error.args and error.args[0] == 1061:
+                                  print(json.dumps({
+                                      "level": "INFO",
+                                      "message": "Index already exists; continuing",
+                                      "statement": statement[:200]
+                                  }))
+                                  continue
+                              raise
+                  connection.commit()
+              except Exception:
+                  connection.rollback()
+                  raise
+              finally:
+                  connection.close()
 
 
           def lambda_handler(event, context):
-
-              schema_object = s3.get_object(
-
-                  Bucket=SCHEMA_BUCKET,
-
-                  Key=SCHEMA_KEY
-              )
-
-              schema_sql = schema_object[
-                  "Body"
-              ].read().decode("utf-8")
-
-
-              connection = get_connection()
-
+              request_type = event.get("RequestType", "Create")
 
               try:
+                  if request_type in ("Create", "Update"):
+                      initialize_schema()
 
-                  with connection.cursor() as cursor:
+                  send_cfn_response(
+                      event,
+                      context,
+                      "SUCCESS",
+                      "Schema initialization completed"
+                  )
 
-                      statements = schema_sql.split(";")
+              except Exception as error:
+                  print(json.dumps({
+                      "level": "ERROR",
+                      "service": "cloudmart-schema-initializer",
+                      "message": "Schema initialization failed",
+                      "error_type": type(error).__name__,
+                      "error": str(error)
+                  }))
 
-                      for statement in statements:
-
-                          statement = statement.strip()
-
-                          if not statement:
-
-                              continue
-
-                          cursor.execute(statement)
+                  send_cfn_response(
+                      event,
+                      context,
+                      "FAILED",
+                      str(error)[:1024]
+                  )
 
 
-                  connection.commit()
 
-                  return {
+  # ==========================================================
+  # AUTOMATIC DATABASE SCHEMA INITIALIZATION
+  # ==========================================================
 
-                      "statusCode": 200,
+  DatabaseSchemaInitialization:
 
-                      "message":
-                          "Database schema initialized successfully"
+    Type: Custom::CloudMartDatabaseSchema
 
-                  }
+    DependsOn:
+      - SchemaInitializerLambda
 
-              finally:
+    Properties:
 
-                  connection.close()
+      ServiceToken:
+        !GetAtt SchemaInitializerLambda.Arn
+
+      SchemaKey:
+        !Ref SchemaS3Key
+
+      SchemaVersion:
+        !Ref SchemaS3Key
+
 
 
   # ==========================================================
