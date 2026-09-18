@@ -243,7 +243,7 @@ Resources:
                 Fn::ImportValue:
 
                   Fn::Sub:
-                    cloudmart-${Environment}-CustomerLambdaArn
+                    cloudmart-${Environment}-ProductLambdaArn
 
 
   # ==========================================================
@@ -290,7 +290,7 @@ Resources:
                 Fn::ImportValue:
 
                   Fn::Sub:
-                    cloudmart-${Environment}-CustomerLambdaArn
+                    cloudmart-${Environment}-ProductLambdaArn
 
 
   # ==========================================================
@@ -535,7 +535,7 @@ Resources:
                 Fn::ImportValue:
 
                   Fn::Sub:
-                    cloudmart-${Environment}-ProductLambdaArn
+                    cloudmart-${Environment}-CustomerLambdaArn
 
 
   # ==========================================================
@@ -587,7 +587,131 @@ Resources:
                 Fn::ImportValue:
 
                   Fn::Sub:
-                    cloudmart-${Environment}-ProductLambdaArn
+                    cloudmart-${Environment}-CustomerLambdaArn
+
+
+
+  # ==========================================================
+  # GET /customers/{customer_id}
+  # ==========================================================
+
+  GetCustomerMethod:
+
+    Type: AWS::ApiGateway::Method
+
+    Properties:
+
+      RestApiId:
+        !Ref CloudMartApi
+
+      ResourceId:
+        !Ref CustomerIdResource
+
+      HttpMethod:
+        GET
+
+      AuthorizationType:
+        CUSTOM
+
+      AuthorizerId:
+        !Ref CloudMartAuthorizer
+
+      RequestParameters:
+        method.request.path.customer_id: true
+
+      Integration:
+        Type:
+          AWS_PROXY
+        IntegrationHttpMethod:
+          POST
+        Uri:
+          Fn::Sub:
+            - arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaArn}/invocations
+            - LambdaArn:
+                Fn::ImportValue:
+                  Fn::Sub: cloudmart-${Environment}-CustomerLambdaArn
+
+
+  # ==========================================================
+  # PUT /customers/{customer_id}
+  # ==========================================================
+
+  UpdateCustomerMethod:
+
+    Type: AWS::ApiGateway::Method
+
+    Properties:
+
+      RestApiId:
+        !Ref CloudMartApi
+
+      ResourceId:
+        !Ref CustomerIdResource
+
+      HttpMethod:
+        PUT
+
+      AuthorizationType:
+        CUSTOM
+
+      AuthorizerId:
+        !Ref CloudMartAuthorizer
+
+      RequestParameters:
+        method.request.path.customer_id: true
+
+      Integration:
+        Type:
+          AWS_PROXY
+        IntegrationHttpMethod:
+          POST
+        Uri:
+          Fn::Sub:
+            - arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaArn}/invocations
+            - LambdaArn:
+                Fn::ImportValue:
+                  Fn::Sub: cloudmart-${Environment}-CustomerLambdaArn
+
+
+  # ==========================================================
+  # PATCH /customers/{customer_id}
+  # ==========================================================
+
+  PatchCustomerMethod:
+
+    Type: AWS::ApiGateway::Method
+
+    Properties:
+
+      RestApiId:
+        !Ref CloudMartApi
+
+      ResourceId:
+        !Ref CustomerIdResource
+
+      HttpMethod:
+        PATCH
+
+      AuthorizationType:
+        CUSTOM
+
+      AuthorizerId:
+        !Ref CloudMartAuthorizer
+
+      RequestParameters:
+        method.request.path.customer_id: true
+
+      Integration:
+        Type:
+          AWS_PROXY
+        IntegrationHttpMethod:
+          POST
+        Uri:
+          Fn::Sub:
+            - arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaArn}/invocations
+            - LambdaArn:
+                Fn::ImportValue:
+                  Fn::Sub: cloudmart-${Environment}-CustomerLambdaArn
 
 
   # ==========================================================
@@ -1068,6 +1192,34 @@ Resources:
               !Ref CloudMartApi
 
 
+
+  # ==========================================================
+  # API GATEWAY -> CUSTOMER LAMBDA PERMISSION
+  # ==========================================================
+
+  CustomerLambdaInvokePermission:
+
+    Type: AWS::Lambda::Permission
+
+    Properties:
+
+      FunctionName:
+        Fn::ImportValue:
+          Fn::Sub: cloudmart-${Environment}-CustomerLambdaArn
+
+      Action:
+        lambda:InvokeFunction
+
+      Principal:
+        apigateway.amazonaws.com
+
+      SourceArn:
+        Fn::Sub:
+          - arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiId}/*
+          - ApiId:
+              !Ref CloudMartApi
+
+
   # ==========================================================
   # API DEPLOYMENT
   # ==========================================================
@@ -1087,6 +1239,9 @@ Resources:
 
       # CUSTOMER MANAGEMENT METHODS
       - CreateCustomerMethod
+      - GetCustomerMethod
+      - UpdateCustomerMethod
+      - PatchCustomerMethod
       - DeleteCustomerMethod
 
       # ADMIN ORDER METHODS
