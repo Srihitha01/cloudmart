@@ -1,5 +1,8 @@
 AWSTemplateFormatVersion: '2010-09-09'
 
+Metadata:
+  CustomerRoleExportVersion: '2'
+
 Description: >
   CloudMart IAM Stack.
   Creates IAM execution roles for Lambda functions,
@@ -297,6 +300,130 @@ Resources:
         - Key: Environment
           Value:
             !Ref Environment
+
+
+  # ==========================================================
+  # CUSTOMER LAMBDA ROLE
+  # ==========================================================
+
+  CustomerLambdaRole:
+
+    Type: AWS::IAM::Role
+
+    Properties:
+
+      RoleName:
+        !Sub cloudmart-${Environment}-customer-lambda-role
+
+      AssumeRolePolicyDocument:
+
+        Version: '2012-10-17'
+
+        Statement:
+
+          - Effect: Allow
+
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+
+            Action:
+              - sts:AssumeRole
+
+      Policies:
+
+        - PolicyName: CustomerLambdaLogging
+
+          PolicyDocument:
+
+            Version: '2012-10-17'
+
+            Statement:
+
+              - Effect: Allow
+
+                Action:
+                  - logs:CreateLogGroup
+
+                Resource: '*'
+
+              - Effect: Allow
+
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+
+                Resource:
+                  - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/cloudmart-${Environment}-customer-lambda:*
+
+        - PolicyName: CustomerLambdaSSM
+
+          PolicyDocument:
+
+            Version: '2012-10-17'
+
+            Statement:
+
+              - Effect: Allow
+
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+
+                Resource:
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/db/*
+
+
+        - PolicyName: CustomerLambdaEventBridge
+
+          PolicyDocument:
+
+            Version: '2012-10-17'
+
+            Statement:
+
+              - Effect: Allow
+
+                Action:
+                  - events:PutEvents
+
+                Resource:
+                  - !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/cloudmart-${Environment}-event-bus
+
+        - PolicyName: CustomerLambdaVPCAccess
+
+          PolicyDocument:
+
+            Version: '2012-10-17'
+
+            Statement:
+
+              - Effect: Allow
+
+                Action:
+                  - ec2:CreateNetworkInterface
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DescribeSubnets
+                  - ec2:DeleteNetworkInterface
+                  - ec2:AssignPrivateIpAddresses
+                  - ec2:UnassignPrivateIpAddresses
+
+                Resource: '*'
+
+      Tags:
+
+        - Key: Name
+          Value:
+            !Sub cloudmart-${Environment}-customer-lambda-role
+
+        - Key: Project
+          Value: CloudMart
+
+        - Key: Environment
+          Value:
+            !Ref Environment
+
+
 
 
   # ==========================================================
@@ -1540,6 +1667,19 @@ Outputs:
     Export:
       Name:
         !Sub cloudmart-${Environment}-ProductLambdaRoleArn
+
+
+  CustomerLambdaRoleArn:
+
+    Description:
+      Customer Lambda execution role ARN
+
+    Value:
+      !GetAtt CustomerLambdaRole.Arn
+
+    Export:
+      Name:
+        !Sub cloudmart-${Environment}-CustomerLambdaRoleArn
 
 
   OrderLambdaRoleArn:
