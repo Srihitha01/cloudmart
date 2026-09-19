@@ -1,3 +1,4 @@
+
 import hashlib
 import json
 import os
@@ -328,6 +329,10 @@ def create_product(
     context
 ):
 
+    permission_error = require_admin(event)
+    if permission_error is not None:
+        return permission_error
+
     data = parse_body(event)
 
     product = validate_create_payload(
@@ -571,6 +576,10 @@ def update_product(
     event,
     context
 ):
+
+    permission_error = require_admin(event)
+    if permission_error is not None:
+        return permission_error
 
     product_id = get_product_id(
         event
@@ -1088,6 +1097,10 @@ def delete_product(
     event,
     context
 ):
+
+    permission_error = require_admin(event)
+    if permission_error is not None:
+        return permission_error
 
     product_id = get_product_id(
         event
