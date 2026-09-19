@@ -2,7 +2,6 @@
 import os
 import json
 import hashlib
-import secrets
 import logging
 import boto3
 import pymysql
@@ -199,10 +198,6 @@ def parse_body(event):
 # TOKEN HELPERS
 # ==========================================================
 
-def generate_bearer_token():
-    return secrets.token_urlsafe(32)
-
-
 def hash_bearer_token(token):
     return hashlib.sha256(
         token.encode("utf-8")
@@ -213,7 +208,11 @@ def hash_bearer_token(token):
 # VALIDATION
 # ==========================================================
 
-def validate_customer_payload(data, partial=False):
+def validate_customer_payload(
+    data,
+    partial=False,
+    allow_bearer_token=False
+):
     if not isinstance(data, dict):
         return "Request body must be a JSON object"
 
@@ -223,6 +222,9 @@ def validate_customer_payload(data, partial=False):
         "address"
     }
 
+    if allow_bearer_token:
+        allowed_fields.add("bearer_token")
+
     unknown_fields = set(data.keys()) - allowed_fields
 
     if unknown_fields:
@@ -231,9 +233,20 @@ def validate_customer_payload(data, partial=False):
         )
 
     if not partial:
-        for field in ("name", "email"):
-            if not data.get(field):
+        required_fields = ["name", "email"]
+
+        if allow_bearer_token:
+            required_fields.append("bearer_token")
+
+        for field in required_fields:
+            if field not in data:
                 return f"{field} is required"
+
+            if not isinstance(data[field], str):
+                return f"{field} must be a string"
+
+            if not data[field].strip():
+                return f"{field} cannot be empty"
 
     if "name" in data:
         if not isinstance(data["name"], str):
@@ -264,6 +277,19 @@ def validate_customer_payload(data, partial=False):
 
             if len(data["address"]) > 500:
                 return "address is too long"
+
+    if "bearer_token" in data:
+        if not allow_bearer_token:
+            return "bearer_token cannot be updated"
+
+        if not isinstance(data["bearer_token"], str):
+            return "bearer_token must be a string"
+
+        if not data["bearer_token"].strip():
+            return "bearer_token cannot be empty"
+
+        if len(data["bearer_token"].strip()) > 500:
+            return "bearer_token is too long"
 
     return None
 
@@ -305,7 +331,10 @@ def create_customer(event):
     if data is None:
         return error(400, "Invalid JSON request body")
 
-    validation_error = validate_customer_payload(data)
+    validation_error = validate_customer_payload(
+        data,
+        allow_bearer_token=True
+    )
 
     if validation_error:
         return error(400, validation_error)
@@ -313,8 +342,7 @@ def create_customer(event):
     name = data["name"].strip()
     email = data["email"].strip().lower()
     address = data.get("address")
-
-    raw_token = generate_bearer_token()
+    raw_token = data["bearer_token"].strip()
     token_hash = hash_bearer_token(raw_token)
 
     connection = None
@@ -371,8 +399,7 @@ def create_customer(event):
                 "name": name,
                 "email": email,
                 "address": address,
-                "status": "ACTIVE",
-                "bearer_token": raw_token
+                "status": "ACTIVE"
             }
         )
 
@@ -488,7 +515,8 @@ def update_customer(event):
 
     validation_error = validate_customer_payload(
         data,
-        partial=True
+        partial=True,
+        allow_bearer_token=False
     )
 
     if validation_error:
@@ -521,6 +549,12 @@ def update_customer(event):
 
             updates.append(f"{field} = %s")
             values.append(value)
+
+    if not updates:
+        return error(
+            400,
+            "Only name, email, or address can be updated"
+        )
 
     values.append(customer_id)
 
