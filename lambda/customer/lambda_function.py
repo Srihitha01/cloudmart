@@ -428,6 +428,65 @@ def create_customer(event):
             connection.close()
 
 
+
+# ==========================================================
+# GET ALL CUSTOMERS
+# ADMIN ONLY
+# ==========================================================
+
+def get_customers(event):
+    if not is_admin(event):
+        return error(
+            403,
+            "Only administrators can access all customers"
+        )
+
+    connection = None
+
+    try:
+        connection = get_connection()
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT
+                    customer_id,
+                    name,
+                    email,
+                    address,
+                    status,
+                    created_at,
+                    updated_at
+                FROM customers
+                WHERE deleted_at IS NULL
+                ORDER BY customer_id ASC
+                """
+            )
+
+            customers = cursor.fetchall()
+
+        return success(
+            200,
+            "Customers retrieved successfully",
+            {
+                "count": len(customers),
+                "customers": customers
+            }
+        )
+
+    except Exception:
+        logger.exception("All customers retrieval failed")
+
+        return error(
+            500,
+            "Customers retrieval failed"
+        )
+
+    finally:
+        if connection:
+            connection.close()
+
+
 # ==========================================================
 # GET CUSTOMER
 # ==========================================================
@@ -756,6 +815,9 @@ def lambda_handler(event, context):
     try:
         if method == "POST" and resource == "/customers":
             return create_customer(event)
+
+        if method == "GET" and resource == "/customers":
+            return get_customers(event)
 
         if method == "GET" and resource == "/customers/{customer_id}":
             return get_customer(event)

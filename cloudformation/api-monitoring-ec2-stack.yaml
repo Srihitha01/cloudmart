@@ -542,6 +542,55 @@ Resources:
 
 
   # ==========================================================
+  # GET /customers
+  # GET ALL CUSTOMERS
+  # Protected by the Lambda Authorizer.
+  # ==========================================================
+
+  GetCustomersMethod:
+
+    Type: AWS::ApiGateway::Method
+
+    Properties:
+
+      RestApiId:
+        !Ref CloudMartApi
+
+      ResourceId:
+        !Ref CustomersResource
+
+      HttpMethod:
+        GET
+
+      AuthorizationType:
+        CUSTOM
+
+      AuthorizerId:
+        !Ref CloudMartAuthorizer
+
+      Integration:
+
+        Type:
+          AWS_PROXY
+
+        IntegrationHttpMethod:
+          POST
+
+        Uri:
+
+          Fn::Sub:
+
+            - arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaArn}/invocations
+
+            - LambdaArn:
+
+                Fn::ImportValue:
+
+                  Fn::Sub:
+                    cloudmart-${Environment}-CustomerLambdaArn
+
+
+  # ==========================================================
   # DELETE /customers/{customer_id}
   # ADMIN ONLY - SOFT DELETE CUSTOMER
   # ==========================================================
@@ -1242,6 +1291,7 @@ Resources:
 
       # CUSTOMER MANAGEMENT METHODS
       - CreateCustomerMethod
+      - GetCustomersMethod
       - GetCustomerMethod
       - UpdateCustomerMethod
       - PatchCustomerMethod
@@ -1266,7 +1316,7 @@ Resources:
 
       Description:
         !Sub >
-          CloudMart ${Environment} API deployment V5 with
+          CloudMart ${Environment} API deployment V6 with
           customer-specific order routes and Lambda Authorizer
 
 
