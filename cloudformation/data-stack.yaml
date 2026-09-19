@@ -171,8 +171,7 @@ Resources:
 
       # Keep the existing CloudFormation-managed bucket.
       # Do not allow CloudFormation to generate a new name.
-      BucketName: cloudmart-data-storage-dev-cloudmartreportbucket-adkdzgjurrrl
-
+    
       BucketEncryption:
 
         ServerSideEncryptionConfiguration:
@@ -217,14 +216,8 @@ Resources:
 
     Properties:
 
-      # Keep the existing CloudFormation-managed bucket.
-      # Do not allow CloudFormation to generate a new name.
-      BucketName: cloudmart-data-storage-dev-cloudmartartifactbucket-hsj28kyudyev
-
       BucketEncryption:
-
         ServerSideEncryptionConfiguration:
-
           - ServerSideEncryptionByDefault:
               SSEAlgorithm: AES256
 
