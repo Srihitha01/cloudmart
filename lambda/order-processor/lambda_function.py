@@ -184,9 +184,11 @@ def publish_order_event(
             total_amount
         )
 
-    if reason is not None:
+    # Include the failure explanation only for OrderFailed events.
+    # Other order events must not contain a failure reason.
+    if detail_type == "OrderFailed" and reason is not None:
 
-        detail["reason"] = reason
+        detail["failure_reason"] = reason
 
     return publish_event(
         source="cloudmart.orders",
@@ -648,6 +650,16 @@ def mark_order_failed(
                 )
 
         connection.commit()
+
+        if cursor.rowcount != 1:
+            log_event(
+                "WARN",
+                "Order was not marked as failed because it is not PENDING",
+                request_id=context.aws_request_id,
+                order_id=order_id,
+                reason=reason
+            )
+            return False
 
         log_event(
             "INFO",
