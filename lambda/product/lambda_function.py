@@ -1,3 +1,5 @@
+
+import hashlib
 import json
 import os
 from decimal import Decimal
@@ -23,6 +25,7 @@ DB_ENDPOINT_PARAMETER = os.environ["DB_ENDPOINT_PARAMETER"]
 DB_PORT_PARAMETER = os.environ["DB_PORT_PARAMETER"]
 DB_USERNAME_PARAMETER = os.environ["DB_USERNAME_PARAMETER"]
 DB_PASSWORD_PARAMETER = os.environ["DB_PASSWORD_PARAMETER"]
+EVENT_BUS_NAME = os.environ["EVENT_BUS_NAME"]
 
 
 # ==========================================================
@@ -37,7 +40,7 @@ def log_event(level, message, **details):
         **details
     }
 
-    print(json.dumps(record))
+    print(json.dumps(record, default=str))
 
 
 # ==========================================================
@@ -315,6 +318,8 @@ def validate_create_payload(data):
     }
 
 
+
+
 # ==========================================================
 # CREATE PRODUCT
 # ==========================================================
@@ -323,6 +328,10 @@ def create_product(
     event,
     context
 ):
+
+    permission_error = require_admin(event)
+    if permission_error is not None:
+        return permission_error
 
     data = parse_body(event)
 
@@ -568,6 +577,10 @@ def update_product(
     context
 ):
 
+    permission_error = require_admin(event)
+    if permission_error is not None:
+        return permission_error
+
     product_id = get_product_id(
         event
     )
@@ -801,6 +814,7 @@ def update_product(
                 """
                 SELECT
                     product_id,
+                    name,
                     stock_quantity,
                     reorder_threshold
                 FROM products
@@ -896,7 +910,7 @@ def update_product(
 
         low_stock = (
             new_stock_quantity
-            < new_reorder_threshold
+            <= new_reorder_threshold
         )
 
         event_published = False
@@ -908,36 +922,23 @@ def update_product(
         if stock_changed:
 
             event_detail = {
-
-                "product_id":
-                    product_id,
-
-                "previous_stock_quantity":
-                    old_stock_quantity,
-
-                "stock_quantity":
-                    new_stock_quantity,
-
-                "reorder_threshold":
-                    new_reorder_threshold,
-
-                "low_stock":
-                    low_stock
+                "product_id": product_id,
+                "product_name": existing_product["name"],
+                "old_stock": old_stock_quantity,
+                "new_stock": new_stock_quantity,
+                "low_stock_threshold": new_reorder_threshold,
+                "low_stock": low_stock
             }
 
             event_result = events.put_events(
                 Entries=[
                     {
-                        "Source":
-                            "cloudmart.product",
-
-                        "DetailType":
-                            "Inventory Stock Changed",
-
-                        "Detail":
-                            json.dumps(
-                                event_detail
-                            )
+                        "EventBusName": EVENT_BUS_NAME,
+                        "Source": "cloudmart.product",
+                        "DetailType": "Inventory Changed",
+                        "Detail": json.dumps(
+                            event_detail
+                        )
                     }
                 ]
             )
@@ -1097,6 +1098,10 @@ def delete_product(
     context
 ):
 
+    permission_error = require_admin(event)
+    if permission_error is not None:
+        return permission_error
+
     product_id = get_product_id(
         event
     )
@@ -1146,7 +1151,9 @@ def delete_product(
             cursor.execute(
                 """
                 UPDATE products
-                SET deleted_at = NOW()
+                SET
+                    deleted_at = NOW(),
+                    status = 'INACTIVE'
                 WHERE product_id = %s
                   AND deleted_at IS NULL
                 """,
@@ -1178,6 +1185,32 @@ def delete_product(
 
         if connection is not None:
             connection.close()
+
+
+# ==========================================================
+# SERVICE-LAYER AUTHORIZATION
+# ==========================================================
+
+def get_authorizer_context(event):
+    return (event.get("requestContext") or {}).get("authorizer") or {}
+
+
+def is_admin(event):
+    return str(
+        get_authorizer_context(event).get("role", "")
+    ).upper() == "ADMIN"
+
+
+def require_admin(event):
+    if not is_admin(event):
+        return response(
+            403,
+            {
+                "message": "Admin permission is required"
+            }
+        )
+
+    return None
 
 
 # ==========================================================
@@ -1227,6 +1260,8 @@ def lambda_handler(
     )
 
     try:
+
+
 
         # ----------------------------------------------------
         # POST /products

@@ -1,35 +1,29 @@
 AWSTemplateFormatVersion: '2010-09-09'
 
 Description: >
-  CloudMart Data-Storage Stack.
-  Creates the private RDS MySQL database and
-  S3 report bucket.
-  Uses the existing Lambda deployment artifact bucket.
+  CloudMart Data Storage Stack.
+  Creates the private RDS MySQL database, DB subnet group,
+  encrypted S3 report bucket, deployment artifact bucket,
+  manually supplied database credentials stored in SSM SecureString,
+  and SSM configuration parameters.
+
+# ============================================================
+# PARAMETERS
+# ============================================================
 
 Parameters:
 
-  # ==========================================================
-  # ENVIRONMENT
-  # ==========================================================
-
   Environment:
     Type: String
-    Default: dev
     AllowedValues:
       - dev
       - prod
-    Description: Deployment environment
-
-
-  # ==========================================================
-  # DATABASE
-  # ==========================================================
+    Description: CloudMart deployment environment supplied by CI/CD
 
   DBName:
     Type: String
     Default: cloudmart
     Description: CloudMart database name
-
 
   DBUsername:
     Type: String
@@ -37,19 +31,10 @@ Parameters:
     NoEcho: true
     Description: RDS master username
 
-
-  DBPassword:
-    Type: String
-    NoEcho: true
-    MinLength: 12
-    Description: RDS master password
-
-
   DBInstanceClass:
     Type: String
     Default: db.t3.micro
     Description: RDS instance class
-
 
   AllocatedStorage:
     Type: Number
@@ -57,20 +42,23 @@ Parameters:
     Description: Initial RDS storage in GB
 
 
-  # ==========================================================
-  # EXISTING LAMBDA ARTIFACT BUCKET
-  # ==========================================================
-
-  LambdaArtifactBucket:
+  DBPassword:
     Type: String
-    Default: cloudmart-dev-artifacts
-    Description: Existing S3 bucket used for Lambda deployment artifacts
+    NoEcho: true
+    MinLength: 12
+    MaxLength: 41
+    Description: >
+      RDS master password entered manually during deployment.
+      Must contain at least 12 characters.
 
+# ============================================================
+# RESOURCES
+# ============================================================
 
 Resources:
 
   # ==========================================================
-  # RDS SUBNET GROUP
+  # RDS DB SUBNET GROUP
   # ==========================================================
 
   CloudMartDBSubnetGroup:
@@ -78,8 +66,8 @@ Resources:
 
     Properties:
 
-      DBSubnetGroupDescription: !Sub
-        CloudMart ${Environment} RDS private subnet group
+      DBSubnetGroupDescription:
+        !Sub CloudMart ${Environment} private RDS subnet group
 
       SubnetIds:
 
@@ -102,7 +90,7 @@ Resources:
 
 
   # ==========================================================
-  # RDS MYSQL DATABASE
+  # PRIVATE RDS MYSQL DATABASE
   # ==========================================================
 
   CloudMartRDS:
@@ -116,8 +104,7 @@ Resources:
       DBInstanceIdentifier:
         !Sub cloudmart-${Environment}-mysql
 
-      Engine:
-        mysql
+      Engine: mysql
 
       DBName:
         !Ref DBName
@@ -134,24 +121,21 @@ Resources:
       AllocatedStorage:
         !Ref AllocatedStorage
 
-      StorageType:
-        gp3
+      StorageType: gp3
 
-      Port:
-        3306
+      StorageEncrypted: true
 
-      PubliclyAccessible:
-        false
+      Port: 3306
 
-      MultiAZ:
-        false
+      PubliclyAccessible: false
 
-      # Account currently restricts backup retention.
-      BackupRetentionPeriod:
-        0
+      MultiAZ: false
 
-      CopyTagsToSnapshot:
-        true
+      DeletionProtection: false
+
+      BackupRetentionPeriod: 1
+
+      CopyTagsToSnapshot: true
 
       DBSubnetGroupName:
         !Ref CloudMartDBSubnetGroup
@@ -185,6 +169,9 @@ Resources:
 
     Properties:
 
+      # Keep the existing CloudFormation-managed bucket.
+      # Do not allow CloudFormation to generate a new name.
+    
       BucketEncryption:
 
         ServerSideEncryptionConfiguration:
@@ -195,8 +182,11 @@ Resources:
       PublicAccessBlockConfiguration:
 
         BlockPublicAcls: true
+
         BlockPublicPolicy: true
+
         IgnorePublicAcls: true
+
         RestrictPublicBuckets: true
 
       VersioningConfiguration:
@@ -214,18 +204,334 @@ Resources:
           Value: !Ref Environment
 
 
+  # ==========================================================
+  # S3 DEPLOYMENT ARTIFACT BUCKET
+  # ==========================================================
+
+  CloudMartArtifactBucket:
+    Type: AWS::S3::Bucket
+
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+
+    Properties:
+
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+      PublicAccessBlockConfiguration:
+
+        BlockPublicAcls: true
+
+        BlockPublicPolicy: true
+
+        IgnorePublicAcls: true
+
+        RestrictPublicBuckets: true
+
+      VersioningConfiguration:
+        Status: Enabled
+
+      LifecycleConfiguration:
+
+        Rules:
+
+          - Id: DeleteOldArtifactVersions
+
+            Status: Enabled
+
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 30
+
+      Tags:
+
+        - Key: Name
+          Value: !Sub cloudmart-${Environment}-artifacts
+
+        - Key: Project
+          Value: CloudMart
+
+        - Key: Environment
+          Value: !Ref Environment
+
+
+  # ==========================================================
+  # SSM DATABASE CONFIGURATION
+  # ==========================================================
+
+  DBEndpointParameter:
+    Type: AWS::SSM::Parameter
+
+    Properties:
+
+      Name:
+        !Sub /cloudmart/${Environment}/db/endpoint
+
+      Type: String
+
+      Value:
+        !GetAtt CloudMartRDS.Endpoint.Address
+
+      Description: CloudMart RDS MySQL endpoint
+
+
+  DBNameParameter:
+    Type: AWS::SSM::Parameter
+
+    Properties:
+
+      Name:
+        !Sub /cloudmart/${Environment}/db/name
+
+      Type: String
+
+      Value:
+        !Ref DBName
+
+      Description: CloudMart database name
+
+
+  DBPortParameter:
+    Type: AWS::SSM::Parameter
+
+    Properties:
+
+      Name:
+        !Sub /cloudmart/${Environment}/db/port
+
+      Type: String
+
+      Value:
+        !GetAtt CloudMartRDS.Endpoint.Port
+
+      Description: CloudMart RDS MySQL port
+
+
+  DBUsernameParameter:
+    Type: AWS::SSM::Parameter
+
+    Properties:
+
+      Name:
+        !Sub /cloudmart/${Environment}/db/username
+
+      Type: String
+
+      Value:
+        !Ref DBUsername
+
+      Description: CloudMart RDS MySQL username
+
+
+  # ==========================================================
+  # IAM ROLE FOR SSM PASSWORD WRITER
+  # ==========================================================
+
+  DBPasswordSSMWriterRole:
+    Type: AWS::IAM::Role
+
+    Properties:
+      RoleName:
+        !Sub cloudmart-${Environment}-data-ssm-writer-role
+
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+
+      Policies:
+        - PolicyName: SSMParameterWriter
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:PutParameter
+                  - ssm:DeleteParameter
+                Resource:
+                  !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/db/password
+
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+
+      Tags:
+        - Key: Name
+          Value: !Sub cloudmart-${Environment}-data-ssm-writer-role
+        - Key: Project
+          Value: CloudMart
+        - Key: Environment
+          Value: !Ref Environment
+
+
+  # ==========================================================
+  # SECURE PASSWORD WRITER LAMBDA
+  # ==========================================================
+
+  DBPasswordSSMWriterFunction:
+    Type: AWS::Lambda::Function
+
+    Properties:
+      FunctionName:
+        !Sub cloudmart-${Environment}-data-ssm-writer
+
+      Runtime: python3.12
+      Handler: index.handler
+      Role:
+        !GetAtt DBPasswordSSMWriterRole.Arn
+      Timeout: 60
+
+      Code:
+        ZipFile: |
+          import json
+          import logging
+          import urllib.request
+          import boto3
+
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+          ssm = boto3.client("ssm")
+
+          def send_response(event, context, status, reason=None, physical_id=None):
+              body = {
+                  "Status": status,
+                  "Reason": reason or "See CloudWatch Logs",
+                  "PhysicalResourceId": physical_id or context.log_stream_name,
+                  "StackId": event["StackId"],
+                  "RequestId": event["RequestId"],
+                  "LogicalResourceId": event["LogicalResourceId"],
+                  "Data": {}
+              }
+              encoded = json.dumps(body).encode("utf-8")
+              request = urllib.request.Request(
+                  event["ResponseURL"],
+                  data=encoded,
+                  method="PUT",
+                  headers={"content-type": "", "content-length": str(len(encoded))}
+              )
+              urllib.request.urlopen(request)
+
+          def handler(event, context):
+              properties = event["ResourceProperties"]
+              parameter_name = properties["ParameterName"]
+              physical_id = event.get("PhysicalResourceId") or parameter_name
+
+              try:
+                  request_type = event["RequestType"]
+                  logger.info("Processing SSM password parameter request: %s", request_type)
+
+                  if request_type in ("Create", "Update"):
+                      ssm.put_parameter(
+                          Name=parameter_name,
+                          Value=properties["Password"],
+                          Type="SecureString",
+                          Description=properties.get(
+                              "Description",
+                              "CloudMart secure database password"
+                          ),
+                          Overwrite=True
+                      )
+                      logger.info("SSM secure password parameter updated: %s", parameter_name)
+
+                  elif request_type == "Delete":
+                      try:
+                          ssm.delete_parameter(Name=parameter_name)
+                          logger.info("SSM secure password parameter deleted: %s", parameter_name)
+                      except ssm.exceptions.ParameterNotFound:
+                          logger.info("SSM parameter already absent: %s", parameter_name)
+
+                  send_response(event, context, "SUCCESS", physical_id=physical_id)
+
+              except Exception as exc:
+                  logger.exception("Failed to manage SSM secure password parameter")
+                  try:
+                      send_response(event, context, "FAILED", reason=str(exc), physical_id=physical_id)
+                  finally:
+                      raise
+
+
+  # ==========================================================
+  # SSM DATABASE PASSWORD CUSTOM RESOURCE
+  # ==========================================================
+
+  DBPasswordParameter:
+    Type: Custom::CloudMartSecureParameter
+
+    DependsOn:
+      - DBPasswordSSMWriterFunction
+
+    Properties:
+      ServiceToken:
+        !GetAtt DBPasswordSSMWriterFunction.Arn
+
+      ParameterName:
+        !Sub /cloudmart/${Environment}/db/password
+
+      Password:
+        !Ref DBPassword
+
+      Description:
+        CloudMart RDS MySQL master password stored as SecureString
+
+
+  # ==========================================================
+  # SSM S3 CONFIGURATION
+  # ==========================================================
+
+  ReportBucketParameter:
+    Type: AWS::SSM::Parameter
+
+    Properties:
+
+      Name:
+        !Sub /cloudmart/${Environment}/s3/report-bucket
+
+      Type: String
+
+      Value:
+        !Ref CloudMartReportBucket
+
+      Description: CloudMart report bucket name
+
+
+  ArtifactBucketParameter:
+    Type: AWS::SSM::Parameter
+
+    Properties:
+
+      Name:
+        !Sub /cloudmart/${Environment}/s3/artifact-bucket
+
+      Type: String
+
+      Value:
+        !Ref CloudMartArtifactBucket
+
+      Description: CloudMart deployment artifact bucket name
+
+
 # ============================================================
 # OUTPUTS
 # ============================================================
 
 Outputs:
 
-  # ----------------------------------------------------------
-  # RDS ENDPOINT
-  # ----------------------------------------------------------
+  # ==========================================================
+  # RDS OUTPUTS
+  # ==========================================================
 
   DBEndpoint:
-    Description: RDS MySQL endpoint
+    Description: CloudMart RDS MySQL endpoint
 
     Value:
       !GetAtt CloudMartRDS.Endpoint.Address
@@ -235,12 +541,8 @@ Outputs:
         !Sub cloudmart-${Environment}-DBEndpoint
 
 
-  # ----------------------------------------------------------
-  # RDS PORT
-  # ----------------------------------------------------------
-
   DBPort:
-    Description: RDS MySQL port
+    Description: CloudMart RDS MySQL port
 
     Value:
       !GetAtt CloudMartRDS.Endpoint.Port
@@ -250,11 +552,7 @@ Outputs:
         !Sub cloudmart-${Environment}-DBPort
 
 
-  # ----------------------------------------------------------
-  # DATABASE NAME
-  # ----------------------------------------------------------
-
-  DBName:
+  DBNameOutput:
     Description: CloudMart database name
 
     Value:
@@ -265,12 +563,19 @@ Outputs:
         !Sub cloudmart-${Environment}-DBName
 
 
-  # ----------------------------------------------------------
-  # RDS INSTANCE IDENTIFIER
-  # ----------------------------------------------------------
+  DBUsernameOutput:
+    Description: CloudMart database username
+
+    Value:
+      !Ref DBUsername
+
+    Export:
+      Name:
+        !Sub cloudmart-${Environment}-DBUsername
+
 
   DBInstanceIdentifier:
-    Description: RDS instance identifier
+    Description: CloudMart RDS instance identifier
 
     Value:
       !Ref CloudMartRDS
@@ -280,12 +585,28 @@ Outputs:
         !Sub cloudmart-${Environment}-DBInstanceIdentifier
 
 
-  # ----------------------------------------------------------
-  # REPORT BUCKET NAME
-  # ----------------------------------------------------------
+  # ==========================================================
+  # RDS SECURITY GROUP
+  # ==========================================================
+
+  RDSSecurityGroupId:
+    Description: CloudMart RDS security group ID
+
+    Value:
+      Fn::ImportValue:
+        Fn::Sub: cloudmart-${Environment}-RDSSecurityGroupId
+
+    Export:
+      Name:
+        !Sub cloudmart-${Environment}-DataStorageRDSSecurityGroupId
+
+
+  # ==========================================================
+  # REPORT BUCKET
+  # ==========================================================
 
   ReportBucketName:
-    Description: S3 report bucket name
+    Description: CloudMart report bucket name
 
     Value:
       !Ref CloudMartReportBucket
@@ -295,12 +616,8 @@ Outputs:
         !Sub cloudmart-${Environment}-ReportBucketName
 
 
-  # ----------------------------------------------------------
-  # REPORT BUCKET ARN
-  # ----------------------------------------------------------
-
   ReportBucketArn:
-    Description: S3 report bucket ARN
+    Description: CloudMart report bucket ARN
 
     Value:
       !GetAtt CloudMartReportBucket.Arn
@@ -310,33 +627,108 @@ Outputs:
         !Sub cloudmart-${Environment}-ReportBucketArn
 
 
-  # ----------------------------------------------------------
-  # LAMBDA ARTIFACT BUCKET NAME
-  # Existing bucket - NOT created by this stack
-  # ----------------------------------------------------------
+  # ==========================================================
+  # ARTIFACT BUCKET
+  # ==========================================================
 
-  LambdaArtifactBucketName:
-    Description: Existing S3 bucket used for Lambda deployment artifacts
+  ArtifactBucketName:
+    Description: CloudMart deployment artifact bucket name
 
     Value:
-      !Ref LambdaArtifactBucket
+      !Ref CloudMartArtifactBucket
 
     Export:
       Name:
-        !Sub cloudmart-${Environment}-LambdaArtifactBucketName
+        !Sub cloudmart-${Environment}-ArtifactBucketName
 
 
-  # ----------------------------------------------------------
-  # LAMBDA ARTIFACT BUCKET ARN
-  # Existing bucket - NOT created by this stack
-  # ----------------------------------------------------------
-
-  LambdaArtifactBucketArn:
-    Description: ARN of the existing Lambda artifact bucket
+  ArtifactBucketArn:
+    Description: CloudMart deployment artifact bucket ARN
 
     Value:
-      !Sub arn:${AWS::Partition}:s3:::${LambdaArtifactBucket}
+      !GetAtt CloudMartArtifactBucket.Arn
 
     Export:
       Name:
-        !Sub cloudmart-${Environment}-LambdaArtifactBucketArn
+        !Sub cloudmart-${Environment}-ArtifactBucketArn
+
+
+  # ==========================================================
+  # SSM PARAMETER PATHS
+  # ==========================================================
+
+  DBEndpointParameterName:
+    Description: SSM parameter path for RDS endpoint
+
+    Value:
+      !Ref DBEndpointParameter
+
+    Export:
+      Name:
+        !Sub cloudmart-${Environment}-DBEndpointParameterName
+
+
+  DBNameParameterName:
+    Description: SSM parameter path for database name
+
+    Value:
+      !Ref DBNameParameter
+
+    Export:
+      Name:
+        !Sub cloudmart-${Environment}-DBNameParameterName
+
+
+  DBPortParameterName:
+    Description: SSM parameter path for database port
+
+    Value:
+      !Ref DBPortParameter
+
+    Export:
+      Name:
+        !Sub cloudmart-${Environment}-DBPortParameterName
+
+
+  DBUsernameParameterName:
+    Description: SSM parameter path for database username
+
+    Value:
+      !Ref DBUsernameParameter
+
+    Export:
+      Name:
+        !Sub cloudmart-${Environment}-DBUsernameParameterName
+
+
+  DBPasswordParameterName:
+    Description: SSM parameter path for secure RDS password
+
+    Value:
+      !Ref DBPasswordParameter
+
+    Export:
+      Name:
+        !Sub cloudmart-${Environment}-DBPasswordParameterName
+
+
+  ReportBucketParameterName:
+    Description: SSM parameter path for report bucket
+
+    Value:
+      !Ref ReportBucketParameter
+
+    Export:
+      Name:
+        !Sub cloudmart-${Environment}-ReportBucketParameterName
+
+
+  ArtifactBucketParameterName:
+    Description: SSM parameter path for artifact bucket
+
+    Value:
+      !Ref ArtifactBucketParameter
+
+    Export:
+      Name:
+        !Sub cloudmart-${Environment}-ArtifactBucketParameterName
