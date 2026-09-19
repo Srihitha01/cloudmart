@@ -621,7 +621,9 @@ def mark_order_failed(
                 )
             )
 
-            if cursor.rowcount == 1:
+            updated_rows = cursor.rowcount
+
+            if updated_rows == 1:
 
                 cursor.execute(
                     """
@@ -651,7 +653,7 @@ def mark_order_failed(
 
         connection.commit()
 
-        if cursor.rowcount != 1:
+        if updated_rows != 1:
             log_event(
                 "WARN",
                 "Order was not marked as failed because it is not PENDING",

@@ -1134,80 +1134,6 @@ Resources:
 
 
   # ==========================================================
-  # ORDER UPDATED EVENT RULE
-  #
-  # OrderUpdated
-  #      |
-  #      v
-  # EventBridge
-  #      |
-  #      v
-  # Order Processor Lambda
-  #
-  # NO SQS
-  # ==========================================================
-
-  OrderUpdatedEventRule:
-
-    Type: AWS::Events::Rule
-
-    Properties:
-
-      Name:
-        !Sub cloudmart-${Environment}-order-updated-rule
-
-      Description:
-        Sends OrderUpdated events to the Order Processor Lambda
-
-      EventBusName:
-        !Ref CloudMartEventBus
-
-      State:
-        ENABLED
-
-      EventPattern:
-
-        source:
-
-          - cloudmart.orders
-
-        detail-type:
-
-          - OrderUpdated
-
-      Targets:
-
-        - Arn:
-            !GetAtt OrderProcessorLambda.Arn
-
-          Id:
-            OrderProcessorTarget
-
-
-  # ==========================================================
-  # EVENTBRIDGE -> ORDER PROCESSOR PERMISSION
-  # ==========================================================
-
-  EventBridgeInvokeOrderProcessorPermission:
-
-    Type: AWS::Lambda::Permission
-
-    Properties:
-
-      FunctionName:
-        !Ref OrderProcessorLambda
-
-      Action:
-        lambda:InvokeFunction
-
-      Principal:
-        events.amazonaws.com
-
-      SourceArn:
-        !GetAtt OrderUpdatedEventRule.Arn
-
-
-  # ==========================================================
   # PRODUCT ALERT SNS TOPIC
   # ==========================================================
 
@@ -1407,11 +1333,11 @@ Resources:
 
         source:
 
-          - cloudmart.product
+          - cloudmart.inventory
 
         detail-type:
 
-          - Inventory Changed
+          - LowStock
 
         detail:
 
@@ -1458,7 +1384,7 @@ Resources:
         !Sub cloudmart-${Environment}-order-alert-rule
 
       Description:
-        Sends CloudMart order lifecycle events to Order SNS alerts
+        Sends successful CloudMart order lifecycle events to Order SNS alerts
 
       EventBusName:
         !Ref CloudMartEventBus
@@ -1474,12 +1400,11 @@ Resources:
 
         detail-type:
 
-          - OrderCreated
-          - OrderUpdated
+          - OrderPending
+          - OrderPlaced
+          - OrderConfirmed
           - OrderCancelled
           - OrderDelivered
-          - OrderConfirmed
-          - OrderFailed
 
       Targets:
 
@@ -1499,14 +1424,70 @@ Resources:
               customerId: "$.detail.customer_id"
               status: "$.detail.status"
               totalAmount: "$.detail.total_amount"
-              failureReason: "$.detail.failure_reason"
 
             InputTemplate: >
               "CloudMart ORDER ALERT: Event <eventType>.
               Order ID: <orderId>, Customer ID: <customerId>,
+              Status: <status>, Total Amount: <totalAmount>."
+
+
+  # ==========================================================
+  # FAILED ORDER EVENTS -> ORDER SNS
+  # ==========================================================
+
+  OrderFailedEventsToSNSRule:
+
+    Type: AWS::Events::Rule
+
+    Properties:
+
+      Name:
+        !Sub cloudmart-${Environment}-order-failed-alert-rule
+
+      Description:
+        Sends failed CloudMart orders with the failure reason to SNS
+
+      EventBusName:
+        !Ref CloudMartEventBus
+
+      State:
+        ENABLED
+
+      EventPattern:
+
+        source:
+
+          - cloudmart.orders
+
+        detail-type:
+
+          - OrderFailed
+
+      Targets:
+
+        - Arn:
+            !Ref OrderAlertTopic
+
+          Id:
+            OrderFailedSNSTarget
+
+          RoleArn:
+            !GetAtt EventBridgeOrderSNSRole.Arn
+
+          InputTransformer:
+            InputPathsMap:
+              eventType: "$.detail-type"
+              orderId: "$.detail.order_id"
+              customerId: "$.detail.customer_id"
+              status: "$.detail.status"
+              totalAmount: "$.detail.total_amount"
+              failureReason: "$.detail.failure_reason"
+
+            InputTemplate: >
+              "CloudMart ORDER FAILED ALERT: Event <eventType>.
+              Order ID: <orderId>, Customer ID: <customerId>,
               Status: <status>, Total Amount: <totalAmount>,
               Failure Reason: <failureReason>."
-
 
 # ============================================================
 # OUTPUTS
@@ -1839,20 +1820,6 @@ Outputs:
   # EVENT RULES
   # ==========================================================
 
-  OrderUpdatedEventRuleArn:
-
-    Description:
-      Order Updated EventBridge Rule ARN
-
-    Value:
-      !GetAtt OrderUpdatedEventRule.Arn
-
-    Export:
-
-      Name:
-        !Sub cloudmart-${Environment}-OrderUpdatedEventRuleArn
-
-
   LowStockEventRuleArn:
 
     Description:
@@ -1878,4 +1845,18 @@ Outputs:
     Export:
 
       Name:
-        !Sub cloudmart-${Environment}-OrderEventsToSNSRuleArn 
+        !Sub cloudmart-${Environment}-OrderEventsToSNSRuleArn
+
+
+  OrderFailedEventsToSNSRuleArn:
+
+    Description:
+      Failed Order Events SNS EventBridge Rule ARN
+
+    Value:
+      !GetAtt OrderFailedEventsToSNSRule.Arn
+
+    Export:
+
+      Name:
+        !Sub cloudmart-${Environment}-OrderFailedEventsToSNSRuleArn 
