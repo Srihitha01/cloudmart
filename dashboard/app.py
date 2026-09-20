@@ -2,9 +2,10 @@ import os
 import boto3
 import pymysql
 
-from flask import Flask, render_template_string
+from flask import Flask, render_template_string, request, redirect, url_for, session
 
 app = Flask(__name__)
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "change-this-secret-key")
 
 AWS_REGION = os.environ.get("AWS_REGION", "ap-south-1")
 
@@ -37,6 +38,18 @@ REPORT_BUCKET = os.environ.get(
     "REPORT_BUCKET",
     ""
 )
+
+AUTH_TOKEN_PARAMETER = os.environ.get(
+    "AUTH_TOKEN_PARAMETER",
+    "/cloudmart/dev/auth/token"
+)
+
+def get_admin_token():
+    return get_parameter(AUTH_TOKEN_PARAMETER)
+
+def login_required():
+    return session.get("authenticated") is True
+
 
 ssm = boto3.client("ssm", region_name=AWS_REGION)
 s3 = boto3.client("s3", region_name=AWS_REGION)
@@ -197,8 +210,156 @@ def get_reports():
         return []
 
 
+
+LOGIN_HTML = """
+<!doctype html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CloudMart Admin Login</title>
+<style>
+body{margin:0;font-family:Inter,Arial;background:#eef2f7;display:grid;place-items:center;min-height:100vh}
+.box{background:white;padding:34px;border-radius:18px;width:min(390px,90%);box-shadow:0 12px 35px #17203320}
+h1{color:#172033;margin-top:0}input,button{width:100%;box-sizing:border-box;padding:13px;margin-top:12px;border-radius:9px;border:1px solid #ccd3df}
+button{background:#2563eb;color:white;border:0;font-weight:bold;cursor:pointer}.error{color:#b91c1c;margin-top:12px}
+</style>
+</head>
+<body><div class="box"><h1>CloudMart Admin</h1><p>Enter your bearer token to continue.</p>
+<form method="post"><input name="token" type="password" placeholder="Bearer token" required>
+<button type="submit">Sign in</button></form>
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+</div></body></html>
+"""
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        supplied = request.form.get("token", "").strip()
+        try:
+            expected = get_admin_token().strip()
+            if supplied.startswith("Bearer "):
+                supplied = supplied[7:].strip()
+            if expected.startswith("Bearer "):
+                expected = expected[7:].strip()
+            if supplied and supplied == expected:
+                session["authenticated"] = True
+                return redirect(url_for("dashboard"))
+        except Exception:
+            pass
+        return render_template_string(LOGIN_HTML, error="Invalid token or authentication configuration.")
+    return render_template_string(LOGIN_HTML, error=None)
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
+
+def require_login():
+    if not login_required():
+        return redirect(url_for("login"))
+    return None
+
+@app.route("/products")
+def products_page():
+    guard = require_login()
+    if guard: return guard
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""SELECT p.product_id,p.name,COALESCE(c.name,'Uncategorized') category,
+                                  p.price,p.stock_quantity,p.reorder_threshold
+                           FROM products p LEFT JOIN categories c ON p.category_id=c.category_id
+                           WHERE p.deleted_at IS NULL ORDER BY p.product_id""")
+            rows = cur.fetchall()
+        return render_template_string(TABLE_HTML, title="Products", columns=["ID","Name","Category","Price","Stock","Threshold"],
+                                      rows=[[r.get("product_id"),r.get("name"),r.get("category"),r.get("price"),
+                                             r.get("stock_quantity"),r.get("reorder_threshold")] for r in rows])
+    finally: conn.close()
+
+@app.route("/customers")
+def customers_page():
+    guard = require_login()
+    if guard: return guard
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM customers ORDER BY customer_id DESC LIMIT 100")
+            rows = cur.fetchall()
+        columns = list(rows[0].keys()) if rows else ["Message"]
+        values = [[r.get(c) for c in columns] for r in rows] if rows else [["No customers found"]]
+        return render_template_string(TABLE_HTML, title="Customers", columns=columns, rows=values)
+    finally: conn.close()
+
+@app.route("/orders/<int:order_id>")
+def order_detail(order_id):
+    guard = require_login()
+    if guard: return guard
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM orders WHERE order_id=%s", (order_id,))
+            order = cur.fetchone()
+            cur.execute("SELECT * FROM order_logs WHERE order_id=%s ORDER BY created_at DESC", (order_id,))
+            logs = cur.fetchall()
+        return render_template_string(DETAIL_HTML, order=order, logs=logs)
+    finally: conn.close()
+
+@app.route("/search")
+def search():
+    guard = require_login()
+    if guard: return guard
+    q = request.args.get("q", "").strip()
+    if not q: return redirect(url_for("dashboard"))
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            like = "%" + q + "%"
+            cur.execute("""SELECT product_id AS id,name AS value,'Product' AS type
+                           FROM products WHERE deleted_at IS NULL AND (name LIKE %s OR CAST(product_id AS CHAR) LIKE %s)
+                           UNION ALL
+                           SELECT order_id AS id,CAST(order_id AS CHAR) AS value,'Order' AS type
+                           FROM orders WHERE CAST(order_id AS CHAR) LIKE %s
+                           LIMIT 50""", (like,like,like))
+            results = cur.fetchall()
+        return render_template_string(SEARCH_HTML, q=q, results=results)
+    finally: conn.close()
+
+TABLE_HTML = """
+<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{ title }}</title><style>
+body{font-family:Arial;margin:0;background:#f4f6fa;color:#172033}.top{background:#172033;color:white;padding:20px 5%}
+main{padding:25px 5%}.panel{background:white;padding:20px;border-radius:14px;overflow:auto}
+table{width:100%;border-collapse:collapse}th,td{padding:12px;border-bottom:1px solid #e5e7eb;text-align:left;white-space:nowrap}
+th{background:#eef2f7}a{color:#2563eb;text-decoration:none}.back{color:white;float:right}
+</style></head><body><div class="top"><a class="back" href="/">Dashboard</a><h1>{{ title }}</h1></div>
+<main><div class="panel"><table><tr>{% for c in columns %}<th>{{ c }}</th>{% endfor %}</tr>
+{% for row in rows %}<tr>{% for v in row %}<td>{{ v if v is not none else '-' }}</td>{% endfor %}</tr>{% endfor %}
+</table></div></main></body></html>
+"""
+
+DETAIL_HTML = """
+<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Order Details</title><style>body{font-family:Arial;background:#f4f6fa;padding:25px}.box{background:white;padding:22px;border-radius:14px;margin-bottom:20px}dt{font-weight:bold;margin-top:10px}dd{margin:3px 0}</style></head>
+<body><a href="/">← Dashboard</a><h1>Order Details</h1>
+<div class="box">{% if order %}<dl>{% for k,v in order.items() %}<dt>{{k}}</dt><dd>{{v}}</dd>{% endfor %}</dl>{% else %}Order not found{% endif %}</div>
+<div class="box"><h2>Order History</h2>{% for log in logs %}<p>{{log.created_at}} — {{log.previous_status}} → {{log.new_status}} — {{log.note or ''}}</p>{% else %}<p>No history found.</p>{% endfor %}</div>
+</body></html>
+"""
+
+SEARCH_HTML = """
+<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Search</title><style>body{font-family:Arial;padding:25px;background:#f4f6fa}.item{background:white;padding:15px;margin:10px 0;border-radius:10px}</style></head>
+<body><a href="/">← Dashboard</a><h1>Search results for "{{q}}"</h1>
+{% for r in results %}<div class="item"><b>{{r.type}}</b>: {{r.value}} (ID: {{r.id}})
+{% if r.type == 'Order' %} — <a href="/orders/{{r.id}}">Open order</a>{% endif %}</div>
+{% else %}<p>No results found.</p>{% endfor %}</body></html>
+"""
+
 @app.route("/")
 def dashboard():
+    guard = require_login()
+    if guard:
+        return guard
 
     try:
         data = get_dashboard_data()
@@ -363,9 +524,16 @@ HTML = """
 
     <h1>CloudMart Operations Dashboard</h1>
 
+    <p>Live inventory, orders, order history and daily reports</p>
     <p>
-        Live inventory, orders, order history and daily reports
+      <a href="/products" style="color:white;margin-right:15px">Products</a>
+      <a href="/customers" style="color:white;margin-right:15px">Customers</a>
+      <a href="/logout" style="color:white">Logout</a>
     </p>
+    <form action="/search" method="get">
+      <input name="q" placeholder="Search product or order ID" style="padding:10px;border-radius:6px;border:0">
+      <button style="padding:10px;border:0;border-radius:6px">Search</button>
+    </form>
 </header>
 
 <div class="container">
@@ -464,7 +632,7 @@ HTML = """
 {% for order in data.orders %}
 
 <tr>
-    <td>{{ order.order_id }}</td>
+    <td><a href="/orders/{{ order.order_id }}">{{ order.order_id }}</a></td>
     <td>{{ order.customer_id }}</td>
     <td>{{ order.status }}</td>
     <td>{{ order.order_date }}</td>
