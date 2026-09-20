@@ -1846,7 +1846,7 @@ jobs:
           Environment=DB_USERNAME_PARAMETER=/cloudmart/${ENVIRONMENT}/db/username
           Environment=DB_PASSWORD_PARAMETER=/cloudmart/${ENVIRONMENT}/db/password
           Environment=REPORT_BUCKET_PARAMETER=/cloudmart/${ENVIRONMENT}/s3/report-bucket
-          ExecStart=/usr/local/bin/gunicorn --workers 2 --bind 0.0.0.0:${DASHBOARD_SERVICE_PORT} app:app
+          ExecStart=/opt/cloudmart/dashboard/.venv/bin/gunicorn --workers 2 --bind 0.0.0.0:${DASHBOARD_SERVICE_PORT} app:app
           Restart=always
           RestartSec=5
           User=root
@@ -1865,11 +1865,13 @@ jobs:
             --arg port "$DASHBOARD_SERVICE_PORT" \
             '{commands: [
               "set -euo pipefail",
-              "dnf install -y python3 python3-pip",
+              "dnf install -y python3 python3-pip python3-devel",
               "mkdir -p /opt/cloudmart/dashboard",
+              "rm -rf /opt/cloudmart/dashboard/.venv",
               ("aws s3 sync s3://" + $bucket + "/dashboard/ /opt/cloudmart/dashboard/ --region " + $region),
-              "python3 -m pip install --upgrade pip",
-              "python3 -m pip install flask pymysql boto3 gunicorn",
+              "python3 -m venv /opt/cloudmart/dashboard/.venv",
+              "/opt/cloudmart/dashboard/.venv/bin/python -m pip install --upgrade pip setuptools wheel",
+              "/opt/cloudmart/dashboard/.venv/bin/python -m pip install --upgrade flask pymysql boto3 gunicorn",
               ("printf %s " + $service_b64 + " | base64 -d > /etc/systemd/system/cloudmart-dashboard.service"),
               "chmod 644 /etc/systemd/system/cloudmart-dashboard.service",
               "systemctl daemon-reload",
