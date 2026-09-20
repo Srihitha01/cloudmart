@@ -1795,84 +1795,127 @@ jobs:
       # ------------------------------------------------------
 
       - name: Deploy Flask Dashboard to EC2
-
+        shell: bash
+        env:
+          DASHBOARD_SERVICE_PORT: "5000"
         run: |
+          set -euo pipefail
 
           echo "========================================"
-
           echo "DEPLOYING FLASK DASHBOARD TO EC2"
-
           echo "========================================"
 
+          ARTIFACT_BUCKET=$(aws cloudformation describe-stacks \
+            --stack-name "$DATA_STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query "Stacks[0].Outputs[?OutputKey=='ArtifactBucketName'].OutputValue" \
+            --output text)
 
-          ARTIFACT_BUCKET=$(aws cloudformation describe-stacks             --stack-name "$DATA_STACK_NAME"             --region "$AWS_REGION"             --query "Stacks[0].Outputs[?OutputKey=='ArtifactBucketName'].OutputValue"             --output text)
+          INSTANCE_ID=$(aws cloudformation describe-stacks \
+            --stack-name "$API_MONITORING_EC2_STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query "Stacks[0].Outputs[?OutputKey=='DashboardInstanceId'].OutputValue" \
+            --output text)
 
-
-          INSTANCE_ID=$(aws cloudformation describe-stacks             --stack-name "$API_MONITORING_EC2_STACK_NAME"             --region "$AWS_REGION"             --query "Stacks[0].Outputs[?OutputKey=='DashboardInstanceId'].OutputValue"             --output text)
-
-
-          if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ]; then
-            echo "ERROR: Dashboard instance ID not found."
+          if [ -z "$ARTIFACT_BUCKET" ] || [ "$ARTIFACT_BUCKET" = "None" ]; then
+            echo "ERROR: ArtifactBucketName output was not found."
             exit 1
           fi
 
+          if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ]; then
+            echo "ERROR: Dashboard instance ID was not found."
+            exit 1
+          fi
 
+          echo "Artifact bucket: $ARTIFACT_BUCKET"
           echo "Dashboard instance: $INSTANCE_ID"
 
+          SERVICE_CONTENT=$(cat <<SERVICE_EOF
+          [Unit]
+          Description=CloudMart Flask Dashboard
+          After=network-online.target
+          Wants=network-online.target
 
-          COMMANDS=$(cat <<EOF
-          {
-            "commands": [
+          [Service]
+          Type=simple
+          WorkingDirectory=/opt/cloudmart/dashboard
+          Environment=AWS_REGION=${AWS_REGION}
+          Environment=DB_ENDPOINT_PARAMETER=/cloudmart/${ENVIRONMENT}/db/endpoint
+          Environment=DB_PORT_PARAMETER=/cloudmart/${ENVIRONMENT}/db/port
+          Environment=DB_NAME_PARAMETER=/cloudmart/${ENVIRONMENT}/db/name
+          Environment=DB_USERNAME_PARAMETER=/cloudmart/${ENVIRONMENT}/db/username
+          Environment=DB_PASSWORD_PARAMETER=/cloudmart/${ENVIRONMENT}/db/password
+          Environment=REPORT_BUCKET_PARAMETER=/cloudmart/${ENVIRONMENT}/s3/report-bucket
+          ExecStart=/usr/local/bin/gunicorn --workers 2 --bind 0.0.0.0:${DASHBOARD_SERVICE_PORT} app:app
+          Restart=always
+          RestartSec=5
+          User=root
+
+          [Install]
+          WantedBy=multi-user.target
+          SERVICE_EOF
+          )
+
+          SERVICE_B64=$(printf '%s' "$SERVICE_CONTENT" | base64 -w 0)
+
+          COMMANDS=$(jq -n \
+            --arg bucket "$ARTIFACT_BUCKET" \
+            --arg region "$AWS_REGION" \
+            --arg service_b64 "$SERVICE_B64" \
+            --arg port "$DASHBOARD_SERVICE_PORT" \
+            '{commands: [
+              "set -euo pipefail",
               "dnf install -y python3 python3-pip",
               "mkdir -p /opt/cloudmart/dashboard",
-              "aws s3 sync s3://${ARTIFACT_BUCKET}/dashboard/ /opt/cloudmart/dashboard/ --region ${AWS_REGION}",
+              ("aws s3 sync s3://" + $bucket + "/dashboard/ /opt/cloudmart/dashboard/ --region " + $region),
               "python3 -m pip install --upgrade pip",
               "python3 -m pip install flask pymysql boto3 gunicorn",
-              "cat > /etc/systemd/system/cloudmart-dashboard.service <<'SERVICE'",
-              "[Unit]",
-              "Description=CloudMart Flask Dashboard",
-              "After=network-online.target",
-              "Wants=network-online.target",
-              "",
-              "[Service]",
-              "Type=simple",
-              "WorkingDirectory=/opt/cloudmart/dashboard",
-              "Environment=AWS_REGION=${AWS_REGION}",
-              "Environment=DB_ENDPOINT_PARAMETER=/cloudmart/${ENVIRONMENT}/db/endpoint",
-              "Environment=DB_PORT_PARAMETER=/cloudmart/${ENVIRONMENT}/db/port",
-              "Environment=DB_NAME_PARAMETER=/cloudmart/${ENVIRONMENT}/db/name",
-              "Environment=DB_USERNAME_PARAMETER=/cloudmart/${ENVIRONMENT}/db/username",
-              "Environment=DB_PASSWORD_PARAMETER=/cloudmart/${ENVIRONMENT}/db/password",
-              "Environment=REPORT_BUCKET=\$(aws ssm get-parameter --name /cloudmart/${ENVIRONMENT}/s3/report-bucket --query Parameter.Value --output text --region ${AWS_REGION})",
-              "ExecStart=/usr/local/bin/gunicorn --bind 0.0.0.0:80 app:app",
-              "Restart=always",
-              "RestartSec=5",
-              "User=root",
-              "",
-              "[Install]",
-              "WantedBy=multi-user.target",
-              "SERVICE",
+              ("printf %s " + $service_b64 + " | base64 -d > /etc/systemd/system/cloudmart-dashboard.service"),
+              "chmod 644 /etc/systemd/system/cloudmart-dashboard.service",
               "systemctl daemon-reload",
               "systemctl enable cloudmart-dashboard",
               "systemctl restart cloudmart-dashboard",
-              "systemctl is-active --quiet cloudmart-dashboard"
-            ]
-          }
-          EOF
-          )
+              "sleep 3",
+              "systemctl is-active --quiet cloudmart-dashboard",
+              ("ss -ltnp | grep -q :" + $port)
+            ]}')
 
-
-          COMMAND_ID=$(aws ssm send-command             --instance-ids "$INSTANCE_ID"             --document-name "AWS-RunShellScript"             --comment "Deploy CloudMart Flask dashboard"             --parameters "$COMMANDS"             --region "$AWS_REGION"             --query "Command.CommandId"             --output text)
-
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --comment "Deploy CloudMart Flask dashboard" \
+            --parameters "$COMMANDS" \
+            --region "$AWS_REGION" \
+            --query "Command.CommandId" \
+            --output text)
 
           echo "SSM command: $COMMAND_ID"
 
+          aws ssm wait command-executed \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$INSTANCE_ID" \
+            --region "$AWS_REGION"
 
-          aws ssm wait command-executed             --command-id "$COMMAND_ID"             --instance-id "$INSTANCE_ID"             --region "$AWS_REGION"
+          STATUS=$(aws ssm get-command-invocation \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$INSTANCE_ID" \
+            --region "$AWS_REGION" \
+            --query "Status" \
+            --output text)
 
+          aws ssm get-command-invocation \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$INSTANCE_ID" \
+            --region "$AWS_REGION" \
+            --query "[StandardOutputContent,StandardErrorContent]" \
+            --output text
 
-          aws ssm get-command-invocation             --command-id "$COMMAND_ID"             --instance-id "$INSTANCE_ID"             --region "$AWS_REGION"             --query "[Status,StandardOutputContent,StandardErrorContent]"             --output text
+          if [ "$STATUS" != "Success" ]; then
+            echo "ERROR: Dashboard deployment failed with status: $STATUS"
+            exit 1
+          fi
 
+          echo "Dashboard deployment completed successfully."
 
       # ------------------------------------------------------
       # VERIFY API STACK
