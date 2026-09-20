@@ -36,6 +36,13 @@ Parameters:
     Default: 10.0.3.0/24
     Description: CIDR block for secondary private subnet
 
+  DashboardPort:
+    Type: Number
+    Default: 5000
+    MinValue: 1
+    MaxValue: 65535
+    Description: TCP port used by the CloudMart Flask dashboard
+
 
 Resources:
 
@@ -290,6 +297,15 @@ Resources:
     Properties:
       GroupDescription: Security group for CloudMart EC2 dashboard and RDS client
       VpcId: !Ref CloudMartVPC
+
+      SecurityGroupIngress:
+        # Public browser access to the Flask dashboard.
+        # For production, replace 0.0.0.0/0 with your trusted public IP/CIDR.
+        - IpProtocol: tcp
+          FromPort: !Ref DashboardPort
+          ToPort: !Ref DashboardPort
+          CidrIp: 0.0.0.0/0
+          Description: CloudMart Flask dashboard access
 
       SecurityGroupEgress:
         - IpProtocol: -1
@@ -608,6 +624,11 @@ Outputs:
 
     Export:
       Name: !Sub cloudmart-${Environment}-EC2SecurityGroupId
+
+
+  DashboardPort:
+    Description: TCP port opened for the CloudMart Flask dashboard
+    Value: !Ref DashboardPort
 
 
   VPCEndpointSecurityGroupId:
