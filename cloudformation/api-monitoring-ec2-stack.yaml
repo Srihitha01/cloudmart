@@ -43,6 +43,20 @@ Parameters:
     Description: HTTP port for the Flask dashboard
 
 
+  # ==========================================================
+  # SNS ALERT TOPICS
+  # ==========================================================
+  ProductAlertsTopicArn:
+    Type: String
+    Default: arn:aws:sns:ap-south-1:285150348844:cloudmart-dev-product-alerts
+    Description: SNS topic ARN for product and API monitoring alerts
+
+  OrderAlertsTopicArn:
+    Type: String
+    Default: arn:aws:sns:ap-south-1:285150348844:cloudmart-dev-order-alerts
+    Description: SNS topic ARN for order and infrastructure monitoring alerts
+
+
 # ============================================================
 # RESOURCES
 # ============================================================
@@ -1541,6 +1555,10 @@ Resources:
       ComparisonOperator:
         GreaterThanOrEqualToThreshold
 
+      AlarmActions:
+        - !Ref ProductAlertsTopicArn
+        - !Ref OrderAlertsTopicArn
+
       TreatMissingData:
         notBreaching
 
@@ -1586,6 +1604,9 @@ Resources:
       ComparisonOperator:
         GreaterThanOrEqualToThreshold
 
+      AlarmActions:
+        - !Ref ProductAlertsTopicArn
+
       TreatMissingData:
         notBreaching
 
@@ -1630,6 +1651,9 @@ Resources:
 
       ComparisonOperator:
         GreaterThanOrEqualToThreshold
+
+      AlarmActions:
+        - !Ref OrderAlertsTopicArn
 
       TreatMissingData:
         notBreaching
@@ -1923,6 +1947,9 @@ Resources:
 
       ComparisonOperator:
         GreaterThanThreshold
+
+      AlarmActions:
+        - !Ref OrderAlertsTopicArn
 
       TreatMissingData:
         notBreaching
