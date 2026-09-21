@@ -56,6 +56,11 @@ Parameters:
     Default: arn:aws:sns:ap-south-1:285150348844:cloudmart-dev-order-alerts
     Description: SNS topic ARN for order and infrastructure monitoring alerts
 
+  RdsDbInstanceIdentifier:
+    Type: String
+    Default: cloudmart-dev-mysql
+    Description: RDS DB instance identifier used by CloudWatch RDS metrics
+
 
 # ============================================================
 # RESOURCES
@@ -1414,46 +1419,13 @@ Resources:
               {
                 "type": "metric",
                 "properties": {
-                  "title": "API Gateway Requests",
+                  "title": "API Gateway - Request Count and Errors",
                   "view": "timeSeries",
                   "region": "${AWS::Region}",
                   "metrics": [
-                    [
-                      "AWS/ApiGateway",
-                      "Count",
-                      "ApiName",
-                      "cloudmart-${Environment}-api",
-                      "Stage",
-                      "${Environment}"
-                    ]
-                  ],
-                  "period": 300,
-                  "stat": "Sum"
-                }
-              },
-              {
-                "type": "metric",
-                "properties": {
-                  "title": "API Gateway Errors",
-                  "view": "timeSeries",
-                  "region": "${AWS::Region}",
-                  "metrics": [
-                    [
-                      "AWS/ApiGateway",
-                      "4XXError",
-                      "ApiName",
-                      "cloudmart-${Environment}-api",
-                      "Stage",
-                      "${Environment}"
-                    ],
-                    [
-                      ".",
-                      "5XXError",
-                      ".",
-                      ".",
-                      ".",
-                      "."
-                    ]
+                    [ "AWS/ApiGateway", "Count", "ApiName", "cloudmart-${Environment}-api", "Stage", "${Environment}" ],
+                    [ ".", "4XXError", ".", ".", ".", "." ],
+                    [ ".", "5XXError", ".", ".", ".", "." ]
                   ],
                   "period": 300,
                   "stat": "Sum"
@@ -1466,10 +1438,10 @@ Resources:
                   "view": "timeSeries",
                   "region": "${AWS::Region}",
                   "metrics": [
-                    [ "AWS/Lambda", "Invocations", "FunctionName", "cloudmart-${Environment}-product-lambda", { "label": "Invocations", "stat": "Sum" } ],
-                    [ ".", "Errors", ".", ".", { "label": "Errors", "stat": "Sum" } ],
-                    [ ".", "Duration", ".", ".", { "label": "Duration p50", "stat": "p50" } ],
-                    [ ".", ".", ".", ".", { "label": "Duration p90", "stat": "p90" } ]
+                    [ "AWS/Lambda", "Invocations", "FunctionName", "cloudmart-${Environment}-product-lambda" ],
+                    [ ".", "Errors", ".", "." ],
+                    [ ".", "Duration", ".", ".", { "stat": "p50", "label": "Duration p50" } ],
+                    [ ".", ".", ".", ".", { "stat": "p90", "label": "Duration p90" } ]
                   ],
                   "period": 300,
                   "stat": "Sum"
@@ -1482,10 +1454,10 @@ Resources:
                   "view": "timeSeries",
                   "region": "${AWS::Region}",
                   "metrics": [
-                    [ "AWS/Lambda", "Invocations", "FunctionName", "cloudmart-${Environment}-order-lambda", { "label": "Invocations", "stat": "Sum" } ],
-                    [ ".", "Errors", ".", ".", { "label": "Errors", "stat": "Sum" } ],
-                    [ ".", "Duration", ".", ".", { "label": "Duration p50", "stat": "p50" } ],
-                    [ ".", ".", ".", ".", { "label": "Duration p90", "stat": "p90" } ]
+                    [ "AWS/Lambda", "Invocations", "FunctionName", "cloudmart-${Environment}-order-lambda" ],
+                    [ ".", "Errors", ".", "." ],
+                    [ ".", "Duration", ".", ".", { "stat": "p50", "label": "Duration p50" } ],
+                    [ ".", ".", ".", ".", { "stat": "p90", "label": "Duration p90" } ]
                   ],
                   "period": 300,
                   "stat": "Sum"
@@ -1494,23 +1466,53 @@ Resources:
               {
                 "type": "metric",
                 "properties": {
-                  "title": "CloudMart Business Metrics",
+                  "title": "Lambda Invocations and Errors",
                   "view": "timeSeries",
                   "region": "${AWS::Region}",
-                  "namespace": "CloudMart/Business",
                   "metrics": [
-                    [ "CloudMart/Business", "OrdersPlaced" ],
-                    [ ".", "OrdersFailed" ],
-                    [ ".", "OrdersCancelled" ],
-                    [ ".", "LowStockEvents" ]
+                    [ "AWS/Lambda", "Invocations", "FunctionName", "cloudmart-${Environment}-product-lambda" ],
+                    [ ".", "Errors", ".", "." ],
+                    [ ".", "Invocations", "FunctionName", "cloudmart-${Environment}-order-lambda" ],
+                    [ ".", "Errors", ".", "." ]
                   ],
                   "period": 300,
                   "stat": "Sum"
                 }
+              },
+              {
+                "type": "metric",
+                "properties": {
+                  "title": "CloudMart Orders and Inventory Count",
+                  "view": "timeSeries",
+                  "region": "${AWS::Region}",
+                  "metrics": [
+                    [ "CloudMart/Business", "OrdersPlaced" ],
+                    [ ".", "OrdersFailed" ],
+                    [ ".", "OrdersCancelled" ],
+                    [ ".", "LowStockEvents" ],
+                    [ ".", "InventoryCount" ]
+                  ],
+                  "period": 300,
+                  "stat": "Sum"
+                }
+              },
+              {
+                "type": "metric",
+                "properties": {
+                  "title": "RDS - CPU Utilization, Database Connections and Free Storage",
+                  "view": "timeSeries",
+                  "region": "${AWS::Region}",
+                  "metrics": [
+                    [ "AWS/RDS", "CPUUtilization", "DBInstanceIdentifier", "${RdsDbInstanceIdentifier}" ],
+                    [ ".", "DatabaseConnections", ".", "." ],
+                    [ ".", "FreeStorageSpace", ".", "." ]
+                  ],
+                  "period": 300,
+                  "stat": "Average"
+                }
               }
             ]
           }
-
 
   # ==========================================================
   # API 5XX ERROR ALARM
