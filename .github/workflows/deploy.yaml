@@ -301,7 +301,7 @@ jobs:
 
 
           python -m pip install --quiet cfn-lint
-          cfn-lint -t cloudformation/network-stack.yaml
+          cfn-lint -t cloudformation/network-stack.yaml --non-zero-exit-code error
 
 
       # ------------------------------------------------------
@@ -536,7 +536,7 @@ jobs:
 
 
           python -m pip install --quiet cfn-lint
-          cfn-lint -t cloudformation/data-stack.yaml
+          cfn-lint -t cloudformation/data-stack.yaml --non-zero-exit-code error
 
 
       # ------------------------------------------------------
@@ -735,7 +735,7 @@ jobs:
 
 
           python -m pip install --quiet cfn-lint
-          cfn-lint -t cloudformation/iam-stack.yaml
+          cfn-lint -t cloudformation/iam-stack.yaml --non-zero-exit-code error
 
 
       # ------------------------------------------------------
@@ -963,7 +963,7 @@ jobs:
 
 
           python -m pip install --quiet cfn-lint
-          cfn-lint -t cloudformation/application-events-stack.yaml
+          cfn-lint -t cloudformation/application-events-stack.yaml --non-zero-exit-code error
 
 
       # ------------------------------------------------------
@@ -1750,7 +1750,7 @@ jobs:
 
 
           python -m pip install --quiet cfn-lint
-          cfn-lint -t cloudformation/api-monitoring-ec2-stack.yaml
+          cfn-lint -t cloudformation/api-monitoring-ec2-stack.yaml --non-zero-exit-code error
 
 
       # ------------------------------------------------------
