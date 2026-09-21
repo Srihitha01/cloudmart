@@ -43,12 +43,6 @@ Parameters:
     Description: HTTP port for the Flask dashboard
 
 
-  RdsDbInstanceIdentifier:
-    Type: String
-    Default: ''
-    Description: RDS DB instance identifier used by CloudWatch RDS metrics
-
-
   # ==========================================================
   # SNS ALERT TOPICS
   # ==========================================================
@@ -1414,22 +1408,24 @@ Resources:
       DashboardBody:
 
         Fn::Sub: |
+
           {
             "widgets": [
               {
                 "type": "metric",
-                "x": 0,
-                "y": 0,
-                "width": 12,
-                "height": 6,
                 "properties": {
-                  "title": "API Gateway - Request Count and Errors",
+                  "title": "API Gateway Requests",
                   "view": "timeSeries",
                   "region": "${AWS::Region}",
                   "metrics": [
-                    [ "AWS/ApiGateway", "Count", "ApiName", "cloudmart-${Environment}-api", "Stage", "${Environment}", { "label": "Requests", "stat": "Sum" } ],
-                    [ ".", "4XXError", ".", ".", ".", ".", { "label": "4XX Errors", "stat": "Sum" } ],
-                    [ ".", "5XXError", ".", ".", ".", ".", { "label": "5XX Errors", "stat": "Sum" } ]
+                    [
+                      "AWS/ApiGateway",
+                      "Count",
+                      "ApiName",
+                      "cloudmart-${Environment}-api",
+                      "Stage",
+                      "${Environment}"
+                    ]
                   ],
                   "period": 300,
                   "stat": "Sum"
@@ -1437,10 +1433,34 @@ Resources:
               },
               {
                 "type": "metric",
-                "x": 12,
-                "y": 0,
-                "width": 12,
-                "height": 6,
+                "properties": {
+                  "title": "API Gateway Errors",
+                  "view": "timeSeries",
+                  "region": "${AWS::Region}",
+                  "metrics": [
+                    [
+                      "AWS/ApiGateway",
+                      "4XXError",
+                      "ApiName",
+                      "cloudmart-${Environment}-api",
+                      "Stage",
+                      "${Environment}"
+                    ],
+                    [
+                      ".",
+                      "5XXError",
+                      ".",
+                      ".",
+                      ".",
+                      "."
+                    ]
+                  ],
+                  "period": 300,
+                  "stat": "Sum"
+                }
+              },
+              {
+                "type": "metric",
                 "properties": {
                   "title": "Product Lambda - Invocations, Errors and Duration",
                   "view": "timeSeries",
@@ -1457,10 +1477,6 @@ Resources:
               },
               {
                 "type": "metric",
-                "x": 0,
-                "y": 6,
-                "width": 12,
-                "height": 6,
                 "properties": {
                   "title": "Order Lambda - Invocations, Errors and Duration",
                   "view": "timeSeries",
@@ -1477,42 +1493,19 @@ Resources:
               },
               {
                 "type": "metric",
-                "x": 12,
-                "y": 6,
-                "width": 12,
-                "height": 6,
                 "properties": {
-                  "title": "CloudMart Business Metrics - Orders and Inventory",
+                  "title": "CloudMart Business Metrics",
                   "view": "timeSeries",
                   "region": "${AWS::Region}",
+                  "namespace": "CloudMart/Business",
                   "metrics": [
-                    [ "CloudMart/Business", "OrdersPlaced", { "label": "Orders Placed", "stat": "Sum" } ],
-                    [ ".", "OrdersFailed", { "label": "Orders Failed", "stat": "Sum" } ],
-                    [ ".", "OrdersCancelled", { "label": "Orders Cancelled", "stat": "Sum" } ],
-                    [ ".", "InventoryCount", { "label": "Inventory Count", "stat": "Average" } ],
-                    [ ".", "LowStockEvents", { "label": "Low Stock Events", "stat": "Sum" } ]
+                    [ "CloudMart/Business", "OrdersPlaced" ],
+                    [ ".", "OrdersFailed" ],
+                    [ ".", "OrdersCancelled" ],
+                    [ ".", "LowStockEvents" ]
                   ],
                   "period": 300,
                   "stat": "Sum"
-                }
-              },
-              {
-                "type": "metric",
-                "x": 0,
-                "y": 12,
-                "width": 24,
-                "height": 6,
-                "properties": {
-                  "title": "RDS - CPU Utilization, Database Connections and Free Storage",
-                  "view": "timeSeries",
-                  "region": "${AWS::Region}",
-                  "metrics": [
-                    [ "AWS/RDS", "CPUUtilization", "DBInstanceIdentifier", "${RdsDbInstanceIdentifier}", { "label": "CPU Utilization (%)", "stat": "Average" } ],
-                    [ ".", "DatabaseConnections", ".", ".", { "label": "Database Connections", "stat": "Average" } ],
-                    [ ".", "FreeStorageSpace", ".", ".", { "label": "Free Storage Space (bytes)", "stat": "Average" } ]
-                  ],
-                  "period": 300,
-                  "stat": "Average"
                 }
               }
             ]
