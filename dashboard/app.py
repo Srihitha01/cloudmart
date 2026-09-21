@@ -1,5 +1,6 @@
 import os
 import hmac
+import logging
 import boto3
 import pymysql
 from datetime import datetime
@@ -8,6 +9,8 @@ from flask import Flask, render_template_string, request, redirect, url_for, ses
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY") or os.urandom(32)
 app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax")
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("cloudmart-dashboard")
 
 REGION = os.getenv("AWS_REGION", "ap-south-1")
 ENV = os.getenv("ENVIRONMENT", "dev")
@@ -28,6 +31,7 @@ def parameter(name, required=True):
     try:
         return ssm.get_parameter(Name=name, WithDecryption=True)["Parameter"]["Value"]
     except Exception:
+        logger.exception("SSM parameter lookup failed for %s", name)
         if required:
             raise
         return ""
@@ -185,7 +189,7 @@ def login():
                 session["authenticated"] = True
                 return redirect(request.args.get("next") or url_for("dashboard"))
         except Exception:
-            pass
+            logger.exception("Admin login validation failed")
         return render_template_string(LOGIN, error="Invalid token or authentication configuration.")
     return render_template_string(LOGIN, error=None)
 

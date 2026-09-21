@@ -1718,6 +1718,7 @@ Resources:
             Resource:
               - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/db/*
               - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/s3/report-bucket
+              - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/auth/token
 
 
   # ==========================================================
@@ -1823,7 +1824,10 @@ Resources:
               Environment=DB_NAME_PARAMETER=/cloudmart/${Environment}/db/name
               Environment=DB_USERNAME_PARAMETER=/cloudmart/${Environment}/db/username
               Environment=DB_PASSWORD_PARAMETER=/cloudmart/${Environment}/db/password
+              Environment=AUTH_TOKEN_PARAMETER=/cloudmart/${Environment}/auth/token
               Environment=REPORT_BUCKET=${ReportBucketName}
+              Environment=REPORT_BUCKET_PARAMETER=/cloudmart/${Environment}/s3/report-bucket
+              Environment=ENVIRONMENT=${Environment}
               ExecStart=/opt/cloudmart/dashboard/.venv/bin/gunicorn --workers 2 --threads 4 --timeout 120 --access-logfile - --error-logfile - --bind 0.0.0.0:${DashboardPort} app:app
               Restart=always
               RestartSec=5
