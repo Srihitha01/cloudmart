@@ -1759,6 +1759,9 @@ jobs:
 
       - name: Deploy API Monitoring EC2 Stack
 
+        env:
+          CLOUDMART_ALERT_EMAIL: ${{ secrets.CLOUDMART_ALERT_EMAIL }}
+
         run: |
 
           echo "========================================"
@@ -1775,6 +1778,11 @@ jobs:
           # CloudFormation requires S3 for templates larger than 51,200 bytes.
           AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           CFN_ARTIFACT_BUCKET="cloudmart-cfn-artifacts-${AWS_ACCOUNT_ID}-${AWS_REGION}"
+
+          if [ -z "$CLOUDMART_ALERT_EMAIL" ]; then
+            echo "ERROR: GitHub secret CLOUDMART_ALERT_EMAIL is not configured."
+            exit 1
+          fi
 
           if ! aws s3api head-bucket --bucket "$CFN_ARTIFACT_BUCKET" 2>/dev/null; then
             if [ "$AWS_REGION" = "us-east-1" ]; then
@@ -1793,6 +1801,7 @@ jobs:
             --s3-bucket "$CFN_ARTIFACT_BUCKET" \
             --parameter-overrides \
               Environment="$ENVIRONMENT" \
+              AlertEmail="$CLOUDMART_ALERT_EMAIL" \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --region "$AWS_REGION" \
             --no-fail-on-empty-changeset
