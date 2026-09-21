@@ -12,6 +12,7 @@ import pymysql
 
 ssm = boto3.client("ssm")
 events = boto3.client("events")
+cloudwatch = boto3.client("cloudwatch")
 
 
 # ==========================================================
@@ -24,6 +25,45 @@ DB_PORT_PARAMETER = os.environ["DB_PORT_PARAMETER"]
 DB_USERNAME_PARAMETER = os.environ["DB_USERNAME_PARAMETER"]
 DB_PASSWORD_PARAMETER = os.environ["DB_PASSWORD_PARAMETER"]
 EVENT_BUS_NAME = os.environ["EVENT_BUS_NAME"]
+
+
+# ==========================================================
+# STRUCTURED LOGGING
+# ==========================================================
+
+def publish_custom_metric(metric_name, value=1):
+
+    try:
+
+        cloudwatch.put_metric_data(
+            Namespace="CloudMart/Business",
+            MetricData=[
+                {
+                    "MetricName": metric_name,
+                    "Value": value,
+                    "Unit": "Count"
+                }
+            ]
+        )
+
+        log_event(
+            "INFO",
+            "Custom CloudWatch metric published",
+            metric_name=metric_name,
+            value=value
+        )
+
+    except Exception as exc:
+
+        # Metrics must never break the order workflow.
+        log_event(
+            "ERROR",
+            "Custom CloudWatch metric publication failed",
+            metric_name=metric_name,
+            value=value,
+            error_type=type(exc).__name__,
+            error=str(exc)
+        )
 
 
 # ==========================================================
@@ -534,6 +574,8 @@ def create_pending_order(
 
         connection.commit()
 
+        publish_custom_metric("OrdersPlaced")
+
         log_event(
             "INFO",
             "Order created successfully",
@@ -652,6 +694,9 @@ def mark_order_failed(
                 )
 
         connection.commit()
+
+        if updated_rows == 1:
+            publish_custom_metric("OrdersFailed")
 
         if updated_rows != 1:
             log_event(

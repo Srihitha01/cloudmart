@@ -658,6 +658,28 @@ Resources:
                 Resource:
                   - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/db/*
 
+        - PolicyName: CloudMartBusinessMetrics
+
+          PolicyDocument:
+
+            Version: '2012-10-17'
+
+            Statement:
+
+              - Effect: Allow
+
+                Action:
+
+                  - cloudwatch:PutMetricData
+
+                Resource: '*'
+
+                Condition:
+
+                  StringEquals:
+
+                    cloudwatch:namespace: CloudMart/Business
+
         - PolicyName: OrderProcessorEventBridge
 
           PolicyDocument:
