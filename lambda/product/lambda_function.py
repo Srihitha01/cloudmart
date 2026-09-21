@@ -14,6 +14,7 @@ import pymysql
 
 ssm = boto3.client("ssm")
 events = boto3.client("events")
+cloudwatch = boto3.client("cloudwatch")
 
 
 # ==========================================================
@@ -41,6 +42,54 @@ def log_event(level, message, **details):
     }
 
     print(json.dumps(record, default=str))
+
+
+def publish_custom_metric(metric_name, value=1):
+    """Publish a CloudMart business metric without breaking the API request."""
+    try:
+        cloudwatch.put_metric_data(
+            Namespace="CloudMart/Business",
+            MetricData=[
+                {
+                    "MetricName": metric_name,
+                    "Value": float(value),
+                    "Unit": "Count"
+                }
+            ]
+        )
+    except Exception as exc:
+        log_event(
+            "ERROR",
+            "Custom metric publishing failed",
+            metric_name=metric_name,
+            error_type=type(exc).__name__,
+            error=str(exc)
+        )
+
+
+def publish_inventory_count(connection):
+    """Publish total available inventory quantity."""
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT COALESCE(SUM(stock_quantity), 0) AS inventory_count
+                FROM products
+                WHERE deleted_at IS NULL
+                """
+            )
+            result = cursor.fetchone() or {}
+            publish_custom_metric(
+                "InventoryCount",
+                result.get("inventory_count", 0)
+            )
+    except Exception as exc:
+        log_event(
+            "ERROR",
+            "Inventory count metric failed",
+            error_type=type(exc).__name__,
+            error=str(exc)
+        )
 
 
 # ==========================================================
@@ -380,6 +429,11 @@ def create_product(
 
         connection.commit()
 
+        publish_inventory_count(connection)
+
+        if product["stock_quantity"] <= product["reorder_threshold"]:
+            publish_custom_metric("LowStockEvents")
+
         log_event(
             "INFO",
             "Product created",
@@ -465,6 +519,8 @@ def get_products(
             )
 
             products = cursor.fetchall()
+
+        publish_inventory_count(connection)
 
         log_event(
             "INFO",
@@ -885,6 +941,8 @@ def update_product(
 
         connection.commit()
 
+        publish_inventory_count(connection)
+
         # ----------------------------------------------------
         # Determine new inventory state
         # ----------------------------------------------------
@@ -912,6 +970,9 @@ def update_product(
             new_stock_quantity
             <= new_reorder_threshold
         )
+
+        if stock_changed and low_stock:
+            publish_custom_metric("LowStockEvents")
 
         event_published = False
 
@@ -1161,6 +1222,8 @@ def delete_product(
             )
 
         connection.commit()
+
+        publish_inventory_count(connection)
 
         log_event(
             "INFO",

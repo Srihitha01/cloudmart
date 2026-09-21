@@ -1419,6 +1419,68 @@ Resources:
               {
                 "type": "metric",
                 "properties": {
+                  "title": "API Gateway - Latency",
+                  "view": "timeSeries",
+                  "region": "${AWS::Region}",
+                  "metrics": [
+                    [ "AWS/ApiGateway", "Latency", "ApiName", "cloudmart-${Environment}-api", "Stage", "${Environment}" ],
+                    [ ".", "IntegrationLatency", ".", ".", ".", "." ]
+                  ],
+                  "period": 300,
+                  "stat": "Average"
+                }
+              },
+              {
+                "type": "metric",
+                "properties": {
+                  "title": "Lambda - Throttles and Concurrent Executions",
+                  "view": "timeSeries",
+                  "region": "${AWS::Region}",
+                  "metrics": [
+                    [ "AWS/Lambda", "Throttles", "FunctionName", "cloudmart-${Environment}-product-lambda" ],
+                    [ ".", "Throttles", "FunctionName", "cloudmart-${Environment}-order-lambda" ],
+                    [ ".", "ConcurrentExecutions", "FunctionName", "cloudmart-${Environment}-product-lambda" ],
+                    [ ".", "ConcurrentExecutions", "FunctionName", "cloudmart-${Environment}-order-lambda" ]
+                  ],
+                  "period": 300,
+                  "stat": "Maximum"
+                }
+              },
+              {
+                "type": "metric",
+                "properties": {
+                  "title": "EC2 Dashboard - CPU and Status Checks",
+                  "view": "timeSeries",
+                  "region": "${AWS::Region}",
+                  "metrics": [
+                    [ "AWS/EC2", "CPUUtilization", "InstanceId", "${CloudMartDashboardInstance}" ],
+                    [ ".", "StatusCheckFailed", ".", "." ],
+                    [ ".", "NetworkIn", ".", "." ],
+                    [ ".", "NetworkOut", ".", "." ]
+                  ],
+                  "period": 300,
+                  "stat": "Average"
+                }
+              },
+              {
+                "type": "metric",
+                "properties": {
+                  "title": "RDS - Read/Write IOPS and Network",
+                  "view": "timeSeries",
+                  "region": "${AWS::Region}",
+                  "metrics": [
+                    [ "AWS/RDS", "ReadIOPS", "DBInstanceIdentifier", "${RdsDbInstanceIdentifier}" ],
+                    [ ".", "WriteIOPS", ".", "." ],
+                    [ ".", "NetworkReceiveThroughput", ".", "." ],
+                    [ ".", "NetworkTransmitThroughput", ".", "." ]
+                  ],
+                  "period": 300,
+                  "stat": "Average"
+                }
+              },
+              {
+                "type": "metric",
+                "properties": {
                   "title": "API Gateway - Request Count and Errors",
                   "view": "timeSeries",
                   "region": "${AWS::Region}",
@@ -1959,6 +2021,218 @@ Resources:
       TreatMissingData:
         notBreaching
 
+
+
+  # ==========================================================
+  # ADDITIONAL API GATEWAY ALARMS
+  # ==========================================================
+
+  Api4XXErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub cloudmart-${Environment}-api-4xx-errors
+      AlarmDescription: CloudMart API Gateway client errors are elevated
+      Namespace: AWS/ApiGateway
+      MetricName: 4XXError
+      Dimensions:
+        - Name: ApiName
+          Value: !Sub cloudmart-${Environment}-api
+        - Name: Stage
+          Value: !Ref Environment
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 10
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      AlarmActions:
+        - !Ref ProductAlertsTopicArn
+        - !Ref OrderAlertsTopicArn
+      TreatMissingData: notBreaching
+
+  ApiLatencyAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub cloudmart-${Environment}-api-high-latency
+      AlarmDescription: CloudMart API Gateway latency is high
+      Namespace: AWS/ApiGateway
+      MetricName: Latency
+      Dimensions:
+        - Name: ApiName
+          Value: !Sub cloudmart-${Environment}-api
+        - Name: Stage
+          Value: !Ref Environment
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 3000
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions:
+        - !Ref OrderAlertsTopicArn
+      TreatMissingData: notBreaching
+
+  # ==========================================================
+  # ADDITIONAL LAMBDA ALARMS
+  # ==========================================================
+
+  ProductLambdaThrottleAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub cloudmart-${Environment}-product-lambda-throttles
+      AlarmDescription: Product Lambda throttles detected
+      Namespace: AWS/Lambda
+      MetricName: Throttles
+      Dimensions:
+        - Name: FunctionName
+          Value: !Sub cloudmart-${Environment}-product-lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      AlarmActions:
+        - !Ref ProductAlertsTopicArn
+      TreatMissingData: notBreaching
+
+  OrderLambdaThrottleAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub cloudmart-${Environment}-order-lambda-throttles
+      AlarmDescription: Order Lambda throttles detected
+      Namespace: AWS/Lambda
+      MetricName: Throttles
+      Dimensions:
+        - Name: FunctionName
+          Value: !Sub cloudmart-${Environment}-order-lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      AlarmActions:
+        - !Ref OrderAlertsTopicArn
+      TreatMissingData: notBreaching
+
+  ProductLambdaDurationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub cloudmart-${Environment}-product-lambda-duration
+      AlarmDescription: Product Lambda average duration is high
+      Namespace: AWS/Lambda
+      MetricName: Duration
+      Dimensions:
+        - Name: FunctionName
+          Value: !Sub cloudmart-${Environment}-product-lambda
+      ExtendedStatistic: p95
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 3000
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions:
+        - !Ref ProductAlertsTopicArn
+      TreatMissingData: notBreaching
+
+  OrderLambdaDurationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub cloudmart-${Environment}-order-lambda-duration
+      AlarmDescription: Order Lambda p95 duration is high
+      Namespace: AWS/Lambda
+      MetricName: Duration
+      Dimensions:
+        - Name: FunctionName
+          Value: !Sub cloudmart-${Environment}-order-lambda
+      ExtendedStatistic: p95
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 3000
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions:
+        - !Ref OrderAlertsTopicArn
+      TreatMissingData: notBreaching
+
+  # ==========================================================
+  # RDS ALARMS
+  # ==========================================================
+
+  RdsHighCpuAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub cloudmart-${Environment}-rds-high-cpu
+      AlarmDescription: CloudMart RDS CPU utilization is high
+      Namespace: AWS/RDS
+      MetricName: CPUUtilization
+      Dimensions:
+        - Name: DBInstanceIdentifier
+          Value: !Ref RdsDbInstanceIdentifier
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 80
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions:
+        - !Ref OrderAlertsTopicArn
+      TreatMissingData: notBreaching
+
+  RdsLowFreeStorageAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub cloudmart-${Environment}-rds-low-free-storage
+      AlarmDescription: CloudMart RDS free storage is low
+      Namespace: AWS/RDS
+      MetricName: FreeStorageSpace
+      Dimensions:
+        - Name: DBInstanceIdentifier
+          Value: !Ref RdsDbInstanceIdentifier
+      Statistic: Minimum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 2147483648
+      ComparisonOperator: LessThanThreshold
+      AlarmActions:
+        - !Ref OrderAlertsTopicArn
+      TreatMissingData: notBreaching
+
+  RdsHighConnectionsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub cloudmart-${Environment}-rds-high-connections
+      AlarmDescription: CloudMart RDS database connections are high
+      Namespace: AWS/RDS
+      MetricName: DatabaseConnections
+      Dimensions:
+        - Name: DBInstanceIdentifier
+          Value: !Ref RdsDbInstanceIdentifier
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 80
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions:
+        - !Ref OrderAlertsTopicArn
+      TreatMissingData: notBreaching
+
+  # ==========================================================
+  # EC2 ALARM
+  # ==========================================================
+
+  EC2StatusCheckAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub cloudmart-${Environment}-dashboard-status-check
+      AlarmDescription: CloudMart dashboard EC2 status check failed
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref CloudMartDashboardInstance
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      AlarmActions:
+        - !Ref OrderAlertsTopicArn
+      TreatMissingData: breaching
 
 # ============================================================
 # OUTPUTS

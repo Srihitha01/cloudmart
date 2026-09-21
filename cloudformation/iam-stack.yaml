@@ -77,7 +77,7 @@ Resources:
                 Action:
                   - logs:CreateLogGroup
 
-                Resource: '*'
+                Resource: !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/cloudmart-${Environment}-lambda-authorizer
 
               - Effect: Allow
 
@@ -199,7 +199,7 @@ Resources:
                 Action:
                   - logs:CreateLogGroup
 
-                Resource: '*'
+                Resource: !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/cloudmart-${Environment}-product-lambda
 
               - Effect: Allow
 
@@ -267,6 +267,18 @@ Resources:
 
                 Resource:
                   - !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/cloudmart-${Environment}-event-bus
+
+        - PolicyName: CloudMartBusinessMetrics
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricData
+                Resource: '*'
+                Condition:
+                  StringEquals:
+                    cloudwatch:namespace: CloudMart/Business
 
         - PolicyName: ProductLambdaVPCAccess
 
@@ -345,7 +357,7 @@ Resources:
                 Action:
                   - logs:CreateLogGroup
 
-                Resource: '*'
+                Resource: !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/cloudmart-${Environment}-customer-lambda
 
               - Effect: Allow
 
@@ -469,7 +481,7 @@ Resources:
                 Action:
                   - logs:CreateLogGroup
 
-                Resource: '*'
+                Resource: !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/cloudmart-${Environment}-order-lambda
 
               - Effect: Allow
 
@@ -528,6 +540,18 @@ Resources:
 
                 Resource:
                   - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:cloudmart-${Environment}-order-processor
+
+        - PolicyName: CloudMartBusinessMetrics
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricData
+                Resource: '*'
+                Condition:
+                  StringEquals:
+                    cloudwatch:namespace: CloudMart/Business
 
         - PolicyName: OrderLambdaVPCAccess
 
@@ -606,7 +630,7 @@ Resources:
                 Action:
                   - logs:CreateLogGroup
 
-                Resource: '*'
+                Resource: !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/cloudmart-${Environment}-order-processor
 
               - Effect: Allow
 
@@ -727,7 +751,7 @@ Resources:
                 Action:
                   - logs:CreateLogGroup
 
-                Resource: '*'
+                Resource: !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/cloudmart-${Environment}-schema-initializer
 
               - Effect: Allow
 
@@ -863,7 +887,7 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
 
-                Resource: '*'
+                Resource: !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/cloudmart-${Environment}-daily-report
 
 
         # ------------------------------------------------------
@@ -1131,18 +1155,35 @@ Resources:
 
             Statement:
 
+              # Log-group discovery is account/region-wide in CloudWatch Logs.
+
               - Effect: Allow
 
                 Action:
+
                   - logs:DescribeLogGroups
-                  - logs:DescribeLogStreams
-                  - logs:FilterLogEvents
-                  - logs:GetLogEvents
-                  - logs:StartQuery
-                  - logs:GetQueryResults
 
                 Resource: '*'
 
+              # Restrict log reading and querying to CloudMart Lambda log groups.
+
+              - Effect: Allow
+
+                Action:
+
+                  - logs:DescribeLogStreams
+
+                  - logs:FilterLogEvents
+
+                  - logs:GetLogEvents
+
+                  - logs:StartQuery
+
+                  - logs:GetQueryResults
+
+                Resource:
+
+                  - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/cloudmart-${Environment}-*:*
 
         # ------------------------------------------------------
         # LAMBDA
