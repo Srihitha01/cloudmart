@@ -4,7 +4,7 @@ import logging
 import boto3
 import pymysql
 from datetime import datetime
-from flask import Flask, render_template_string, request, redirect, url_for, session
+from flask import Flask, Response, render_template_string, request, redirect, url_for, session
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("cloudmart-dashboard")
@@ -199,9 +199,9 @@ BASE = """
 <title>{{ title }} · CloudMart</title><style>
 :root{--navy:#14213d;--blue:#2563eb;--bg:#f5f7fb;--line:#e6ebf3;--muted:#6b7280;--green:#15803d;--amber:#b45309;--red:#b91c1c}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:#172033;font:14px Inter,Arial,sans-serif}
-.layout{display:flex;min-height:100vh}.side{width:230px;background:var(--navy);color:white;padding:25px 14px;position:sticky;top:0;height:100vh}.side nav{display:flex;flex-direction:column;min-height:calc(100vh - 125px)}.nav-spacer{flex:1;min-height:24px}.nav a.logout{background:#ffffff10;margin-top:8px}.nav a.logout:hover{background:#dc2626}
+.layout{display:flex;min-height:100vh}.side{width:230px;background:var(--navy);color:white;padding:25px 14px;position:sticky;top:0;height:100vh}
 .brand{padding:0 12px 25px;border-bottom:1px solid #ffffff25}.brand h1{margin:0;font-size:21px}.brand p{margin:5px 0 0;color:#cbd5e1;font-size:12px}
-.nav{display:flex;flex-direction:column;gap:6px;margin-top:24px}.nav a{color:#dbe5f5;padding:12px;border-radius:9px;font-weight:700}.nav a:hover{background:#ffffff12;text-decoration:none}.nav a.active{background:#2563eb;color:#fff;box-shadow:0 5px 14px #00000020}
+.nav{display:grid;gap:6px;margin-top:24px}.nav a{color:#dbe5f5;padding:12px;border-radius:9px;font-weight:700}.nav a:hover{background:#ffffff12;text-decoration:none}.nav a.active{background:#2563eb;color:#fff;box-shadow:0 5px 14px #00000020}
 .main{flex:1;min-width:0}.top{background:white;border-bottom:1px solid var(--line);padding:18px 30px;display:flex;justify-content:space-between;align-items:center}.top h2{margin:0;font-size:21px}.top small{color:var(--muted)}
 .content{padding:28px;max-width:1600px;margin:auto}.hero h1{margin:0 0 6px;font-size:28px}.hero p{margin:0;color:var(--muted)}
 .toolbar{display:flex;gap:10px;flex-wrap:wrap;margin:22px 0}.search{display:flex;gap:8px;flex:1;min-width:240px}
@@ -213,8 +213,8 @@ input{border:1px solid #d5deeb;border-radius:9px;padding:11px 12px;width:100%}bu
 .empty{text-align:center;padding:25px;color:var(--muted)}.note{color:var(--muted);font-size:12px;margin-top:18px}
 @media(max-width:1100px){.cards{grid-template-columns:repeat(3,1fr)}}@media(max-width:750px){.side{width:72px;padding:18px 8px}.brand{text-align:center;padding:0 0 20px}.brand h1{font-size:0}.brand h1:after{content:'CM';font-size:18px}.brand p,.nav span{display:none}.nav a{text-align:center}.nav a:before{content:'•';font-size:20px}.top{padding:16px}.content{padding:18px}.cards{grid-template-columns:repeat(2,1fr)}.detail{grid-template-columns:1fr}}
 </style></head><body><div class="layout"><aside class="side"><div class="brand"><h1>CloudMart</h1><p>Operations Console</p></div><nav class="nav">
-<a class="{% if request.endpoint == 'dashboard' %}active{% endif %}" href="{{url_for('dashboard')}}"><span>Overview</span></a><a class="{% if request.endpoint in ['products_page', 'product_detail'] %}active{% endif %}" href="{{url_for('products_page')}}"><span>Products</span></a><a class="{% if request.endpoint in ['orders_page', 'order_detail'] %}active{% endif %}" href="{{url_for('orders_page')}}"><span>Orders</span></a><a class="{% if request.endpoint in ['customers_page', 'customer_detail'] %}active{% endif %}" href="{{url_for('customers_page')}}"><span>Customers</span></a><a class="{% if request.endpoint == 'events_page' %}active{% endif %}" href="{{url_for('events_page')}}"><span>Event History</span></a>{% if cloudwatch_url %}<a href="{{cloudwatch_url}}" target="_blank" rel="noopener"><span>Monitoring</span></a>{% endif %}<div class="nav-spacer"></div><a class="{% if request.endpoint in ['reports_page', 'report_detail_page'] %}active{% endif %}" href="{{url_for('reports_page')}}"><span>Daily Reports</span></a><a class="logout" href="{{url_for('logout')}}"><span>Logout</span></a></nav></aside>
-<section class="main"><header class="top"><div><h2>{{title}}</h2><small>{{environment}} · {{aws_region}}</small></div><a class="btn alt" href="{{request.path}}">Refresh</a></header><main class="content">{{body|safe}}</main></section></div></body></html>
+<a class="{% if request.endpoint == 'dashboard' %}active{% endif %}" href="{{url_for('dashboard')}}"><span>Overview</span></a><a class="{% if request.endpoint in ['products_page', 'product_detail'] %}active{% endif %}" href="{{url_for('products_page')}}"><span>Products</span></a><a class="{% if request.endpoint in ['orders_page', 'order_detail'] %}active{% endif %}" href="{{url_for('orders_page')}}"><span>Orders</span></a><a class="{% if request.endpoint in ['customers_page', 'customer_detail'] %}active{% endif %}" href="{{url_for('customers_page')}}"><span>Customers</span></a><a class="{% if request.endpoint == 'events_page' %}active{% endif %}" href="{{url_for('events_page')}}"><span>Event History</span></a><a class="{% if request.endpoint in ['reports_page', 'report_view'] %}active{% endif %}" href="{{url_for('reports_page')}}"><span>Daily Reports</span></a>{% if cloudwatch_url %}<a href="{{cloudwatch_url}}" target="_blank" rel="noopener"><span>Monitoring</span></a>{% endif %}</nav></aside>
+<section class="main"><header class="top"><div><h2>{{title}}</h2><small>Operations Console · {{aws_region}}</small></div><a class="btn alt" href="{{request.path}}">Refresh</a></header><main class="content">{{body|safe}}</main></section></div></body></html>
 """
 
 
@@ -263,8 +263,8 @@ DASH = """
 <a class="card" href="{{url_for('products_page')}}"><div class="label">Products</div><div class="number">{{summary['products']}}</div></a>
 <a class="card" href="{{url_for('customers_page')}}"><div class="label">Customers</div><div class="number">{{summary['customers']}}</div></a>
 <a class="card" href="{{url_for('orders_page')}}"><div class="label">Orders</div><div class="number">{{summary['orders']}}</div></a>
-<a class="card" href="{{url_for('products_page')}}?filter=low"><div class="label">Low stock</div><div class="number">{{summary['low']}}</div></a>
-<a class="card" href="{{url_for('orders_page')}}"><div class="label">Failed orders</div><div class="number">{{summary['failed']}}</div></a>
+<a class="card" href="{{url_for('products_page', filter='low_stock')}}"><div class="label">Low stock</div><div class="number">{{summary['low']}}</div></a>
+<a class="card" href="{{url_for('orders_page', status='FAILED')}}"><div class="label">Failed orders</div><div class="number">{{summary['failed']}}</div></a>
 </div>
 <div class="panel"><div class="heading"><h3>Current inventory</h3><a href="{{url_for('products_page')}}">View all</a></div><div class="table"><table><tr><th>ID</th><th>Product</th><th>Category</th><th>Price</th><th>Stock</th><th>Status</th><th></th></tr>{%for p in products%}<tr><td>{{p.product_id}}</td><td>{{p.name}}</td><td>{{p.category}}</td><td>{{rupees(p.price)}}</td><td>{{p.stock_quantity}}</td><td>{%if p.stock_quantity<=p.reorder_threshold%}<span class="badge amber">Low stock</span>{%else%}<span class="badge green">Healthy</span>{%endif%}</td><td><a href="{{url_for('product_detail',product_id=p.product_id)}}">Details</a></td></tr>{%else%}<tr><td colspan="7" class="empty">No products found.</td></tr>{%endfor%}</table></div></div>
 <div class="panel"><div class="heading"><h3>Recent orders</h3><a href="{{url_for('orders_page')}}">View all</a></div><div class="table"><table><tr><th>Order</th><th>Customer</th><th>Date</th><th>Amount</th><th>Status</th><th></th></tr>{%for o in orders%}<tr><td><a href="{{url_for('order_detail',order_id=o.order_id)}}">#{{o.order_id}}</a></td><td>#{{o.customer_id}}</td><td>{{shown(o.order_date)}}</td><td>{{rupees(o.total_amount)}}</td><td><span class="badge {%if o.status in ['FAILED','CANCELLED']%}red{%elif o.status in ['CONFIRMED','DELIVERED']%}green{%else%}blue{%endif%}">{{o.status}}</span></td><td><a href="{{url_for('order_detail',order_id=o.order_id)}}">Details</a></td></tr>{%else%}<tr><td colspan="6" class="empty">No orders found.</td></tr>{%endfor%}</table></div></div>
@@ -295,9 +295,16 @@ def products_page():
     g = guard()
     if g: return g
     q = request.args.get("q", "").strip(); like = f"%{q}%"
-    rows = all_rows("""SELECT p.product_id,p.name,COALESCE(c.name,'Uncategorized') category,p.price,p.stock_quantity,p.reorder_threshold FROM products p LEFT JOIN categories c ON p.category_id=c.category_id WHERE p.deleted_at IS NULL AND (%s='' OR p.name LIKE %s OR CAST(p.product_id AS CHAR) LIKE %s) ORDER BY p.product_id""",(q,like,like))
+    stock_filter = request.args.get("filter", "").strip().lower()
+    where = "p.deleted_at IS NULL AND (%s='' OR p.name LIKE %s OR CAST(p.product_id AS CHAR) LIKE %s)"
+    args = [q, like, like]
+    heading = "Products & inventory"
+    if stock_filter == "low_stock":
+        where += " AND p.stock_quantity <= p.reorder_threshold"
+        heading = "Low-stock products"
+    rows = all_rows(f"""SELECT p.product_id,p.name,COALESCE(c.name,'Uncategorized') category,p.price,p.stock_quantity,p.reorder_threshold FROM products p LEFT JOIN categories c ON p.category_id=c.category_id WHERE {where} ORDER BY p.product_id""", tuple(args))
     table = render_template_string("""<tr><th>ID</th><th>Name</th><th>Category</th><th>Price</th><th>Stock</th><th>Threshold</th><th></th></tr>{%for r in rows%}<tr><td>{{r.product_id}}</td><td>{{r.name}}</td><td>{{r.category}}</td><td>{{rupees(r.price)}}</td><td>{{r.stock_quantity}}</td><td>{{r.reorder_threshold}}</td><td><a href="{{url_for('product_detail',product_id=r.product_id)}}">Details</a></td></tr>{%else%}<tr><td colspan="7" class="empty">No products found.</td></tr>{%endfor%}""", rows=rows, rupees=rupees)
-    return page("Products", LIST, q=q, placeholder="Search product name or ID", heading="Products & inventory", rows=rows, table=table)
+    return page("Products", LIST, q=q, placeholder="Search product name or ID", heading=heading, rows=rows, table=table)
 
 
 @app.route("/products/<int:product_id>")
@@ -314,10 +321,61 @@ def product_detail(product_id):
 def orders_page():
     g = guard()
     if g: return g
-    q = request.args.get("q", "").strip(); like = f"%{q}%"
-    rows = all_rows("""SELECT order_id,customer_id,status,order_date,total_amount FROM orders WHERE %s='' OR CAST(order_id AS CHAR) LIKE %s OR CAST(customer_id AS CHAR) LIKE %s OR status LIKE %s ORDER BY order_date DESC LIMIT 200""",(q,like,like,like))
-    table = render_template_string("""<tr><th>Order</th><th>Customer</th><th>Date</th><th>Amount</th><th>Status</th><th></th></tr>{%for r in rows%}<tr><td><a href="{{url_for('order_detail',order_id=r.order_id)}}">#{{r.order_id}}</a></td><td>#{{r.customer_id}}</td><td>{{shown(r.order_date)}}</td><td>{{rupees(r.total_amount)}}</td><td>{{r.status}}</td><td><a href="{{url_for('order_detail',order_id=r.order_id)}}">Details</a></td></tr>{%else%}<tr><td colspan="6" class="empty">No orders found.</td></tr>{%endfor%}""", rows=rows, shown=shown, rupees=rupees)
-    return page("Orders", LIST, q=q, placeholder="Search order ID, customer ID, or status", heading="Orders", rows=rows, table=table)
+
+    q = request.args.get("q", "").strip()
+    status_filter = request.args.get("status", "").strip().upper()
+    like = f"%{q}%"
+
+    conditions = [
+        "(%s = '' OR CAST(order_id AS CHAR) LIKE %s OR CAST(customer_id AS CHAR) LIKE %s OR status LIKE %s)"
+    ]
+    args = [q, like, like, like]
+    heading = "Orders"
+
+    # The Failed Orders card sends status=FAILED. This condition ensures
+    # that only failed orders are returned, never the complete order list.
+    if status_filter == "FAILED":
+        conditions.append("status = %s")
+        args.append("FAILED")
+        heading = "Failed orders"
+
+    where_clause = " AND ".join(conditions)
+    rows = all_rows(
+        f"""SELECT order_id, customer_id, status, order_date, total_amount
+        FROM orders
+        WHERE {where_clause}
+        ORDER BY order_date DESC
+        LIMIT 200""",
+        tuple(args),
+    )
+
+    table = render_template_string(
+        """<tr><th>Order</th><th>Customer</th><th>Date</th><th>Amount</th><th>Status</th><th></th></tr>
+        {% for r in rows %}
+        <tr>
+          <td><a href="{{url_for('order_detail', order_id=r.order_id)}}">#{{r.order_id}}</a></td>
+          <td>#{{r.customer_id}}</td>
+          <td>{{shown(r.order_date)}}</td>
+          <td>{{rupees(r.total_amount)}}</td>
+          <td><span class="badge {% if r.status == 'FAILED' %}red{% elif r.status in ['CONFIRMED','DELIVERED'] %}green{% else %}blue{% endif %}">{{r.status}}</span></td>
+          <td><a href="{{url_for('order_detail', order_id=r.order_id)}}">Details</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="empty">No orders found.</td></tr>
+        {% endfor %}""",
+        rows=rows,
+        shown=shown,
+        rupees=rupees,
+    )
+    return page(
+        "Orders",
+        LIST,
+        q=q,
+        placeholder="Search order ID, customer ID, or status",
+        heading=heading,
+        rows=rows,
+        table=table,
+    )
 
 
 @app.route("/orders/<int:order_id>")
@@ -361,29 +419,46 @@ def events_page():
     return page("Event history", body, q=q, events=events)
 
 
-@app.route("/reports/view")
-def report_detail_page():
-    g = guard()
-    if g: return g
-    key = request.args.get("key", "").strip()
-    if not key or not key.startswith("daily-reports/") or not key.lower().endswith(".csv"):
-        return page("Report details", '<div class="panel"><div class="empty">Invalid report selected.</div></div>')
-
-    bucket = report_bucket()
-    report = next((item for item in reports()[0] if item["key"] == key), None)
-    if not report or not bucket:
-        return page("Report details", '<div class="panel"><div class="empty">Report not found.</div></div>')
-
-    body = """<div class="toolbar"><a class="btn alt" href="{{url_for('reports_page')}}">← Back to reports</a><a class="btn" href="{{report.url}}">Download CSV</a></div><div class="panel"><div class="heading"><h3>Report details</h3><span class="muted">S3 report</span></div><div class="detail"><div><label>File</label>{{report.key}}</div><div><label>Size</label>{{report.size}} bytes</div><div><label>Generated</label>{{shown(report.last_modified)}}</div><div><label>Bucket</label>{{bucket}}</div></div></div>"""
-    return page("Report details", body, report=report, bucket=bucket)
-
-
 @app.route("/reports")
 def reports_page():
     g = guard()
     if g: return g
-    body = """{% if cloudwatch_url %}<div class="panel"><div class="heading"><h3>Monitoring</h3><span class="muted">CloudWatch</span></div><p>Open the CloudMart operations dashboard in CloudWatch.</p><a class="btn" href="{{cloudwatch_url}}" target="_blank" rel="noopener">Open CloudWatch dashboard</a></div>{% endif %}<div class="panel"><div class="heading"><h3>Daily reports</h3><span class="muted">{{report_bucket or 'Bucket not configured'}}</span></div>{%if reports%}<div class="table"><table><tr><th>Report</th><th>Size</th><th>Generated</th><th>Action</th></tr>{%for r in reports%}<tr><td>{{r.key}}</td><td>{{r.size}} bytes</td><td>{{shown(r.last_modified)}}</td><td><div style="display:flex;gap:8px;flex-wrap:wrap"><a class="btn alt" href="{{url_for('report_detail_page', key=r.key)}}">View details</a><a class="btn" target="_blank" rel="noopener" href="{{r.url}}">Download CSV</a></div></td></tr>{%endfor%}</table></div>{%else%}<div class="empty">No generated reports found. Verify the report Lambda, EventBridge schedule, and S3 bucket parameter.</div>{%endif%}</div>"""
+    body = """{% if cloudwatch_url %}<div class="panel"><div class="heading"><h3>Monitoring</h3><span class="muted">CloudWatch</span></div><p>Open the CloudMart operations dashboard in CloudWatch.</p><a class="btn" href="{{cloudwatch_url}}" target="_blank" rel="noopener">Open CloudWatch dashboard</a></div>{% endif %}<div class="panel"><div class="heading"><h3>Daily reports</h3><span class="muted">{{report_bucket or 'Bucket not configured'}}</span></div>{%if reports%}<div class="table"><table><tr><th>Report</th><th>Size</th><th>Generated</th><th>Actions</th></tr>{%for r in reports%}<tr><td>{{r.key}}</td><td>{{r.size}} bytes</td><td>{{shown(r.last_modified)}}</td><td><a class="btn alt" href="{{url_for('report_view', key=r.key)}}">View report</a> <a class="btn alt" href="{{url_for('report_download', key=r.key)}}">Download CSV</a></td></tr>{%endfor%}</table></div>{%else%}<div class="empty">No generated reports found. Verify the report Lambda, EventBridge schedule, and S3 bucket parameter.</div>{%endif%}</div>"""
     return page("Daily reports", body)
+
+
+@app.route("/reports/view")
+def report_view():
+    g = guard()
+    if g: return g
+    key = request.args.get("key", "").strip()
+    bucket = report_bucket()
+    if not bucket or not key.startswith("daily-reports/") or not key.lower().endswith(".csv"):
+        return page("Report details", '<div class="panel"><div class="empty">Invalid report.</div></div>'), 400
+    try:
+        raw = s3.get_object(Bucket=bucket, Key=key)["Body"].read().decode("utf-8-sig", errors="replace")
+        body = """<div class="toolbar"><a class="btn alt" href="{{url_for('reports_page')}}">← Back to reports</a><a class="btn alt" href="{{url_for('report_download', key=key)}}">Download CSV</a></div><div class="panel"><div class="heading"><h3>{{key}}</h3><span class="muted">Report preview</span></div><pre style="white-space:pre-wrap;overflow:auto;background:#f8faff;border:1px solid var(--line);border-radius:10px;padding:18px;line-height:1.6">{{content}}</pre></div>"""
+        return page("Report details", body, key=key, content=raw)
+    except Exception as exc:
+        logger.exception("Report preview failed")
+        return page("Report details", '<div class="panel"><div class="empty">Unable to read report: {{error}}</div></div>', error=str(exc)), 500
+
+
+@app.route("/reports/download")
+def report_download():
+    g = guard()
+    if g: return g
+    key = request.args.get("key", "").strip()
+    bucket = report_bucket()
+    if not bucket or not key.startswith("daily-reports/") or not key.lower().endswith(".csv"):
+        return "Invalid report", 400
+    try:
+        raw = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
+        filename = key.rsplit("/", 1)[-1]
+        return Response(raw, mimetype="text/csv", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+    except Exception as exc:
+        logger.exception("Report download failed")
+        return f"Unable to download report: {exc}", 500
 
 
 @app.route("/search")
