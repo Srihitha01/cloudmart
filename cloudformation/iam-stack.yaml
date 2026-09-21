@@ -267,19 +267,6 @@ Resources:
 
                 Resource:
                   - !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/cloudmart-${Environment}-event-bus
-
-        - PolicyName: CloudMartBusinessMetrics
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - cloudwatch:PutMetricData
-                Resource: '*'
-                Condition:
-                  StringEquals:
-                    cloudwatch:namespace: CloudMart/Business
-
         - PolicyName: ProductLambdaVPCAccess
 
           PolicyDocument:
@@ -540,19 +527,6 @@ Resources:
 
                 Resource:
                   - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:cloudmart-${Environment}-order-processor
-
-        - PolicyName: CloudMartBusinessMetrics
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - cloudwatch:PutMetricData
-                Resource: '*'
-                Condition:
-                  StringEquals:
-                    cloudwatch:namespace: CloudMart/Business
-
         - PolicyName: OrderLambdaVPCAccess
 
           PolicyDocument:
@@ -657,29 +631,6 @@ Resources:
 
                 Resource:
                   - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/db/*
-
-        - PolicyName: CloudMartBusinessMetrics
-
-          PolicyDocument:
-
-            Version: '2012-10-17'
-
-            Statement:
-
-              - Effect: Allow
-
-                Action:
-
-                  - cloudwatch:PutMetricData
-
-                Resource: '*'
-
-                Condition:
-
-                  StringEquals:
-
-                    cloudwatch:namespace: CloudMart/Business
-
         - PolicyName: OrderProcessorEventBridge
 
           PolicyDocument:

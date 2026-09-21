@@ -12,7 +12,6 @@ import pymysql
 
 ssm = boto3.client("ssm")
 events = boto3.client("events")
-cloudwatch = boto3.client("cloudwatch")
 
 
 # ==========================================================
@@ -32,33 +31,45 @@ EVENT_BUS_NAME = os.environ["EVENT_BUS_NAME"]
 # ==========================================================
 
 def publish_custom_metric(metric_name, value=1):
-
+    """
+    Emit a CloudWatch Embedded Metric Format (EMF) record through
+    CloudWatch Logs. This does not require cloudwatch:PutMetricData.
+    """
     try:
+        import time
 
-        cloudwatch.put_metric_data(
-            Namespace="CloudMart/Business",
-            MetricData=[
-                {
-                    "MetricName": metric_name,
-                    "Value": value,
-                    "Unit": "Count"
-                }
-            ]
-        )
+        metric_record = {
+            "_aws": {
+                "Timestamp": int(time.time() * 1000),
+                "CloudWatchMetrics": [
+                    {
+                        "Namespace": "CloudMart/Business",
+                        "Dimensions": [[]],
+                        "Metrics": [
+                            {
+                                "Name": metric_name,
+                                "Unit": "Count"
+                            }
+                        ]
+                    }
+                ]
+            },
+            metric_name: value
+        }
+
+        print(json.dumps(metric_record, default=str))
 
         log_event(
             "INFO",
-            "Custom CloudWatch metric published",
+            "Custom CloudWatch EMF metric emitted",
             metric_name=metric_name,
             value=value
         )
 
     except Exception as exc:
-
-        # Metrics must never break the order workflow.
         log_event(
             "ERROR",
-            "Custom CloudWatch metric publication failed",
+            "Custom CloudWatch EMF metric emission failed",
             metric_name=metric_name,
             value=value,
             error_type=type(exc).__name__,
