@@ -197,23 +197,23 @@ def context(**extra):
 BASE = """
 <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{{ title }} · CloudMart</title><style>
-:root{--navy:#14213d;--blue:#2563eb;--bg:#f5f7fb;--line:#e6ebf3;--muted:#6b7280;--green:#15803d;--amber:#b45309;--red:#b91c1c}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:#172033;font:14px Inter,Arial,sans-serif}
-.layout{display:flex;min-height:100vh}.side{width:230px;background:var(--navy);color:white;padding:25px 14px;position:sticky;top:0;height:100vh}
-.brand{padding:0 12px 25px;border-bottom:1px solid #ffffff25}.brand h1{margin:0;font-size:21px}.brand p{margin:5px 0 0;color:#cbd5e1;font-size:12px}
-.nav{display:grid;gap:6px;margin-top:24px}.nav a{color:#dbe5f5;padding:12px;border-radius:9px;font-weight:700}.nav a:hover{background:#ffffff12;text-decoration:none}.nav a.active{background:#2563eb;color:#fff;box-shadow:0 5px 14px #00000020}
-.main{flex:1;min-width:0}.top{background:white;border-bottom:1px solid var(--line);padding:18px 30px;display:flex;justify-content:space-between;align-items:center}.top h2{margin:0;font-size:21px}.top small{color:var(--muted)}
-.content{padding:28px;max-width:1600px;margin:auto}.hero h1{margin:0 0 6px;font-size:28px}.hero p{margin:0;color:var(--muted)}
-.toolbar{display:flex;gap:10px;flex-wrap:wrap;margin:22px 0}.search{display:flex;gap:8px;flex:1;min-width:240px}
-input{border:1px solid #d5deeb;border-radius:9px;padding:11px 12px;width:100%}button,.btn{background:var(--blue);color:white;border:0;border-radius:9px;padding:11px 15px;font-weight:800;text-decoration:none;cursor:pointer}.btn.alt{background:#eef2f8;color:#172033}
-.cards{display:grid;grid-template-columns:repeat(5,minmax(130px,1fr));gap:15px;margin:22px 0}.card{display:block;color:inherit;text-decoration:none;transition:transform .15s,box-shadow .15s}.card:hover{transform:translateY(-2px);box-shadow:0 10px 28px #14213d18}.card,.panel{background:white;border:1px solid var(--line);border-radius:14px;box-shadow:0 7px 25px #14213d0b}.card{padding:18px}.label{color:var(--muted);font-size:11px;text-transform:uppercase;font-weight:800}.number{font-size:29px;font-weight:900;margin-top:10px}
-.panel{padding:21px;margin-bottom:22px;overflow:hidden}.heading{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:15px}.heading h3{margin:0;font-size:17px}.muted{color:var(--muted);font-size:12px}.table{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:13px 11px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}th{background:#f8faff;color:#526078;font-size:10px;text-transform:uppercase}
-.badge{display:inline-flex;padding:5px 9px;border-radius:999px;font-size:10px;font-weight:900}.green{background:#eaf8ef;color:var(--green)}.amber{background:#fff7e6;color:var(--amber)}.red{background:#fff0f0;color:var(--red)}.blue{background:#eaf1ff;color:var(--blue)}
-.detail{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px 25px}.detail div{padding:10px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}.detail label{display:block;color:var(--muted);font-size:10px;text-transform:uppercase;font-weight:900;margin-bottom:5px}
-.empty{text-align:center;padding:25px;color:var(--muted)}.note{color:var(--muted);font-size:12px;margin-top:18px}
-@media(max-width:1100px){.cards{grid-template-columns:repeat(3,1fr)}}@media(max-width:750px){.side{width:72px;padding:18px 8px}.brand{text-align:center;padding:0 0 20px}.brand h1{font-size:0}.brand h1:after{content:'CM';font-size:18px}.brand p,.nav span{display:none}.nav a{text-align:center}.nav a:before{content:'•';font-size:20px}.top{padding:16px}.content{padding:18px}.cards{grid-template-columns:repeat(2,1fr)}.detail{grid-template-columns:1fr}}
+:root{--navy:#101d3a;--navy-2:#17284d;--blue:#2563eb;--blue-2:#4f7cff;--bg:#f4f7fc;--surface:#fff;--line:#e5eaf3;--text:#17233c;--muted:#718096;--green:#087f5b;--amber:#b86b08;--red:#c53030;--shadow:0 10px 30px rgba(23,35,60,.07)}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:linear-gradient(135deg,#f7f9fd 0%,#eef4fc 100%);color:var(--text);font:14px/1.55 Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif}
+a{color:#1d4ed8;text-underline-offset:3px}a:hover{text-decoration:none}
+.layout{display:flex;min-height:100vh}.side{width:252px;flex:0 0 252px;background:linear-gradient(180deg,var(--navy) 0%,#0e1931 100%);color:#fff;padding:25px 14px;position:sticky;top:0;height:100vh;box-shadow:8px 0 30px rgba(16,29,58,.08)}
+.brand{padding:5px 14px 26px;border-bottom:1px solid rgba(255,255,255,.13)}.brand h1{margin:0;font-size:24px;letter-spacing:-.6px;font-weight:850}.brand p{margin:5px 0 0;color:#b9c7e1;font-size:12px;letter-spacing:.15px}
+.nav{display:grid;gap:7px;margin-top:25px}.nav a{display:flex;align-items:center;gap:11px;color:#d9e4fa;padding:12px 14px;border:1px solid transparent;border-radius:12px;font-weight:700;text-decoration:none;transition:background .2s,border-color .2s,transform .2s,box-shadow .2s}.nav a:before{content:"";width:7px;height:7px;border:1px solid #8da5d0;border-radius:50%;flex:0 0 7px}.nav a:hover{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.08);transform:translateX(2px)}.nav a.active{background:linear-gradient(135deg,#2563eb,#477bff);border-color:rgba(255,255,255,.1);color:#fff;box-shadow:0 8px 20px rgba(37,99,235,.28)}.nav a.active:before{background:#fff;border-color:#fff}
+.side-footer{position:absolute;left:14px;right:14px;bottom:20px;border-top:1px solid rgba(255,255,255,.13);padding:18px 4px 0}.admin-label{color:#aebedb;font-size:10px;letter-spacing:.13em;text-transform:uppercase;margin:0 12px 10px;font-weight:800}.logout-btn{display:flex;align-items:center;gap:10px;color:#fecaca!important;background:rgba(185,28,28,.13);border:1px solid rgba(252,165,165,.2);padding:11px 13px!important;border-radius:11px!important}.logout-btn:hover{background:#c53030!important;color:#fff!important;box-shadow:0 7px 18px rgba(197,48,48,.22);transform:none!important}.logout-icon{font-size:16px}
+.main{flex:1;min-width:0}.top{background:rgba(255,255,255,.92);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);padding:20px 34px;display:flex;justify-content:space-between;align-items:center;gap:18px;position:sticky;top:0;z-index:5;box-shadow:0 2px 14px rgba(16,29,58,.04)}.top h2{margin:0;font-size:22px;letter-spacing:-.35px;font-weight:850}.top small{display:block;color:var(--muted);margin-top:2px}.top .btn{white-space:nowrap}
+.content{padding:32px;max-width:1700px;margin:auto}.hero h1{margin:0 0 7px;font-size:31px;letter-spacing:-.8px;font-weight:850}.hero p{margin:0;color:var(--muted);font-size:14px}.toolbar{display:flex;gap:10px;flex-wrap:wrap;margin:24px 0}.search{display:flex;gap:8px;flex:1;min-width:240px}
+input,select,textarea{border:1px solid #d7e0ee;border-radius:11px;padding:12px 13px;width:100%;background:#fff;color:var(--text);font:inherit;outline:none;transition:border-color .2s,box-shadow .2s}input:focus,select:focus,textarea:focus{border-color:#7aa2ff;box-shadow:0 0 0 4px rgba(37,99,235,.09)}button,.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;background:linear-gradient(135deg,#2563eb,#477bff);color:white;border:0;border-radius:11px;padding:11px 16px;font-weight:800;text-decoration:none;cursor:pointer;box-shadow:0 5px 14px rgba(37,99,235,.15);transition:transform .2s,box-shadow .2s,filter .2s}button:hover,.btn:hover{filter:brightness(1.03);transform:translateY(-1px);box-shadow:0 8px 18px rgba(37,99,235,.22)}.btn.alt{background:#edf2fa;color:#26344d;box-shadow:none}.btn.alt:hover{background:#e3ebf8;box-shadow:none}
+.cards{display:grid;grid-template-columns:repeat(5,minmax(130px,1fr));gap:16px;margin:24px 0}.card{display:block;color:inherit;text-decoration:none;position:relative;overflow:hidden;transition:transform .2s,box-shadow .2s,border-color .2s}.card:after{content:"→";position:absolute;right:17px;bottom:15px;color:#4f7cff;font-size:17px;font-weight:900;opacity:.7}.card:hover{transform:translateY(-4px);box-shadow:0 14px 32px rgba(23,35,60,.13);border-color:#cbdafa}.card,.panel{background:rgba(255,255,255,.96);border:1px solid var(--line);border-radius:17px;box-shadow:var(--shadow)}.card{padding:20px}.label{color:#6c7b94;font-size:10px;text-transform:uppercase;font-weight:850;letter-spacing:.09em}.number{font-size:31px;line-height:1.2;font-weight:900;margin-top:10px;letter-spacing:-.6px}
+.panel{padding:24px;margin-bottom:24px;overflow:hidden}.heading{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:17px}.heading h3{margin:0;font-size:18px;letter-spacing:-.25px}.muted{color:var(--muted);font-size:12px}.table{overflow-x:auto;border:1px solid #edf1f7;border-radius:12px}table{width:100%;border-collapse:collapse;font-size:13px;background:#fff}th,td{padding:14px 13px;border-bottom:1px solid #edf1f7;text-align:left;white-space:nowrap}tr:last-child td{border-bottom:0}tbody tr{transition:background .15s}tbody tr:hover{background:#f7faff}th{background:#f6f8fc;color:#60708b;font-size:10px;text-transform:uppercase;letter-spacing:.07em;font-weight:850}td a{font-weight:700}.badge{display:inline-flex;align-items:center;padding:5px 10px;border-radius:999px;font-size:10px;font-weight:900;letter-spacing:.02em}.green{background:#e6f8ef;color:var(--green)}.amber{background:#fff4df;color:var(--amber)}.red{background:#ffebeb;color:var(--red)}.blue{background:#eaf1ff;color:var(--blue)}
+.detail{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px 28px}.detail div{padding:12px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}.detail label{display:block;color:var(--muted);font-size:10px;text-transform:uppercase;font-weight:900;letter-spacing:.06em;margin-bottom:5px}.empty{text-align:center;padding:32px;color:var(--muted)}.note{color:var(--muted);font-size:12px;margin-top:18px}.panel pre{font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace;font-size:12px}
+@media(max-width:1250px){.cards{grid-template-columns:repeat(3,1fr)}.content{padding:25px}}
+@media(max-width:750px){.side{width:78px;flex-basis:78px;padding:18px 8px}.brand{text-align:center;padding:0 0 20px}.brand h1{font-size:0}.brand h1:after{content:'CM';font-size:19px}.brand p,.nav span,.admin-label,.logout-icon{display:none}.nav a{justify-content:center;padding:13px 8px}.nav a:before{margin:0;width:8px;height:8px}.side-footer{left:8px;right:8px}.top{padding:16px 18px}.top h2{font-size:18px}.content{padding:18px}.hero h1{font-size:26px}.cards{grid-template-columns:repeat(2,1fr);gap:11px}.card{padding:15px}.number{font-size:27px}.panel{padding:16px}.detail{grid-template-columns:1fr}.toolbar{margin:18px 0}}
 </style></head><body><div class="layout"><aside class="side"><div class="brand"><h1>CloudMart</h1><p>Operations Console</p></div><nav class="nav">
-<a class="{% if request.endpoint == 'dashboard' %}active{% endif %}" href="{{url_for('dashboard')}}"><span>Overview</span></a><a class="{% if request.endpoint in ['products_page', 'product_detail'] %}active{% endif %}" href="{{url_for('products_page')}}"><span>Products</span></a><a class="{% if request.endpoint in ['orders_page', 'order_detail'] %}active{% endif %}" href="{{url_for('orders_page')}}"><span>Orders</span></a><a class="{% if request.endpoint in ['customers_page', 'customer_detail'] %}active{% endif %}" href="{{url_for('customers_page')}}"><span>Customers</span></a><a class="{% if request.endpoint == 'events_page' %}active{% endif %}" href="{{url_for('events_page')}}"><span>Event History</span></a><a class="{% if request.endpoint in ['reports_page', 'report_view'] %}active{% endif %}" href="{{url_for('reports_page')}}"><span>Daily Reports</span></a>{% if cloudwatch_url %}<a href="{{cloudwatch_url}}" target="_blank" rel="noopener"><span>Monitoring</span></a>{% endif %}</nav></aside>
+<a class="{% if request.endpoint == 'dashboard' %}active{% endif %}" href="{{url_for('dashboard')}}"><span>Overview</span></a><a class="{% if request.endpoint in ['products_page', 'product_detail'] %}active{% endif %}" href="{{url_for('products_page')}}"><span>Products</span></a><a class="{% if request.endpoint in ['orders_page', 'order_detail'] %}active{% endif %}" href="{{url_for('orders_page')}}"><span>Orders</span></a><a class="{% if request.endpoint in ['customers_page', 'customer_detail'] %}active{% endif %}" href="{{url_for('customers_page')}}"><span>Customers</span></a><a class="{% if request.endpoint == 'events_page' %}active{% endif %}" href="{{url_for('events_page')}}"><span>Event History</span></a><a class="{% if request.endpoint in ['reports_page', 'report_view'] %}active{% endif %}" href="{{url_for('reports_page')}}"><span>Daily Reports</span></a>{% if cloudwatch_url %}<a href="{{cloudwatch_url}}" target="_blank" rel="noopener"><span>Monitoring</span></a>{% endif %}</nav><div class="side-footer"><p class="admin-label">Administrator</p><a class="logout-btn" href="{{url_for('logout')}}"><span class="logout-icon">↪</span><span>Log out</span></a></div></aside>
 <section class="main"><header class="top"><div><h2>{{title}}</h2><small>Operations Console · {{aws_region}}</small></div><a class="btn alt" href="{{request.path}}">Refresh</a></header><main class="content">{{body|safe}}</main></section></div></body></html>
 """
 
@@ -321,61 +321,17 @@ def product_detail(product_id):
 def orders_page():
     g = guard()
     if g: return g
-
-    q = request.args.get("q", "").strip()
+    q = request.args.get("q", "").strip(); like = f"%{q}%"
     status_filter = request.args.get("status", "").strip().upper()
-    like = f"%{q}%"
-
-    conditions = [
-        "(%s = '' OR CAST(order_id AS CHAR) LIKE %s OR CAST(customer_id AS CHAR) LIKE %s OR status LIKE %s)"
-    ]
+    where = "(%s='' OR CAST(order_id AS CHAR) LIKE %s OR CAST(customer_id AS CHAR) LIKE %s OR status LIKE %s)"
     args = [q, like, like, like]
     heading = "Orders"
-
-    # The Failed Orders card sends status=FAILED. This condition ensures
-    # that only failed orders are returned, never the complete order list.
     if status_filter == "FAILED":
-        conditions.append("status = %s")
-        args.append("FAILED")
+        where += " AND status = 'FAILED'"
         heading = "Failed orders"
-
-    where_clause = " AND ".join(conditions)
-    rows = all_rows(
-        f"""SELECT order_id, customer_id, status, order_date, total_amount
-        FROM orders
-        WHERE {where_clause}
-        ORDER BY order_date DESC
-        LIMIT 200""",
-        tuple(args),
-    )
-
-    table = render_template_string(
-        """<tr><th>Order</th><th>Customer</th><th>Date</th><th>Amount</th><th>Status</th><th></th></tr>
-        {% for r in rows %}
-        <tr>
-          <td><a href="{{url_for('order_detail', order_id=r.order_id)}}">#{{r.order_id}}</a></td>
-          <td>#{{r.customer_id}}</td>
-          <td>{{shown(r.order_date)}}</td>
-          <td>{{rupees(r.total_amount)}}</td>
-          <td><span class="badge {% if r.status == 'FAILED' %}red{% elif r.status in ['CONFIRMED','DELIVERED'] %}green{% else %}blue{% endif %}">{{r.status}}</span></td>
-          <td><a href="{{url_for('order_detail', order_id=r.order_id)}}">Details</a></td>
-        </tr>
-        {% else %}
-        <tr><td colspan="6" class="empty">No orders found.</td></tr>
-        {% endfor %}""",
-        rows=rows,
-        shown=shown,
-        rupees=rupees,
-    )
-    return page(
-        "Orders",
-        LIST,
-        q=q,
-        placeholder="Search order ID, customer ID, or status",
-        heading=heading,
-        rows=rows,
-        table=table,
-    )
+    rows = all_rows(f"""SELECT order_id,customer_id,status,order_date,total_amount FROM orders WHERE {where} ORDER BY order_date DESC LIMIT 200""", tuple(args))
+    table = render_template_string("""<tr><th>Order</th><th>Customer</th><th>Date</th><th>Amount</th><th>Status</th><th></th></tr>{%for r in rows%}<tr><td><a href="{{url_for('order_detail',order_id=r.order_id)}}">#{{r.order_id}}</a></td><td>#{{r.customer_id}}</td><td>{{shown(r.order_date)}}</td><td>{{rupees(r.total_amount)}}</td><td>{{r.status}}</td><td><a href="{{url_for('order_detail',order_id=r.order_id)}}">Details</a></td></tr>{%else%}<tr><td colspan="6" class="empty">No orders found.</td></tr>{%endfor%}""", rows=rows, shown=shown, rupees=rupees)
+    return page("Orders", LIST, q=q, placeholder="Search order ID, customer ID, or status", heading=heading, rows=rows, table=table)
 
 
 @app.route("/orders/<int:order_id>")
