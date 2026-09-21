@@ -1,0 +1,10 @@
+{
+    "commands":  [
+                     "echo RkxBU0tfU0VDUkVUX0tFWT0zODNkZmMxOTk3NGI0MmNjYjkzOTFmN2Q3YmM3MGQ0YmYyODg4MDVmMzdkZDRmM2FiNDE3ZjQzMTRjYjdiYjg0Cg== | base64 -d | sudo tee /etc/cloudmart/dashboard.env \u003e /dev/null",
+                     "sudo chmod 600 /etc/cloudmart/dashboard.env",
+                     "echo W1NlcnZpY2VdCkVudmlyb25tZW50RmlsZT0vZXRjL2Nsb3VkbWFydC9kYXNoYm9hcmQuZW52Cg== | base64 -d | sudo tee /etc/systemd/system/cloudmart-dashboard.service.d/override.conf \u003e /dev/null",
+                     "sudo systemctl daemon-reload",
+                     "sudo systemctl restart cloudmart-dashboard",
+                     "sudo systemctl is-active cloudmart-dashboard"
+                 ]
+}

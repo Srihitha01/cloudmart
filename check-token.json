@@ -1,0 +1,5 @@
+{
+    "commands":  [
+                     "if aws ssm get-parameter --name /cloudmart/dev/auth/token --with-decryption --region ap-south-1 \u003e/dev/null 2\u003e\u00261; then echo ADMIN_TOKEN_PARAMETER_EXISTS; else echo ADMIN_TOKEN_PARAMETER_MISSING; fi"
+                 ]
+}

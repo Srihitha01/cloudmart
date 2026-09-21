@@ -6,12 +6,63 @@ import pymysql
 from datetime import datetime
 from flask import Flask, render_template_string, request, redirect, url_for, session
 
-app = Flask(__name__)
-app.secret_key = os.environ.get("FLASK_SECRET_KEY") or os.urandom(32)
-app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax")
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("cloudmart-dashboard")
 
+def load_or_create_flask_secret():
+    """Load a persistent Flask session secret, creating it once when needed."""
+    configured = os.getenv("FLASK_SECRET_KEY", "").strip()
+    if configured:
+        return configured
+
+    secret_file = "/etc/cloudmart/dashboard.env"
+    try:
+        os.makedirs(os.path.dirname(secret_file), mode=0o755, exist_ok=True)
+
+        if os.path.isfile(secret_file):
+            with open(secret_file, "r", encoding="utf-8") as handle:
+                for line in handle:
+                    if line.startswith("FLASK_SECRET_KEY="):
+                        saved = line.split("=", 1)[1].strip()
+                        if saved:
+                            return saved
+
+        import secrets
+        generated = secrets.token_hex(32)
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        fd = os.open(secret_file, flags, 0o600)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(f"FLASK_SECRET_KEY={generated}\n")
+        except Exception:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+            raise
+        return generated
+    except FileExistsError:
+        # Another process created the file first; read its persistent value.
+        with open(secret_file, "r", encoding="utf-8") as handle:
+            for line in handle:
+                if line.startswith("FLASK_SECRET_KEY="):
+                    saved = line.split("=", 1)[1].strip()
+                    if saved:
+                        return saved
+        raise RuntimeError("Persistent Flask secret exists but is empty.")
+    except Exception:
+        logger.exception("Unable to load or create persistent Flask session secret")
+        raise RuntimeError("FLASK_SECRET_KEY is not configured and could not be persisted.")
+
+
+app = Flask(__name__)
+app.secret_key = load_or_create_flask_secret()
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=False,
+    SESSION_COOKIE_PATH="/",
+)
 REGION = os.getenv("AWS_REGION", "ap-south-1")
 ENV = os.getenv("ENVIRONMENT", "dev")
 PARAM = {

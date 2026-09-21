@@ -1805,6 +1805,16 @@ Resources:
                 /opt/cloudmart/dashboard/.venv/bin/python -m pip install flask pymysql boto3 gunicorn
               fi
 
+              # Create a persistent Flask session secret on this EC2 instance.
+              # It is generated only once and is not related to the admin bearer token.
+              install -d -m 0755 /etc/cloudmart
+              if [ ! -s /etc/cloudmart/dashboard.env ]; then
+                umask 077
+                SECRET=$(python3 -c 'import secrets; print(secrets.token_hex(32))')
+                printf 'FLASK_SECRET_KEY=%s\n' "$SECRET" > /etc/cloudmart/dashboard.env
+                chmod 600 /etc/cloudmart/dashboard.env
+              fi
+
               # Validate imports before systemd is enabled.
               /opt/cloudmart/dashboard/.venv/bin/python -c "import app; assert app.app is not None"
 
@@ -1817,6 +1827,7 @@ Resources:
               [Service]
               Type=simple
               WorkingDirectory=/opt/cloudmart/dashboard
+              EnvironmentFile=/etc/cloudmart/dashboard.env
               Environment=PYTHONUNBUFFERED=1
               Environment=AWS_REGION=${AWS::Region}
               Environment=DB_ENDPOINT_PARAMETER=/cloudmart/${Environment}/db/endpoint
