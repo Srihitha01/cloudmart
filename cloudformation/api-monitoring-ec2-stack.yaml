@@ -1462,47 +1462,50 @@ Resources:
               {
                 "type": "metric",
                 "properties": {
-                  "title": "Product Lambda",
+                  "title": "Product Lambda - Invocations, Errors and Duration",
                   "view": "timeSeries",
                   "region": "${AWS::Region}",
                   "metrics": [
-                    [
-                      "AWS/Lambda",
-                      "Errors",
-                      "FunctionName",
-                      "cloudmart-${Environment}-product-lambda"
-                    ],
-                    [
-                      ".",
-                      "Duration",
-                      ".",
-                      "."
-                    ]
+                    [ "AWS/Lambda", "Invocations", "FunctionName", "cloudmart-${Environment}-product-lambda", { "label": "Invocations", "stat": "Sum" } ],
+                    [ ".", "Errors", ".", ".", { "label": "Errors", "stat": "Sum" } ],
+                    [ ".", "Duration", ".", ".", { "label": "Duration p50", "stat": "p50" } ],
+                    [ ".", ".", ".", ".", { "label": "Duration p90", "stat": "p90" } ]
                   ],
-                  "period": 300
+                  "period": 300,
+                  "stat": "Sum"
                 }
               },
               {
                 "type": "metric",
                 "properties": {
-                  "title": "Order Lambda",
+                  "title": "Order Lambda - Invocations, Errors and Duration",
                   "view": "timeSeries",
                   "region": "${AWS::Region}",
                   "metrics": [
-                    [
-                      "AWS/Lambda",
-                      "Errors",
-                      "FunctionName",
-                      "cloudmart-${Environment}-order-lambda"
-                    ],
-                    [
-                      ".",
-                      "Duration",
-                      ".",
-                      "."
-                    ]
+                    [ "AWS/Lambda", "Invocations", "FunctionName", "cloudmart-${Environment}-order-lambda", { "label": "Invocations", "stat": "Sum" } ],
+                    [ ".", "Errors", ".", ".", { "label": "Errors", "stat": "Sum" } ],
+                    [ ".", "Duration", ".", ".", { "label": "Duration p50", "stat": "p50" } ],
+                    [ ".", ".", ".", ".", { "label": "Duration p90", "stat": "p90" } ]
                   ],
-                  "period": 300
+                  "period": 300,
+                  "stat": "Sum"
+                }
+              },
+              {
+                "type": "metric",
+                "properties": {
+                  "title": "CloudMart Business Metrics",
+                  "view": "timeSeries",
+                  "region": "${AWS::Region}",
+                  "namespace": "CloudMart/Business",
+                  "metrics": [
+                    [ "CloudMart/Business", "OrdersPlaced", { "label": "Orders Placed", "stat": "Sum" } ],
+                    [ ".", "OrdersFailed", { "label": "Orders Failed", "stat": "Sum" } ],
+                    [ ".", "OrdersCancelled", { "label": "Orders Cancelled", "stat": "Sum" } ],
+                    [ ".", "LowStockEvents", { "label": "Low Stock Events", "stat": "Sum" } ]
+                  ],
+                  "period": 300,
+                  "stat": "Sum"
                 }
               }
             ]

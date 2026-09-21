@@ -12,6 +12,7 @@ import pymysql
 ssm = boto3.client("ssm")
 events = boto3.client("events")
 lambda_client = boto3.client("lambda")
+cloudwatch = boto3.client("cloudwatch")
 
 
 # ==========================================================
@@ -560,6 +561,45 @@ def invoke_order_processor(
     )
 
     return processor_response
+
+
+# ==========================================================
+# PUBLISH CUSTOM CLOUDWATCH BUSINESS METRIC
+# ==========================================================
+
+def publish_custom_metric(metric_name, value=1):
+
+    try:
+
+        cloudwatch.put_metric_data(
+            Namespace="CloudMart/Business",
+            MetricData=[
+                {
+                    "MetricName": metric_name,
+                    "Value": value,
+                    "Unit": "Count"
+                }
+            ]
+        )
+
+        log_event(
+            "INFO",
+            "Custom CloudWatch metric published",
+            metric_name=metric_name,
+            value=value
+        )
+
+    except Exception as exc:
+
+        # Metric publication must not change a successful database operation
+        log_event(
+            "ERROR",
+            "Custom CloudWatch metric publication failed",
+            metric_name=metric_name,
+            value=value,
+            error_type=type(exc).__name__,
+            error=str(exc)
+        )
 
 
 # ==========================================================
@@ -2089,6 +2129,16 @@ def update_order_status(
             )
 
         connection.commit()
+
+        # ----------------------------------------------
+        # PUBLISH SUCCESSFUL CANCELLATION METRIC
+        # ----------------------------------------------
+
+        if requested_status == "CANCELLED":
+
+            publish_custom_metric(
+                "OrdersCancelled"
+            )
 
         # ----------------------------------------------
         # PUBLISH ORDER EVENT
