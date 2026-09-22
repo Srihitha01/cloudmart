@@ -117,7 +117,7 @@ def get_db_connection():
         DB_PASSWORD_PARAMETER
     )
 
-    return pymysql.connect(
+    connection = pymysql.connect(
         host=db_host,
         port=db_port,
         user=db_username,
@@ -129,6 +129,13 @@ def get_db_connection():
         cursorclass=pymysql.cursors.DictCursor,
         autocommit=False
     )
+
+    # Prevent SELECT ... FOR UPDATE from waiting for a locked row
+    # until the Lambda's full 30-second timeout.
+    with connection.cursor() as cursor:
+        cursor.execute("SET SESSION innodb_lock_wait_timeout = 5")
+
+    return connection
 
 
 # ==========================================================
@@ -1883,13 +1890,37 @@ def update_order_status(
                 }
             )
 
+        log_event(
+            "INFO",
+            "Opening database connection for order status update",
+            request_id=context.aws_request_id,
+            order_id=order_id,
+            customer_id=customer_id,
+            requested_status=requested_status
+        )
+
         connection = get_db_connection()
+
+        log_event(
+            "INFO",
+            "Database connection established for order status update",
+            request_id=context.aws_request_id,
+            order_id=order_id
+        )
 
         with connection.cursor() as cursor:
 
             # ------------------------------------------
             # LOCK ORDER
             # ------------------------------------------
+
+            log_event(
+                "INFO",
+                "Attempting to lock order row",
+                request_id=context.aws_request_id,
+                order_id=order_id,
+                customer_id=customer_id
+            )
 
             if customer_id is not None:
 
@@ -1930,6 +1961,14 @@ def update_order_status(
                 )
 
             order = cursor.fetchone()
+
+            log_event(
+                "INFO",
+                "Order row lock/read completed",
+                request_id=context.aws_request_id,
+                order_id=order_id,
+                found=order is not None
+            )
 
             if order is None:
 
@@ -2261,6 +2300,43 @@ def update_order_status(
             {
                 "message":
                     str(exc)
+            }
+        )
+
+    except pymysql.err.OperationalError as exc:
+
+        if connection is not None:
+            connection.rollback()
+
+        error_code = exc.args[0] if exc.args else None
+
+        log_event(
+            "ERROR",
+            "Database operation failed during order status update",
+            request_id=context.aws_request_id,
+            order_id=order_id if "order_id" in locals() else None,
+            error_code=error_code,
+            error_type=type(exc).__name__,
+            error=str(exc)
+        )
+
+        # MySQL 1205 = lock wait timeout exceeded.
+        # Return a client-safe conflict instead of allowing API Gateway
+        # to reach a 29-30 second 504 timeout.
+        if error_code == 1205:
+            return response(
+                409,
+                {
+                    "message": "Order is currently being modified. Please try again.",
+                    "request_id": context.aws_request_id
+                }
+            )
+
+        return response(
+            500,
+            {
+                "message": "Database operation failed",
+                "request_id": context.aws_request_id
             }
         )
 
