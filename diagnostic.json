@@ -1,0 +1,7 @@
+{
+    "commands":  [
+                     "sudo systemctl cat cloudmart-dashboard",
+                     "PID=$(pgrep -f \"gunicorn\" | head -n 1); if [ -n \"$PID\" ] \u0026\u0026 sudo tr \"\\0\" \"\\n\" \u003c /proc/$PID/environ | grep -q \"^FLASK_SECRET_KEY=\"; then echo FLASK_SECRET_IN_PROCESS_PRESENT; else echo FLASK_SECRET_IN_PROCESS_MISSING; fi",
+                     "sudo journalctl -u cloudmart-dashboard -n 30 --no-pager"
+                 ]
+}

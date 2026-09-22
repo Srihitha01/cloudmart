@@ -1,0 +1,8 @@
+﻿{
+    "commands":  [
+                     "sudo systemctl is-active cloudmart-dashboard",
+                     "sudo ss -ltnp | grep \u0027:5000\u0027 || true",
+                     "curl -I --max-time 10 http://127.0.0.1:5000/ || true",
+                     "sudo journalctl -u cloudmart-dashboard -n 40 --no-pager -o cat"
+                 ]
+}

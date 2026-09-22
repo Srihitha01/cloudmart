@@ -1,0 +1,1 @@
+{"statusCode": 201, "headers": {"Content-Type": "application/json"}, "body": "{\"success\": true, \"message\": \"Customer created successfully\", \"data\": {\"customer_id\": 5, \"name\": \"Test User\", \"email\": \"testuser@example.com\", \"address\": null, \"status\": \"ACTIVE\", \"bearer_token\": \"Oe9I0J2b06fV3pYbFEzBSQ3x38jwvrHz3Vb4lv6piZs\"}}"}

@@ -1,0 +1,12 @@
+{
+    "commands":  [
+                     "sudo mkdir -p /etc/cloudmart",
+                     "if [ ! -f /etc/cloudmart/dashboard.env ]; then SECRET=3f80612b12fbe1d733fd4de6c1812401ddc85bacf04835cb325897348c10738d; echo FLASK_SECRET_KEY= | sudo tee /etc/cloudmart/dashboard.env \u003e /dev/null; fi",
+                     "sudo chmod 600 /etc/cloudmart/dashboard.env",
+                     "sudo mkdir -p /etc/systemd/system/cloudmart-dashboard.service.d",
+                     "sudo bash -c \u0027echo EnvironmentFile=/etc/cloudmart/dashboard.env \u003e /etc/systemd/system/cloudmart-dashboard.service.d/override.conf\u0027",
+                     "sudo systemctl daemon-reload",
+                     "sudo systemctl restart cloudmart-dashboard",
+                     "sudo systemctl is-active cloudmart-dashboard"
+                 ]
+}
