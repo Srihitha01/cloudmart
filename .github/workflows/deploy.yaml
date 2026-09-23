@@ -1,6 +1,5 @@
 name: CloudMart Infrastructure Deployment
 
-
 # ============================================================
 # WORKFLOW TRIGGERS
 # ============================================================
@@ -20,7 +19,6 @@ permissions:
   id-token: write
 
   contents: read
-
 
 # ============================================================
 # JOB 0
@@ -47,9 +45,7 @@ jobs:
 
       owner: ${{ steps.config.outputs.owner }}
 
-
     steps:
-
 
       # ------------------------------------------------------
       # CHECKOUT
@@ -58,7 +54,6 @@ jobs:
       - name: Checkout Repository
 
         uses: actions/checkout@v5
-
 
       # ------------------------------------------------------
       # LOAD CONFIGURATION
@@ -78,9 +73,7 @@ jobs:
 
           echo "========================================"
 
-
           CONFIG_FILE="config/config.json"
-
 
           if [ ! -f "$CONFIG_FILE" ]; then
 
@@ -90,12 +83,10 @@ jobs:
 
           fi
 
-
           ENVIRONMENT=$(jq -r '.[] | select(.Key=="Environment") | .Value' "$CONFIG_FILE")
           PROJECT=$(jq -r '.[] | select(.Key=="Project") | .Value' "$CONFIG_FILE")
           MANAGED_BY=$(jq -r '.[] | select(.Key=="ManagedBy") | .Value' "$CONFIG_FILE")
           OWNER=$(jq -r '.[] | select(.Key=="Owner") | .Value' "$CONFIG_FILE")
-
 
           # --------------------------------------------------
           # VALIDATE ENVIRONMENT
@@ -109,7 +100,6 @@ jobs:
 
           fi
 
-
           if [ "$ENVIRONMENT" != "dev" ] && [ "$ENVIRONMENT" != "prod" ]; then
 
             echo "ERROR: Invalid Environment: $ENVIRONMENT"
@@ -119,7 +109,6 @@ jobs:
             exit 1
 
           fi
-
 
           # --------------------------------------------------
           # VALIDATE PROJECT
@@ -133,7 +122,6 @@ jobs:
 
           fi
 
-
           # --------------------------------------------------
           # VALIDATE MANAGED BY
           # --------------------------------------------------
@@ -145,7 +133,6 @@ jobs:
             exit 1
 
           fi
-
 
           # --------------------------------------------------
           # VALIDATE OWNER
@@ -159,7 +146,6 @@ jobs:
 
           fi
 
-
           # --------------------------------------------------
           # GITHUB JOB OUTPUTS
           # --------------------------------------------------
@@ -171,7 +157,6 @@ jobs:
           echo "managed_by=$MANAGED_BY" >> "$GITHUB_OUTPUT"
 
           echo "owner=$OWNER" >> "$GITHUB_OUTPUT"
-
 
           echo ""
 
@@ -191,7 +176,6 @@ jobs:
 
           echo "========================================"
 
-
   # ==========================================================
   # 1. DEPLOY NETWORK SECURITY STACK
   # ==========================================================
@@ -204,7 +188,6 @@ jobs:
 
     needs:
       - load-config
-
 
     env:
       AWS_REGION: ap-south-1
@@ -219,9 +202,7 @@ jobs:
 
       NETWORK_STACK_NAME: cloudmart-network-security-${{ needs.load-config.outputs.environment }}
 
-
     steps:
-
 
       # ------------------------------------------------------
       # CHECKOUT
@@ -230,7 +211,6 @@ jobs:
       - name: Checkout Repository
 
         uses: actions/checkout@v5
-
 
       # ------------------------------------------------------
       # AWS AUTHENTICATION
@@ -245,7 +225,6 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
 
           aws-region: ${{ env.AWS_REGION }}
-
 
       # ------------------------------------------------------
       # VERIFY AWS IDENTITY
@@ -263,7 +242,6 @@ jobs:
 
           aws sts get-caller-identity
 
-
       # ------------------------------------------------------
       # VALIDATE NETWORK TEMPLATE
       # ------------------------------------------------------
@@ -278,10 +256,8 @@ jobs:
 
           echo "========================================"
 
-
           python -m pip install --quiet cfn-lint
           cfn-lint -t cloudformation/network-stack.yaml --non-zero-exit-code error
-
 
       # ------------------------------------------------------
       # DEPLOY NETWORK STACK
@@ -297,13 +273,11 @@ jobs:
 
           echo "========================================"
 
-
           echo "Environment: $ENVIRONMENT"
 
           echo "Stack:       $NETWORK_STACK_NAME"
 
           echo "Region:      $AWS_REGION"
-
 
           aws cloudformation deploy \
             --template-file cloudformation/network-stack.yaml \
@@ -312,7 +286,6 @@ jobs:
               Environment="$ENVIRONMENT" \
             --region "$AWS_REGION" \
             --no-fail-on-empty-changeset
-
 
       # ------------------------------------------------------
       # VERIFY NETWORK STACK
@@ -328,13 +301,11 @@ jobs:
 
           echo "========================================"
 
-
           aws cloudformation describe-stacks \
             --stack-name "$NETWORK_STACK_NAME" \
             --region "$AWS_REGION" \
             --query 'Stacks[0].[StackName,StackStatus]' \
             --output table
-
 
       # ------------------------------------------------------
       # SHOW NETWORK OUTPUTS
@@ -350,13 +321,11 @@ jobs:
 
           echo "========================================"
 
-
           aws cloudformation describe-stacks \
             --stack-name "$NETWORK_STACK_NAME" \
             --region "$AWS_REGION" \
             --query 'Stacks[0].Outputs[*].[OutputKey,OutputValue]' \
             --output table
-
 
   # ==========================================================
   # 2. DEPLOY DATA STORAGE STACK
@@ -374,7 +343,6 @@ jobs:
 
       - deploy-network
 
-
     env:
       AWS_REGION: ap-south-1
 
@@ -390,9 +358,7 @@ jobs:
 
       DATA_STACK_NAME: cloudmart-data-storage-${{ needs.load-config.outputs.environment }}
 
-
     steps:
-
 
       # ------------------------------------------------------
       # CHECKOUT
@@ -401,7 +367,6 @@ jobs:
       - name: Checkout Repository
 
         uses: actions/checkout@v5
-
 
       # ------------------------------------------------------
       # AWS AUTHENTICATION
@@ -416,7 +381,6 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
 
           aws-region: ${{ env.AWS_REGION }}
-
 
       # ------------------------------------------------------
       # VERIFY AWS IDENTITY
@@ -433,7 +397,6 @@ jobs:
           echo "========================================"
 
           aws sts get-caller-identity
-
 
       # ------------------------------------------------------
       # MASK DATABASE PASSWORD
@@ -470,7 +433,6 @@ jobs:
 
           echo "========================================"
 
-
           if [ -z "$DB_PASSWORD" ]; then
 
             echo "ERROR: DB password was not entered in the workflow input."
@@ -479,12 +441,9 @@ jobs:
 
           fi
 
-
           PASSWORD_LENGTH=${#DB_PASSWORD}
 
-
           echo "Database password secret is available."
-
 
           if [ "$PASSWORD_LENGTH" -lt 12 ]; then
 
@@ -494,9 +453,7 @@ jobs:
 
           fi
 
-
           echo "Database password validation passed."
-
 
       # ------------------------------------------------------
       # VALIDATE DATA STACK
@@ -512,10 +469,8 @@ jobs:
 
           echo "========================================"
 
-
           python -m pip install --quiet cfn-lint
           cfn-lint -t cloudformation/data-stack.yaml --non-zero-exit-code error
-
 
       # ------------------------------------------------------
       # DEPLOY DATA STORAGE STACK
@@ -535,11 +490,9 @@ jobs:
 
           echo "========================================"
 
-
           echo "Environment: $ENVIRONMENT"
 
           echo "Stack:       $DATA_STACK_NAME"
-
 
           aws cloudformation deploy \
             --template-file cloudformation/data-stack.yaml \
@@ -550,7 +503,6 @@ jobs:
             --region "$AWS_REGION" \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --no-fail-on-empty-changeset
-
 
       # ------------------------------------------------------
       # VERIFY DATABASE SSM PARAMETERS
@@ -566,14 +518,12 @@ jobs:
 
           echo "========================================"
 
-
           aws ssm get-parameters-by-path \
             --path "/cloudmart/${ENVIRONMENT}/db" \
             --recursive \
             --region "$AWS_REGION" \
             --query "Parameters[].{Name:Name,Type:Type}" \
             --output table
-
 
       # ------------------------------------------------------
       # VERIFY DATA STACK
@@ -589,13 +539,11 @@ jobs:
 
           echo "========================================"
 
-
           aws cloudformation describe-stacks \
             --stack-name "$DATA_STACK_NAME" \
             --region "$AWS_REGION" \
             --query 'Stacks[0].[StackName,StackStatus]' \
             --output table
-
 
       # ------------------------------------------------------
       # SHOW DATA OUTPUTS
@@ -611,13 +559,11 @@ jobs:
 
           echo "========================================"
 
-
           aws cloudformation describe-stacks \
             --stack-name "$DATA_STACK_NAME" \
             --region "$AWS_REGION" \
             --query 'Stacks[0].Outputs[*].[OutputKey,OutputValue]' \
             --output table
-
 
   # ==========================================================
   # 3. DEPLOY IAM STACK
@@ -637,7 +583,6 @@ jobs:
 
       - deploy-data
 
-
     env:
       AWS_REGION: ap-south-1
 
@@ -651,9 +596,7 @@ jobs:
 
       IAM_STACK_NAME: cloudmart-iam-${{ needs.load-config.outputs.environment }}
 
-
     steps:
-
 
       # ------------------------------------------------------
       # CHECKOUT
@@ -662,7 +605,6 @@ jobs:
       - name: Checkout Repository
 
         uses: actions/checkout@v5
-
 
       # ------------------------------------------------------
       # AWS AUTHENTICATION
@@ -677,7 +619,6 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
 
           aws-region: ${{ env.AWS_REGION }}
-
 
       # ------------------------------------------------------
       # VERIFY AWS IDENTITY
@@ -695,7 +636,6 @@ jobs:
 
           aws sts get-caller-identity
 
-
       # ------------------------------------------------------
       # VALIDATE IAM TEMPLATE
       # ------------------------------------------------------
@@ -710,10 +650,8 @@ jobs:
 
           echo "========================================"
 
-
           python -m pip install --quiet cfn-lint
           cfn-lint -t cloudformation/iam-stack.yaml --non-zero-exit-code error
-
 
       # ------------------------------------------------------
       # DEPLOY IAM STACK
@@ -729,11 +667,9 @@ jobs:
 
           echo "========================================"
 
-
           echo "Environment: $ENVIRONMENT"
 
           echo "Stack:       $IAM_STACK_NAME"
-
 
           aws cloudformation deploy \
             --template-file cloudformation/iam-stack.yaml \
@@ -743,7 +679,6 @@ jobs:
             --region "$AWS_REGION" \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --no-fail-on-empty-changeset
-
 
       # ------------------------------------------------------
       # VERIFY IAM STACK
@@ -759,13 +694,11 @@ jobs:
 
           echo "========================================"
 
-
           aws cloudformation describe-stacks \
             --stack-name "$IAM_STACK_NAME" \
             --region "$AWS_REGION" \
             --query 'Stacks[0].[StackName,StackStatus]' \
             --output table
-
 
       # ------------------------------------------------------
       # VERIFY AUTHENTICATION SSM PARAMETERS
@@ -780,7 +713,6 @@ jobs:
           echo "VERIFYING AUTHENTICATION SSM PARAMETERS"
 
           echo "========================================"
-
 
           aws ssm describe-parameters \
             --region "$AWS_REGION" \
@@ -801,13 +733,11 @@ jobs:
 
           echo "========================================"
 
-
           aws cloudformation describe-stacks \
             --stack-name "$IAM_STACK_NAME" \
             --region "$AWS_REGION" \
             --query 'Stacks[0].Outputs[*].[OutputKey,OutputValue]' \
             --output table
-
 
   # ==========================================================
   # 4. DEPLOY APPLICATION EVENTS STACK
@@ -827,7 +757,6 @@ jobs:
 
       - deploy-iam
 
-
     env:
       AWS_REGION: ap-south-1
 
@@ -845,9 +774,7 @@ jobs:
 
       APPLICATION_EVENTS_STACK_NAME: cloudmart-application-events-${{ needs.load-config.outputs.environment }}
 
-
     steps:
-
 
       # ------------------------------------------------------
       # CHECKOUT
@@ -856,7 +783,6 @@ jobs:
       - name: Checkout Repository
 
         uses: actions/checkout@v5
-
 
       # ------------------------------------------------------
       # AWS AUTHENTICATION
@@ -871,7 +797,6 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
 
           aws-region: ${{ env.AWS_REGION }}
-
 
       # ------------------------------------------------------
       # VERIFY AWS IDENTITY
@@ -889,7 +814,6 @@ jobs:
 
           aws sts get-caller-identity
 
-
       # ------------------------------------------------------
       # VERIFY REQUIRED PROJECT FILES
       # ------------------------------------------------------
@@ -903,7 +827,6 @@ jobs:
           echo "VERIFYING PROJECT FILES"
 
           echo "========================================"
-
 
           test -f lambda/authorizer/lambda_function.py
 
@@ -921,9 +844,7 @@ jobs:
 
           test -f dashboard/app.py
 
-
           echo "All required project files found."
-
 
       # ------------------------------------------------------
       # VALIDATE APPLICATION EVENTS TEMPLATE
@@ -939,10 +860,8 @@ jobs:
 
           echo "========================================"
 
-
           python -m pip install --quiet cfn-lint
           cfn-lint -t cloudformation/application-events-stack.yaml --non-zero-exit-code error
-
 
       # ------------------------------------------------------
       # GET ARTIFACT BUCKET FROM DATA STACK
@@ -958,13 +877,11 @@ jobs:
 
           echo "========================================"
 
-
           ARTIFACT_BUCKET=$(aws cloudformation describe-stacks \
             --stack-name "$DATA_STACK_NAME" \
             --region "$AWS_REGION" \
             --query "Stacks[0].Outputs[?OutputKey=='ArtifactBucketName'].OutputValue" \
             --output text)
-
 
           if [ -z "$ARTIFACT_BUCKET" ] || [ "$ARTIFACT_BUCKET" = "None" ]; then
 
@@ -974,12 +891,9 @@ jobs:
 
           fi
 
-
           echo "LAMBDA_ARTIFACT_BUCKET=$ARTIFACT_BUCKET" >> "$GITHUB_ENV"
 
-
           echo "Artifact bucket: $ARTIFACT_BUCKET"
-
 
       # ------------------------------------------------------
       # CREATE BUILD DIRECTORIES
@@ -995,11 +909,9 @@ jobs:
 
           echo "========================================"
 
-
           rm -rf build
 
           mkdir -p build
-
 
       # ------------------------------------------------------
       # BUILD PYMYSQL LAYER
@@ -1015,27 +927,20 @@ jobs:
 
           echo "========================================"
 
-
           mkdir -p build/pymysql-layer/python
 
-
           python -m pip install --upgrade pip
-
 
           python -m pip install \
             PyMySQL==1.1.1 \
             cryptography==45.0.6 \
             -t build/pymysql-layer/python
 
-
           cd build/pymysql-layer
-
 
           zip -r ../pymysql-layer.zip python
 
-
           cd ../..
-
 
       # ------------------------------------------------------
       # BUILD AUTHORIZER LAMBDA
@@ -1051,13 +956,10 @@ jobs:
 
           echo "========================================"
 
-
           mkdir -p build/authorizer
-
 
           cp lambda/authorizer/lambda_function.py \
             build/authorizer/
-
 
           if [ -f lambda/authorizer/requirements.txt ]; then
 
@@ -1067,15 +969,11 @@ jobs:
 
           fi
 
-
           cd build/authorizer
-
 
           zip -r ../authorizer-lambda.zip .
 
-
           cd ../..
-
 
       # ------------------------------------------------------
       # BUILD PRODUCT LAMBDA
@@ -1091,13 +989,10 @@ jobs:
 
           echo "========================================"
 
-
           mkdir -p build/product
-
 
           cp lambda/product/lambda_function.py \
             build/product/
-
 
           if [ -f lambda/product/requirements.txt ]; then
 
@@ -1107,15 +1002,11 @@ jobs:
 
           fi
 
-
           cd build/product
-
 
           zip -r ../product-lambda.zip .
 
-
           cd ../..
-
 
       # ------------------------------------------------------
       # BUILD CUSTOMER LAMBDA
@@ -1150,7 +1041,6 @@ jobs:
 
           cd ../..
 
-
       # ------------------------------------------------------
       # BUILD ORDER LAMBDA
       # ------------------------------------------------------
@@ -1165,13 +1055,10 @@ jobs:
 
           echo "========================================"
 
-
           mkdir -p build/order
-
 
           cp lambda/order/lambda_function.py \
             build/order/
-
 
           if [ -f lambda/order/requirements.txt ]; then
 
@@ -1181,15 +1068,11 @@ jobs:
 
           fi
 
-
           cd build/order
-
 
           zip -r ../order-lambda.zip .
 
-
           cd ../..
-
 
       # ------------------------------------------------------
       # BUILD ORDER PROCESSOR LAMBDA
@@ -1205,13 +1088,10 @@ jobs:
 
           echo "========================================"
 
-
           mkdir -p build/order-processor
-
 
           cp lambda/order-processor/lambda_function.py \
             build/order-processor/
-
 
           if [ -f lambda/order-processor/requirements.txt ]; then
 
@@ -1221,15 +1101,11 @@ jobs:
 
           fi
 
-
           cd build/order-processor
-
 
           zip -r ../order-processor-lambda.zip .
 
-
           cd ../..
-
 
       # ------------------------------------------------------
       # BUILD DAILY REPORT LAMBDA
@@ -1245,13 +1121,10 @@ jobs:
 
           echo "========================================"
 
-
           mkdir -p build/daily-report
-
 
           cp lambda/daily-report/lambda_function.py \
             build/daily-report/
-
 
           if [ -f lambda/daily-report/requirements.txt ]; then
 
@@ -1261,15 +1134,11 @@ jobs:
 
           fi
 
-
           cd build/daily-report
-
 
           zip -r ../daily-report-lambda.zip .
 
-
           cd ../..
-
 
       # ------------------------------------------------------
       # PACKAGE DATABASE SCHEMA
@@ -1285,10 +1154,8 @@ jobs:
 
           echo "========================================"
 
-
           cp database/schema.sql \
             build/schema.sql
-
 
       # ------------------------------------------------------
       # UPLOAD PYMYSQL LAYER
@@ -1303,7 +1170,6 @@ jobs:
             "s3://${LAMBDA_ARTIFACT_BUCKET}/layers/pymysql/pymysql-layer-${GITHUB_SHA}.zip" \
             --region "$AWS_REGION"
 
-
       # ------------------------------------------------------
       # UPLOAD AUTHORIZER
       # ------------------------------------------------------
@@ -1316,7 +1182,6 @@ jobs:
             build/authorizer-lambda.zip \
             "s3://${LAMBDA_ARTIFACT_BUCKET}/lambda/authorizer/authorizer-lambda-${GITHUB_SHA}.zip" \
             --region "$AWS_REGION"
-
 
       # ------------------------------------------------------
       # UPLOAD PRODUCT LAMBDA
@@ -1331,7 +1196,6 @@ jobs:
             "s3://${LAMBDA_ARTIFACT_BUCKET}/lambda/product/product-lambda-${GITHUB_SHA}.zip" \
             --region "$AWS_REGION"
 
-
       # ------------------------------------------------------
       # UPLOAD CUSTOMER LAMBDA
       # ------------------------------------------------------
@@ -1344,7 +1208,6 @@ jobs:
             build/customer-lambda.zip \
             "s3://${LAMBDA_ARTIFACT_BUCKET}/lambda/customer/customer-lambda-${GITHUB_SHA}.zip" \
             --region "$AWS_REGION"
-
 
       # ------------------------------------------------------
       # UPLOAD ORDER LAMBDA
@@ -1359,7 +1222,6 @@ jobs:
             "s3://${LAMBDA_ARTIFACT_BUCKET}/lambda/order/order-lambda-${GITHUB_SHA}.zip" \
             --region "$AWS_REGION"
 
-
       # ------------------------------------------------------
       # UPLOAD ORDER PROCESSOR
       # ------------------------------------------------------
@@ -1372,7 +1234,6 @@ jobs:
             build/order-processor-lambda.zip \
             "s3://${LAMBDA_ARTIFACT_BUCKET}/lambda/order-processor/order-processor-lambda-${GITHUB_SHA}.zip" \
             --region "$AWS_REGION"
-
 
       # ------------------------------------------------------
       # UPLOAD DAILY REPORT LAMBDA
@@ -1387,7 +1248,6 @@ jobs:
             "s3://${LAMBDA_ARTIFACT_BUCKET}/lambda/daily-report/daily-report-lambda-${GITHUB_SHA}.zip" \
             --region "$AWS_REGION"
 
-
       # ------------------------------------------------------
       # UPLOAD DATABASE SCHEMA
       # ------------------------------------------------------
@@ -1400,7 +1260,6 @@ jobs:
             build/schema.sql \
             "s3://${LAMBDA_ARTIFACT_BUCKET}/database/schema-${GITHUB_SHA}.sql" \
             --region "$AWS_REGION"
-
 
       # ------------------------------------------------------
       # VERIFY ARTIFACTS
@@ -1416,24 +1275,20 @@ jobs:
 
           echo "========================================"
 
-
           aws s3api head-object \
             --bucket "$LAMBDA_ARTIFACT_BUCKET" \
             --key "layers/pymysql/pymysql-layer-${GITHUB_SHA}.zip" \
             --region "$AWS_REGION"
-
 
           aws s3api head-object \
             --bucket "$LAMBDA_ARTIFACT_BUCKET" \
             --key "lambda/authorizer/authorizer-lambda-${GITHUB_SHA}.zip" \
             --region "$AWS_REGION"
 
-
           aws s3api head-object \
             --bucket "$LAMBDA_ARTIFACT_BUCKET" \
             --key "lambda/product/product-lambda-${GITHUB_SHA}.zip" \
             --region "$AWS_REGION"
-
 
           aws s3api head-object \
             --bucket "$LAMBDA_ARTIFACT_BUCKET" \
@@ -1445,7 +1300,6 @@ jobs:
             --key "lambda/order/order-lambda-${GITHUB_SHA}.zip" \
             --region "$AWS_REGION"
 
-
           aws s3api head-object \
             --bucket "$LAMBDA_ARTIFACT_BUCKET" \
             --key "lambda/order-processor/order-processor-lambda-${GITHUB_SHA}.zip" \
@@ -1454,17 +1308,14 @@ jobs:
           aws s3api head-object \
             --bucket "$LAMBDA_ARTIFACT_BUCKET" \
             --key "lambda/daily-report/daily-report-lambda-${GITHUB_SHA}.zip" \
-            --region "$AWS_REGION" 
-
+            --region "$AWS_REGION"
 
           aws s3api head-object \
             --bucket "$LAMBDA_ARTIFACT_BUCKET" \
             --key "database/schema-${GITHUB_SHA}.sql" \
             --region "$AWS_REGION"
 
-
           echo "All Lambda artifacts verified successfully."
-
 
       # ------------------------------------------------------
       # DEPLOY APPLICATION EVENTS STACK
@@ -1480,13 +1331,9 @@ jobs:
 
           echo "========================================"
 
-
           echo "Environment: $ENVIRONMENT"
 
           echo "Stack:       $APPLICATION_EVENTS_STACK_NAME"
-
-
-
 
           aws cloudformation deploy \
             --template-file cloudformation/application-events-stack.yaml \
@@ -1514,7 +1361,6 @@ jobs:
             --region "$AWS_REGION" \
             --no-fail-on-empty-changeset
 
-
       # ------------------------------------------------------
       # VERIFY APPLICATION STACK
       # ------------------------------------------------------
@@ -1529,13 +1375,11 @@ jobs:
 
           echo "========================================"
 
-
           aws cloudformation describe-stacks \
             --stack-name "$APPLICATION_EVENTS_STACK_NAME" \
             --region "$AWS_REGION" \
             --query 'Stacks[0].[StackName,StackStatus]' \
             --output table
-
 
       # ------------------------------------------------------
       # SHOW APPLICATION OUTPUTS
@@ -1551,13 +1395,11 @@ jobs:
 
           echo "========================================"
 
-
           aws cloudformation describe-stacks \
             --stack-name "$APPLICATION_EVENTS_STACK_NAME" \
             --region "$AWS_REGION" \
             --query 'Stacks[0].Outputs[*].[OutputKey,OutputValue]' \
             --output table
-
 
       # ------------------------------------------------------
       # VERIFY LAMBDA FUNCTIONS
@@ -1573,7 +1415,6 @@ jobs:
 
           echo "========================================"
 
-
           for FUNCTION_NAME in \
             "cloudmart-${ENVIRONMENT}-product-lambda" \
             "cloudmart-${ENVIRONMENT}-customer-lambda" \
@@ -1588,7 +1429,6 @@ jobs:
 
             echo "Checking Lambda: $FUNCTION_NAME"
 
-
             aws lambda get-function-configuration \
               --function-name "$FUNCTION_NAME" \
               --region "$AWS_REGION" \
@@ -1596,7 +1436,6 @@ jobs:
               --output table
 
           done
-
 
   # ==========================================================
   # 5. DEPLOY API MONITORING + EC2 STACK
@@ -1614,7 +1453,6 @@ jobs:
 
       - deploy-application-events
 
-
     env:
       AWS_REGION: ap-south-1
 
@@ -1630,9 +1468,7 @@ jobs:
 
       DATA_STACK_NAME: cloudmart-data-storage-${{ needs.load-config.outputs.environment }}
 
-
     steps:
-
 
       # ------------------------------------------------------
       # CHECKOUT
@@ -1641,7 +1477,6 @@ jobs:
       - name: Checkout Repository
 
         uses: actions/checkout@v5
-
 
       # ------------------------------------------------------
       # AWS AUTHENTICATION
@@ -1656,7 +1491,6 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
 
           aws-region: ${{ env.AWS_REGION }}
-
 
       # ------------------------------------------------------
       # VERIFY AWS IDENTITY
@@ -1674,7 +1508,6 @@ jobs:
 
           aws sts get-caller-identity
 
-
       # ------------------------------------------------------
       # PUBLISH EC2 DASHBOARD FILES
       # GitHub Actions syncs the existing dashboard source to
@@ -1691,27 +1524,20 @@ jobs:
 
           echo "========================================"
 
-
           test -f dashboard/app.py
 
-
           ARTIFACT_BUCKET=$(aws cloudformation describe-stacks             --stack-name "$DATA_STACK_NAME"             --region "$AWS_REGION"             --query "Stacks[0].Outputs[?OutputKey=='ArtifactBucketName'].OutputValue"             --output text)
-
 
           if [ -z "$ARTIFACT_BUCKET" ] || [ "$ARTIFACT_BUCKET" = "None" ]; then
             echo "ERROR: Artifact bucket not found."
             exit 1
           fi
 
-
           echo "Artifact bucket: $ARTIFACT_BUCKET"
-
 
           aws s3 sync dashboard/             "s3://${ARTIFACT_BUCKET}/dashboard/"             --region "$AWS_REGION"             --delete
 
-
           echo "Dashboard files published successfully."
-
 
       # ------------------------------------------------------
       # VALIDATE API TEMPLATE
@@ -1727,10 +1553,8 @@ jobs:
 
           echo "========================================"
 
-
           python -m pip install --quiet cfn-lint
           cfn-lint -t cloudformation/api-monitoring-ec2-stack.yaml --non-zero-exit-code error
-
 
       # ------------------------------------------------------
       # DEPLOY API MONITORING EC2 STACK
@@ -1745,7 +1569,6 @@ jobs:
           echo "DEPLOYING API MONITORING EC2 STACK"
 
           echo "========================================"
-
 
           echo "Environment: $ENVIRONMENT"
 
@@ -1776,15 +1599,12 @@ jobs:
             --region "$AWS_REGION" \
             --no-fail-on-empty-changeset
 
-
       # ------------------------------------------------------
       # EC2 DASHBOARD DEPLOYMENT
       # The API stack UserData automatically installs Nginx,
       # Gunicorn and the dashboard from the artifact bucket.
       # No manual/SSM dashboard deployment is required.
       # ------------------------------------------------------
-
-
 
       # ------------------------------------------------------
       # VERIFY API STACK
@@ -1800,13 +1620,11 @@ jobs:
 
           echo "========================================"
 
-
           aws cloudformation describe-stacks \
             --stack-name "$API_MONITORING_EC2_STACK_NAME" \
             --region "$AWS_REGION" \
             --query 'Stacks[0].[StackName,StackStatus]' \
             --output table
-
 
       # ------------------------------------------------------
       # SHOW API OUTPUTS
@@ -1822,13 +1640,11 @@ jobs:
 
           echo "========================================"
 
-
           aws cloudformation describe-stacks \
             --stack-name "$API_MONITORING_EC2_STACK_NAME" \
             --region "$AWS_REGION" \
             --query 'Stacks[0].Outputs[*].[OutputKey,OutputValue]' \
             --output table
-
 
       # ------------------------------------------------------
       # FINAL STACK STATUS
@@ -1846,7 +1662,6 @@ jobs:
 
           echo "========================================"
 
-
           echo ""
 
           echo "Project:     $PROJECT"
@@ -1859,7 +1674,6 @@ jobs:
 
           echo "Region:      $AWS_REGION"
 
-
           echo ""
 
           echo "========================================"
@@ -1867,7 +1681,6 @@ jobs:
           echo "FINAL STACK STATUS"
 
           echo "========================================"
-
 
           for STACK_NAME in \
             "cloudmart-network-security-${ENVIRONMENT}" \
@@ -1885,7 +1698,6 @@ jobs:
               --output table
 
           done
-
 
           echo ""
 
