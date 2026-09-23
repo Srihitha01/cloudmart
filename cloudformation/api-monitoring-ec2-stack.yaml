@@ -44,12 +44,21 @@ Parameters:
 
 
   # ==========================================================
-  # SNS ALERT TOPICS
+  # DASHBOARD / REVERSE PROXY CONFIGURATION
   # ==========================================================
-  ProductAlertsTopicArn:
+  # Gunicorn listens only on localhost. Nginx is the public HTTP
+  # entry point and reverse-proxies to Gunicorn.
+  NginxPort:
+    Type: Number
+    Default: 80
+    MinValue: 1
+    MaxValue: 65535
+    Description: Public HTTP port for the Nginx reverse proxy
+
+  RdsDbInstanceIdentifier:
     Type: String
-    Default: arn:aws:sns:ap-south-1:285150348844:cloudmart-dev-product-alerts
-    Description: SNS topic ARN for product and API monitoring alerts
+    Default: cloudmart-dev-mysql
+    Description: RDS DB instance identifier used by CloudWatch RDS metrics
 
   OrderAlertsTopicArn:
     Type: String
@@ -68,6 +77,10 @@ Parameters:
     Default: cloudmart-dev-mysql
     Description: RDS DB instance identifier used by CloudWatch RDS metrics
 
+
+# ============================================================
+# RESOURCES
+# ============================================================
 
 # ============================================================
 # RESOURCES
@@ -1022,7 +1035,6 @@ Resources:
           POST
 
         Uri:
-
           Fn::Sub:
 
             - arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaArn}/invocations
@@ -1327,7 +1339,7 @@ Resources:
   # API DEPLOYMENT
   # ==========================================================
 
-  ApiDeploymentV7:
+  ApiDeploymentV9:
 
     Type: AWS::ApiGateway::Deployment
 
@@ -1367,7 +1379,7 @@ Resources:
 
       Description:
         !Sub >
-          CloudMart ${Environment} API deployment V8 with
+          CloudMart ${Environment} API deployment V9 with
           customer-specific order routes and Lambda Authorizer
 
 
@@ -1404,7 +1416,7 @@ Resources:
         !Ref CloudMartApi
 
       DeploymentId:
-        !Ref ApiDeploymentV7
+        !Ref ApiDeploymentV9
 
       StageName:
         !Ref Environment
@@ -1653,8 +1665,10 @@ Resources:
         GreaterThanOrEqualToThreshold
 
       AlarmActions:
-        - !Ref ProductAlertsTopicArn
-        - !Ref OrderAlertsTopicArn
+        - Fn::ImportValue:
+            Fn::Sub: cloudmart-${Environment}-ProductAlertTopicArn
+        - Fn::ImportValue:
+            Fn::Sub: cloudmart-${Environment}-OrderAlertTopicArn
 
       TreatMissingData:
         notBreaching
@@ -1702,7 +1716,8 @@ Resources:
         GreaterThanOrEqualToThreshold
 
       AlarmActions:
-        - !Ref ProductAlertsTopicArn
+        - Fn::ImportValue:
+            Fn::Sub: cloudmart-${Environment}-ProductAlertTopicArn
 
       TreatMissingData:
         notBreaching
@@ -1750,7 +1765,8 @@ Resources:
         GreaterThanOrEqualToThreshold
 
       AlarmActions:
-        - !Ref OrderAlertsTopicArn
+        - Fn::ImportValue:
+            Fn::Sub: cloudmart-${Environment}-OrderAlertTopicArn
 
       TreatMissingData:
         notBreaching
@@ -1759,7 +1775,7 @@ Resources:
   # ==========================================================
   # EC2 DASHBOARD ACCESS POLICY
   # Allows the dashboard instance to:
-  # - download dashboard files published by GitHub Actions
+  # - download dashboard files from the artifact bucket
   # - read generated reports from the report bucket
   # - read CloudMart DB connection parameters from SSM
   # ==========================================================
@@ -1893,7 +1909,7 @@ Resources:
 
               exec > >(tee -a /var/log/cloudmart-dashboard-userdata.log | logger -t cloudmart-dashboard -s 2>/dev/console) 2>&1
 
-              dnf install -y python3 python3-pip
+              dnf install -y python3 python3-pip nginx
               install -d -m 0755 /opt/cloudmart/dashboard
               install -d -m 0755 /var/log/cloudmart
 
@@ -1960,7 +1976,7 @@ Resources:
               Environment=REPORT_BUCKET=${ReportBucketName}
               Environment=REPORT_BUCKET_PARAMETER=/cloudmart/${Environment}/s3/report-bucket
               Environment=ENVIRONMENT=${Environment}
-              ExecStart=/opt/cloudmart/dashboard/.venv/bin/gunicorn --workers 2 --threads 4 --timeout 120 --access-logfile - --error-logfile - --bind 0.0.0.0:${DashboardPort} app:app
+              ExecStart=/opt/cloudmart/dashboard/.venv/bin/gunicorn --workers 2 --threads 4 --timeout 120 --access-logfile - --error-logfile - --bind 127.0.0.1:${DashboardPort} app:app
               Restart=always
               RestartSec=5
               StartLimitIntervalSec=0
@@ -1970,13 +1986,42 @@ Resources:
               WantedBy=multi-user.target
               SERVICE
 
+              cat > /etc/nginx/conf.d/cloudmart-dashboard.conf <<NGINX
+              server {
+                  listen ${NginxPort};
+                  listen [::]:${NginxPort};
+                  server_name _;
+
+                  client_max_body_size 10m;
+
+                  location / {
+                      proxy_pass http://127.0.0.1:${DashboardPort};
+                      proxy_http_version 1.1;
+                      proxy_set_header Host $host;
+                      proxy_set_header X-Real-IP $remote_addr;
+                      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                      proxy_set_header X-Forwarded-Proto $scheme;
+                      proxy_read_timeout 120s;
+                  }
+              }
+              NGINX
+
+              nginx -t
+              systemctl enable nginx
+              systemctl restart nginx
+
               systemctl daemon-reload
               systemctl enable cloudmart-dashboard
               systemctl restart cloudmart-dashboard
               sleep 5
               systemctl is-active --quiet cloudmart-dashboard
-              curl --fail --silent --show-error --max-time 10 http://127.0.0.1:${DashboardPort}/ >/dev/null || {
+              systemctl is-active --quiet nginx
+              curl --fail --silent --show-error --max-time 10 http://127.0.0.1:${DashboardPort}/health >/dev/null || {
                 journalctl -u cloudmart-dashboard -n 100 --no-pager
+                exit 1
+              }
+              curl --fail --silent --show-error --max-time 10 http://127.0.0.1:${NginxPort}/health >/dev/null || {
+                journalctl -u nginx -n 100 --no-pager
                 exit 1
               }
 
@@ -2046,7 +2091,8 @@ Resources:
         GreaterThanThreshold
 
       AlarmActions:
-        - !Ref OrderAlertsTopicArn
+        - Fn::ImportValue:
+            Fn::Sub: cloudmart-${Environment}-OrderAlertTopicArn
 
       TreatMissingData:
         notBreaching
@@ -2075,8 +2121,10 @@ Resources:
       Threshold: 10
       ComparisonOperator: GreaterThanOrEqualToThreshold
       AlarmActions:
-        - !Ref ProductAlertsTopicArn
-        - !Ref OrderAlertsTopicArn
+        - Fn::ImportValue:
+            Fn::Sub: cloudmart-${Environment}-ProductAlertTopicArn
+        - Fn::ImportValue:
+            Fn::Sub: cloudmart-${Environment}-OrderAlertTopicArn
       TreatMissingData: notBreaching
 
   ApiLatencyAlarm:
@@ -2097,7 +2145,8 @@ Resources:
       Threshold: 3000
       ComparisonOperator: GreaterThanThreshold
       AlarmActions:
-        - !Ref OrderAlertsTopicArn
+        - Fn::ImportValue:
+            Fn::Sub: cloudmart-${Environment}-OrderAlertTopicArn
       TreatMissingData: notBreaching
 
   # ==========================================================
@@ -2120,7 +2169,8 @@ Resources:
       Threshold: 1
       ComparisonOperator: GreaterThanOrEqualToThreshold
       AlarmActions:
-        - !Ref ProductAlertsTopicArn
+        - Fn::ImportValue:
+            Fn::Sub: cloudmart-${Environment}-ProductAlertTopicArn
       TreatMissingData: notBreaching
 
   OrderLambdaThrottleAlarm:
@@ -2139,7 +2189,8 @@ Resources:
       Threshold: 1
       ComparisonOperator: GreaterThanOrEqualToThreshold
       AlarmActions:
-        - !Ref OrderAlertsTopicArn
+        - Fn::ImportValue:
+            Fn::Sub: cloudmart-${Environment}-OrderAlertTopicArn
       TreatMissingData: notBreaching
 
   ProductLambdaDurationAlarm:
@@ -2158,7 +2209,8 @@ Resources:
       Threshold: 3000
       ComparisonOperator: GreaterThanThreshold
       AlarmActions:
-        - !Ref ProductAlertsTopicArn
+        - Fn::ImportValue:
+            Fn::Sub: cloudmart-${Environment}-ProductAlertTopicArn
       TreatMissingData: notBreaching
 
   OrderLambdaDurationAlarm:
@@ -2177,7 +2229,8 @@ Resources:
       Threshold: 3000
       ComparisonOperator: GreaterThanThreshold
       AlarmActions:
-        - !Ref OrderAlertsTopicArn
+        - Fn::ImportValue:
+            Fn::Sub: cloudmart-${Environment}-OrderAlertTopicArn
       TreatMissingData: notBreaching
 
   # ==========================================================
@@ -2200,7 +2253,8 @@ Resources:
       Threshold: 80
       ComparisonOperator: GreaterThanThreshold
       AlarmActions:
-        - !Ref OrderAlertsTopicArn
+        - Fn::ImportValue:
+            Fn::Sub: cloudmart-${Environment}-OrderAlertTopicArn
       TreatMissingData: notBreaching
 
   RdsLowFreeStorageAlarm:
@@ -2219,7 +2273,8 @@ Resources:
       Threshold: 2147483648
       ComparisonOperator: LessThanThreshold
       AlarmActions:
-        - !Ref OrderAlertsTopicArn
+        - Fn::ImportValue:
+            Fn::Sub: cloudmart-${Environment}-OrderAlertTopicArn
       TreatMissingData: notBreaching
 
   RdsHighConnectionsAlarm:
@@ -2238,7 +2293,8 @@ Resources:
       Threshold: 80
       ComparisonOperator: GreaterThanThreshold
       AlarmActions:
-        - !Ref OrderAlertsTopicArn
+        - Fn::ImportValue:
+            Fn::Sub: cloudmart-${Environment}-OrderAlertTopicArn
       TreatMissingData: notBreaching
 
   # ==========================================================
@@ -2261,7 +2317,8 @@ Resources:
       Threshold: 1
       ComparisonOperator: GreaterThanOrEqualToThreshold
       AlarmActions:
-        - !Ref OrderAlertsTopicArn
+        - Fn::ImportValue:
+            Fn::Sub: cloudmart-${Environment}-OrderAlertTopicArn
       TreatMissingData: breaching
 
 # ============================================================
@@ -2370,7 +2427,7 @@ Outputs:
       CloudMart Flask Dashboard URL
 
     Value:
-      !Sub http://${CloudMartDashboardInstance.PublicIp}:${DashboardPort}
+      !Sub http://${CloudMartDashboardInstance.PublicIp}:${NginxPort}
 
     Export:
 
