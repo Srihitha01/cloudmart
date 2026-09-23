@@ -6,27 +6,10 @@ name: CloudMart Infrastructure Deployment
 # ============================================================
 
 on:
-
+  push:
+    branches:
+      - main
   workflow_dispatch:
-    inputs:
-      environment:
-        description: 'Deployment environment'
-        required: true
-        default: 'dev'
-        type: choice
-        options:
-          - dev
-          - prod
-
-      db_password:
-        description: 'RDS database password (minimum 12 characters)'
-        required: true
-        type: string
-
-      alert_email:
-        description: 'Operations email address for SNS alerts'
-        required: true
-        type: string
 
 # ============================================================
 # GITHUB ACTIONS PERMISSIONS
@@ -87,9 +70,6 @@ jobs:
 
         shell: bash
 
-        env:
-          DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment }}
-
         run: |
 
           echo "========================================"
@@ -111,15 +91,10 @@ jobs:
           fi
 
 
-          CONFIG_ENVIRONMENT=$(jq -r '.Environment' "$CONFIG_FILE")
-
-          ENVIRONMENT="$DEPLOYMENT_ENVIRONMENT"
-
-          PROJECT=$(jq -r '.Project' "$CONFIG_FILE")
-
-          MANAGED_BY=$(jq -r '.ManagedBy' "$CONFIG_FILE")
-
-          OWNER=$(jq -r '.Owner' "$CONFIG_FILE")
+          ENVIRONMENT=$(jq -r '.[] | select(.Key=="Environment") | .Value' "$CONFIG_FILE")
+          PROJECT=$(jq -r '.[] | select(.Key=="Project") | .Value' "$CONFIG_FILE")
+          MANAGED_BY=$(jq -r '.[] | select(.Key=="ManagedBy") | .Value' "$CONFIG_FILE")
+          OWNER=$(jq -r '.[] | select(.Key=="Owner") | .Value' "$CONFIG_FILE")
 
 
           # --------------------------------------------------
@@ -232,7 +207,6 @@ jobs:
 
 
     env:
-
       AWS_REGION: ap-south-1
 
       ENVIRONMENT: ${{ needs.load-config.outputs.environment }}
@@ -402,7 +376,6 @@ jobs:
 
 
     env:
-
       AWS_REGION: ap-south-1
 
       ENVIRONMENT: ${{ needs.load-config.outputs.environment }}
@@ -470,7 +443,7 @@ jobs:
 
       - name: Mask DB Password
         env:
-          DB_PASSWORD_INPUT: ${{ inputs.db_password }}
+          DB_PASSWORD_INPUT: ${{ secrets.CLOUDMART_DB_PASSWORD }}
         run: |
           if [ -z "$DB_PASSWORD_INPUT" ]; then
             echo "ERROR: Database password was not entered."
@@ -487,7 +460,7 @@ jobs:
 
         env:
 
-          DB_PASSWORD: ${{ inputs.db_password }}
+          DB_PASSWORD: ${{ secrets.CLOUDMART_DB_PASSWORD }}
 
         run: |
 
@@ -552,7 +525,7 @@ jobs:
 
         env:
 
-          DB_PASSWORD: ${{ inputs.db_password }}
+          DB_PASSWORD: ${{ secrets.CLOUDMART_DB_PASSWORD }}
 
         run: |
 
@@ -666,7 +639,6 @@ jobs:
 
 
     env:
-
       AWS_REGION: ap-south-1
 
       ENVIRONMENT: ${{ needs.load-config.outputs.environment }}
@@ -857,7 +829,6 @@ jobs:
 
 
     env:
-
       AWS_REGION: ap-south-1
 
       ENVIRONMENT: ${{ needs.load-config.outputs.environment }}
@@ -868,7 +839,7 @@ jobs:
 
       OWNER: ${{ needs.load-config.outputs.owner }}
 
-      ALERT_EMAIL: ${{ inputs.alert_email }}
+      ALERT_EMAIL: ${{ secrets.CLOUDMART_ALERT_EMAIL }}
 
       DATA_STACK_NAME: cloudmart-data-storage-${{ needs.load-config.outputs.environment }}
 
@@ -1645,7 +1616,6 @@ jobs:
 
 
     env:
-
       AWS_REGION: ap-south-1
 
       ENVIRONMENT: ${{ needs.load-config.outputs.environment }}
@@ -1659,6 +1629,18 @@ jobs:
       API_MONITORING_EC2_STACK_NAME: cloudmart-api-monitoring-ec2-${{ needs.load-config.outputs.environment }}
 
       DATA_STACK_NAME: cloudmart-data-storage-${{ needs.load-config.outputs.environment }}
+
+
+    steps:
+
+
+      # ------------------------------------------------------
+      # CHECKOUT
+      # ------------------------------------------------------
+
+      - name: Checkout Repository
+
+        uses: actions/checkout@v5
 
 
       # ------------------------------------------------------
@@ -1802,7 +1784,6 @@ jobs:
       # No manual/SSM dashboard deployment is required.
       # ------------------------------------------------------
 
-          echo "SSM command: $COMMAND_ID"
 
 
       # ------------------------------------------------------
