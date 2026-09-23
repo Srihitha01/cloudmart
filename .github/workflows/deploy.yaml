@@ -1661,18 +1661,6 @@ jobs:
       DATA_STACK_NAME: cloudmart-data-storage-${{ needs.load-config.outputs.environment }}
 
 
-    steps:
-
-
-      # ------------------------------------------------------
-      # CHECKOUT
-      # ------------------------------------------------------
-
-      - name: Checkout Repository
-
-        uses: actions/checkout@v5
-
-
       # ------------------------------------------------------
       # AWS AUTHENTICATION
       # ------------------------------------------------------
@@ -1814,6 +1802,7 @@ jobs:
       # No manual/SSM dashboard deployment is required.
       # ------------------------------------------------------
 
+          echo "SSM command: $COMMAND_ID"
 
 
       # ------------------------------------------------------

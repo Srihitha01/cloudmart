@@ -104,6 +104,8 @@ Parameters:
     Description:
       S3 key for the PyMySQL Lambda layer
 
+  AuthorizerLambdaS3Key:
+    Type: String
 
   AuthorizerLambdaS3Key:
     Type: String
@@ -1012,6 +1014,8 @@ Resources:
                   autocommit=False
               )
 
+      Description:
+        Sends successful CloudMart order lifecycle events to Order SNS alerts
 
           def send_cfn_response(event, context, status, reason=None):
               response_body = {
@@ -1147,14 +1151,14 @@ Resources:
       DisplayName:
         CloudMart Product Alerts
 
-      Tags:
+      State:
+        ENABLED
 
         - Key: Name
           Value:
             !Sub cloudmart-${Environment}-product-alerts
 
-        - Key: Project
-          Value: CloudMart
+        source:
 
         - Key: Environment
           Value:
@@ -1169,7 +1173,8 @@ Resources:
 
     Type: AWS::SNS::Topic
 
-    Properties:
+    Description:
+      CloudMart EventBridge Event Bus name
 
       TopicName:
         !Sub cloudmart-${Environment}-order-alerts
@@ -1177,14 +1182,14 @@ Resources:
       DisplayName:
         CloudMart Order Alerts
 
-      Tags:
+      Name:
+        !Sub cloudmart-${Environment}-EventBusName
 
         - Key: Name
           Value:
             !Sub cloudmart-${Environment}-order-alerts
 
-        - Key: Project
-          Value: CloudMart
+  EventBusArn:
 
         - Key: Environment
           Value:
@@ -1265,10 +1270,16 @@ Resources:
 
     Type: AWS::Events::Rule
 
-    Properties:
+    Description:
+      Product Lambda ARN
+
+    Value:
+      !GetAtt ProductLambda.Arn
+
+    Export:
 
       Name:
-        !Sub cloudmart-${Environment}-low-stock-rule
+        !Sub cloudmart-${Environment}-ProductLambdaArn
 
       Description:
         Sends low-stock inventory events to Product SNS alerts
@@ -1276,26 +1287,32 @@ Resources:
       EventBusName:
         !Ref CloudMartEventBus
 
-      State:
-        ENABLED
+  ProductLambdaName:
 
-      EventPattern:
+    Description:
+      Product Lambda name
 
-        source:
+    Value:
+      !Ref ProductLambda
 
           - cloudmart.inventory
 
-        detail-type:
+      Name:
+        !Sub cloudmart-${Environment}-ProductLambdaName
 
           - LowStock
 
-        detail:
+  # ==========================================================
+  # ORDER LAMBDA
+  # ==========================================================
 
-          low_stock:
+  OrderLambdaArn:
 
-            - true
+    Description:
+      Order Lambda ARN
 
-      Targets:
+    Value:
+      !GetAtt OrderLambda.Arn
 
         - Arn:
             !Ref ProductAlertTopic
@@ -1371,11 +1388,10 @@ Resources:
               Total Amount: <totalAmount>,
               Failure Reason: <failureReason>."
 
-# ============================================================
-# OUTPUTS
-# ============================================================
+  OrderProcessorLambdaArn:
 
-Outputs:
+    Description:
+      Order Processor Lambda ARN
 
 
   # ==========================================================
@@ -1417,29 +1433,33 @@ Outputs:
   LambdaAuthorizerArn:
 
     Description:
-      Lambda Authorizer ARN
+      Order Processor Lambda name
 
     Value:
-      !GetAtt LambdaAuthorizer.Arn
+      !Ref OrderProcessorLambda
 
     Export:
 
       Name:
-        !Sub cloudmart-${Environment}-LambdaAuthorizerArn
+        !Sub cloudmart-${Environment}-OrderProcessorLambdaName
 
 
-  LambdaAuthorizerName:
+  # ==========================================================
+  # DAILY REPORT LAMBDA
+  # ==========================================================
+
+  DailyReportLambdaArn:
 
     Description:
       Lambda Authorizer name
 
     Value:
-      !Ref LambdaAuthorizer
+      !GetAtt DailyReportLambda.Arn
 
     Export:
 
       Name:
-        !Sub cloudmart-${Environment}-LambdaAuthorizerName
+        !Sub cloudmart-${Environment}-DailyReportLambdaArn
 
 
   # ==========================================================
@@ -1481,29 +1501,29 @@ Outputs:
   ProductLambdaArn:
 
     Description:
-      Product Lambda ARN
+      Daily Report Lambda name
 
     Value:
-      !GetAtt ProductLambda.Arn
+      !Ref DailyReportLambda
 
     Export:
 
       Name:
-        !Sub cloudmart-${Environment}-ProductLambdaArn
+        !Sub cloudmart-${Environment}-DailyReportLambdaName
 
 
-  ProductLambdaName:
+  DailyReportScheduleArn:
 
     Description:
       Product Lambda name
 
     Value:
-      !Ref ProductLambda
+      !GetAtt DailyReportSchedule.Arn
 
     Export:
 
       Name:
-        !Sub cloudmart-${Environment}-ProductLambdaName
+        !Sub cloudmart-${Environment}-DailyReportScheduleArn
 
 
   # ==========================================================
