@@ -618,11 +618,6 @@ Outputs:
       Name: !Sub cloudmart-${Environment}-EC2SecurityGroupId
 
 
-  DashboardPort:
-    Description: TCP port opened for the CloudMart Flask dashboard
-    Value: !Ref DashboardPort
-
-
   VPCEndpointSecurityGroupId:
     Description: CloudMart VPC endpoint security group ID
     Value: !Ref VPCEndpointSecurityGroup
