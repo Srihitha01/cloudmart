@@ -160,11 +160,9 @@ Parameters:
 
   AlertEmail:
     Type: String
-    Default: gajjalasrihitha01@gmail.com
-
-    Description:
-      Email address used for CloudMart SNS alerts.
-      Defined in the CloudFormation template; no GitHub Secret is required.
+    AllowedPattern: '^[^@\s]+@[^@\s]+\.[^@\s]+$'
+    ConstraintDescription: Must be a valid email address.
+    Description: Operations email address that receives CloudMart SNS alerts.
 
 
 # ============================================================
@@ -1149,14 +1147,6 @@ Resources:
       DisplayName:
         CloudMart Product Alerts
 
-      Subscription:
-
-        - Endpoint:
-            !Ref AlertEmail
-
-          Protocol:
-            email
-
       Tags:
 
         - Key: Name
@@ -1187,14 +1177,6 @@ Resources:
       DisplayName:
         CloudMart Order Alerts
 
-      Subscription:
-
-        - Endpoint:
-            !Ref AlertEmail
-
-          Protocol:
-            email
-
       Tags:
 
         - Key: Name
@@ -1210,101 +1192,69 @@ Resources:
 
 
   # ==========================================================
-  # EVENTBRIDGE ROLE FOR PRODUCT SNS
+  # SNS EMAIL SUBSCRIPTIONS
+  # These are operations/monitoring subscriptions only.
+  # Customers are never subscribed to these topics.
+  # Email subscriptions require the recipient to confirm the
+  # SNS subscription once after the stack is deployed.
   # ==========================================================
 
-  EventBridgeProductSNSRole:
-
-    Type: AWS::IAM::Role
-
+  ProductAlertEmailSubscription:
+    Type: AWS::SNS::Subscription
     Properties:
+      TopicArn: !Ref ProductAlertTopic
+      Protocol: email
+      Endpoint: !Ref AlertEmail
 
-      RoleName:
-        !Sub cloudmart-${Environment}-eventbridge-product-sns-role
-
-      AssumeRolePolicyDocument:
-
-        Version: '2012-10-17'
-
-        Statement:
-
-          - Effect: Allow
-
-            Principal:
-
-              Service:
-                - events.amazonaws.com
-
-            Action:
-              - sts:AssumeRole
-
-      Policies:
-
-        - PolicyName:
-            PublishProductAlerts
-
-          PolicyDocument:
-
-            Version: '2012-10-17'
-
-            Statement:
-
-              - Effect: Allow
-
-                Action:
-                  - sns:Publish
-
-                Resource:
-                  - !Ref ProductAlertTopic
-
-
-  # ==========================================================
-  # EVENTBRIDGE ROLE FOR ORDER SNS
-  # ==========================================================
-
-  EventBridgeOrderSNSRole:
-
-    Type: AWS::IAM::Role
-
+  OrderAlertEmailSubscription:
+    Type: AWS::SNS::Subscription
     Properties:
+      TopicArn: !Ref OrderAlertTopic
+      Protocol: email
+      Endpoint: !Ref AlertEmail
 
-      RoleName:
-        !Sub cloudmart-${Environment}-eventbridge-order-sns-role
 
-      AssumeRolePolicyDocument:
+  # ==========================================================
+  # EVENTBRIDGE -> SNS RESOURCE POLICIES
+  # EventBridge publishes to SNS using a resource-based policy.
+  # No customer-facing subscription is created.
+  # ==========================================================
 
+  ProductAlertTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics:
+        - !Ref ProductAlertTopic
+      PolicyDocument:
         Version: '2012-10-17'
-
         Statement:
-
-          - Effect: Allow
-
+          - Sid: AllowEventBridgeToPublishProductAlerts
+            Effect: Allow
             Principal:
+              Service: events.amazonaws.com
+            Action: sns:Publish
+            Resource: !Ref ProductAlertTopic
+            Condition:
+              StringEquals:
+                AWS:SourceAccount: !Ref AWS::AccountId
 
-              Service:
-                - events.amazonaws.com
-
-            Action:
-              - sts:AssumeRole
-
-      Policies:
-
-        - PolicyName:
-            PublishOrderAlerts
-
-          PolicyDocument:
-
-            Version: '2012-10-17'
-
-            Statement:
-
-              - Effect: Allow
-
-                Action:
-                  - sns:Publish
-
-                Resource:
-                  - !Ref OrderAlertTopic
+  OrderAlertTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics:
+        - !Ref OrderAlertTopic
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowEventBridgeToPublishOrderAlerts
+            Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sns:Publish
+            Resource: !Ref OrderAlertTopic
+            Condition:
+              StringEquals:
+                AWS:SourceAccount: !Ref AWS::AccountId
 
 
   # ==========================================================
@@ -1353,9 +1303,6 @@ Resources:
           Id:
             ProductLowStockSNSTarget
 
-          RoleArn:
-            !GetAtt EventBridgeProductSNSRole.Arn
-
           InputTransformer:
             InputPathsMap:
               productId: "$.detail.product_id"
@@ -1368,67 +1315,6 @@ Resources:
               "CloudMart LOW STOCK ALERT: Product <productName>
               (ID: <productId>) stock changed from <oldStock> to
               <newStock>. Reorder threshold: <threshold>."
-
-
-  # ==========================================================
-  # ORDER EVENTS -> ORDER SNS
-  # ==========================================================
-
-  OrderEventsToSNSRule:
-
-    Type: AWS::Events::Rule
-
-    Properties:
-
-      Name:
-        !Sub cloudmart-${Environment}-order-alert-rule
-
-      Description:
-        Sends successful CloudMart order lifecycle events to Order SNS alerts
-
-      EventBusName:
-        !Ref CloudMartEventBus
-
-      State:
-        ENABLED
-
-      EventPattern:
-
-        source:
-
-          - cloudmart.orders
-
-        detail-type:
-
-          - OrderPending
-          - OrderPlaced
-          - OrderConfirmed
-          - OrderCancelled
-          - OrderDelivered
-
-      Targets:
-
-        - Arn:
-            !Ref OrderAlertTopic
-
-          Id:
-            OrderSNSTarget
-
-          RoleArn:
-            !GetAtt EventBridgeOrderSNSRole.Arn
-
-          InputTransformer:
-            InputPathsMap:
-              eventType: "$.detail-type"
-              orderId: "$.detail.order_id"
-              customerId: "$.detail.customer_id"
-              status: "$.detail.status"
-              totalAmount: "$.detail.total_amount"
-
-            InputTemplate: >
-              "CloudMart ORDER ALERT: Event <eventType>.
-              Order ID: <orderId>, Customer ID: <customerId>,
-              Status: <status>, Total Amount: <totalAmount>."
 
 
   # ==========================================================
@@ -1471,22 +1357,18 @@ Resources:
           Id:
             OrderFailedSNSTarget
 
-          RoleArn:
-            !GetAtt EventBridgeOrderSNSRole.Arn
-
           InputTransformer:
             InputPathsMap:
               eventType: "$.detail-type"
               orderId: "$.detail.order_id"
-              customerId: "$.detail.customer_id"
               status: "$.detail.status"
               totalAmount: "$.detail.total_amount"
               failureReason: "$.detail.failure_reason"
 
             InputTemplate: >
               "CloudMart ORDER FAILED ALERT: Event <eventType>.
-              Order ID: <orderId>, Customer ID: <customerId>,
-              Status: <status>, Total Amount: <totalAmount>,
+              Order ID: <orderId>, Status: <status>,
+              Total Amount: <totalAmount>,
               Failure Reason: <failureReason>."
 
 # ============================================================
@@ -1832,20 +1714,6 @@ Outputs:
 
       Name:
         !Sub cloudmart-${Environment}-LowStockEventRuleArn
-
-
-  OrderEventsToSNSRuleArn:
-
-    Description:
-      Order Events SNS EventBridge Rule ARN
-
-    Value:
-      !GetAtt OrderEventsToSNSRule.Arn
-
-    Export:
-
-      Name:
-        !Sub cloudmart-${Environment}-OrderEventsToSNSRuleArn
 
 
   OrderFailedEventsToSNSRuleArn:

@@ -23,6 +23,11 @@ on:
         required: true
         type: string
 
+      alert_email:
+        description: 'Operations email address for SNS alerts'
+        required: true
+        type: string
+
 # ============================================================
 # GITHUB ACTIONS PERMISSIONS
 # ============================================================
@@ -863,6 +868,8 @@ jobs:
 
       OWNER: ${{ needs.load-config.outputs.owner }}
 
+      ALERT_EMAIL: ${{ inputs.alert_email }}
+
       DATA_STACK_NAME: cloudmart-data-storage-${{ needs.load-config.outputs.environment }}
 
       APPLICATION_EVENTS_STACK_NAME: cloudmart-application-events-${{ needs.load-config.outputs.environment }}
@@ -1045,7 +1052,8 @@ jobs:
 
 
           python -m pip install \
-            PyMySQL \
+            PyMySQL==1.1.1 \
+            cryptography==45.0.6 \
             -t build/pymysql-layer/python
 
 
@@ -1530,6 +1538,7 @@ jobs:
               DBPassword="/cloudmart/${ENVIRONMENT}/db/password" \
               AuthTokenParameter="/cloudmart/${ENVIRONMENT}/auth/token" \
               CustomerTokensParameter="/cloudmart/${ENVIRONMENT}/auth/customer-tokens" \
+              AlertEmail="$ALERT_EMAIL" \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --region "$AWS_REGION" \
             --no-fail-on-empty-changeset
@@ -1759,9 +1768,6 @@ jobs:
 
       - name: Deploy API Monitoring EC2 Stack
 
-        env:
-          CLOUDMART_ALERT_EMAIL: ${{ secrets.CLOUDMART_ALERT_EMAIL }}
-
         run: |
 
           echo "========================================"
@@ -1778,11 +1784,6 @@ jobs:
           # CloudFormation requires S3 for templates larger than 51,200 bytes.
           AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           CFN_ARTIFACT_BUCKET="cloudmart-cfn-artifacts-${AWS_ACCOUNT_ID}-${AWS_REGION}"
-
-          if [ -z "$CLOUDMART_ALERT_EMAIL" ]; then
-            echo "ERROR: GitHub secret CLOUDMART_ALERT_EMAIL is not configured."
-            exit 1
-          fi
 
           if ! aws s3api head-bucket --bucket "$CFN_ARTIFACT_BUCKET" 2>/dev/null; then
             if [ "$AWS_REGION" = "us-east-1" ]; then
@@ -1801,142 +1802,19 @@ jobs:
             --s3-bucket "$CFN_ARTIFACT_BUCKET" \
             --parameter-overrides \
               Environment="$ENVIRONMENT" \
-              AlertEmail="$CLOUDMART_ALERT_EMAIL" \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --region "$AWS_REGION" \
             --no-fail-on-empty-changeset
 
 
       # ------------------------------------------------------
-      # DEPLOY FLASK DASHBOARD TO EC2 VIA SSM
-      # This makes the EC2 deployment automated by GitHub Actions
-      # and also updates the already-existing EC2 instance.
+      # EC2 DASHBOARD DEPLOYMENT
+      # The API stack UserData automatically installs Nginx,
+      # Gunicorn and the dashboard from the artifact bucket.
+      # No manual/SSM dashboard deployment is required.
       # ------------------------------------------------------
 
-      - name: Deploy Flask Dashboard to EC2
-        shell: bash
-        env:
-          DASHBOARD_SERVICE_PORT: "5000"
-        run: |
-          set -euo pipefail
 
-          echo "========================================"
-          echo "DEPLOYING FLASK DASHBOARD TO EC2"
-          echo "========================================"
-
-          ARTIFACT_BUCKET=$(aws cloudformation describe-stacks \
-            --stack-name "$DATA_STACK_NAME" \
-            --region "$AWS_REGION" \
-            --query "Stacks[0].Outputs[?OutputKey=='ArtifactBucketName'].OutputValue" \
-            --output text)
-
-          INSTANCE_ID=$(aws cloudformation describe-stacks \
-            --stack-name "$API_MONITORING_EC2_STACK_NAME" \
-            --region "$AWS_REGION" \
-            --query "Stacks[0].Outputs[?OutputKey=='DashboardInstanceId'].OutputValue" \
-            --output text)
-
-          if [ -z "$ARTIFACT_BUCKET" ] || [ "$ARTIFACT_BUCKET" = "None" ]; then
-            echo "ERROR: ArtifactBucketName output was not found."
-            exit 1
-          fi
-
-          if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ]; then
-            echo "ERROR: Dashboard instance ID was not found."
-            exit 1
-          fi
-
-          echo "Artifact bucket: $ARTIFACT_BUCKET"
-          echo "Dashboard instance: $INSTANCE_ID"
-
-          SERVICE_CONTENT=$(cat <<SERVICE_EOF
-          [Unit]
-          Description=CloudMart Flask Dashboard
-          After=network-online.target
-          Wants=network-online.target
-
-          [Service]
-          Type=simple
-          WorkingDirectory=/opt/cloudmart/dashboard
-          Environment=AWS_REGION=${AWS_REGION}
-          Environment=DB_ENDPOINT_PARAMETER=/cloudmart/${ENVIRONMENT}/db/endpoint
-          Environment=DB_PORT_PARAMETER=/cloudmart/${ENVIRONMENT}/db/port
-          Environment=DB_NAME_PARAMETER=/cloudmart/${ENVIRONMENT}/db/name
-          Environment=DB_USERNAME_PARAMETER=/cloudmart/${ENVIRONMENT}/db/username
-          Environment=DB_PASSWORD_PARAMETER=/cloudmart/${ENVIRONMENT}/db/password
-          Environment=REPORT_BUCKET_PARAMETER=/cloudmart/${ENVIRONMENT}/s3/report-bucket
-          ExecStart=/opt/cloudmart/dashboard/.venv/bin/gunicorn --workers 2 --bind 0.0.0.0:${DASHBOARD_SERVICE_PORT} app:app
-          Restart=always
-          RestartSec=5
-          User=root
-
-          [Install]
-          WantedBy=multi-user.target
-          SERVICE_EOF
-          )
-
-          SERVICE_B64=$(printf '%s' "$SERVICE_CONTENT" | base64 -w 0)
-
-          COMMANDS=$(jq -n \
-            --arg bucket "$ARTIFACT_BUCKET" \
-            --arg region "$AWS_REGION" \
-            --arg service_b64 "$SERVICE_B64" \
-            --arg port "$DASHBOARD_SERVICE_PORT" \
-            '{commands: [
-              "set -euo pipefail",
-              "dnf install -y python3 python3-pip python3-devel",
-              "mkdir -p /opt/cloudmart/dashboard",
-              "rm -rf /opt/cloudmart/dashboard/.venv",
-              ("aws s3 sync s3://" + $bucket + "/dashboard/ /opt/cloudmart/dashboard/ --region " + $region),
-              "python3 -m venv /opt/cloudmart/dashboard/.venv",
-              "/opt/cloudmart/dashboard/.venv/bin/python -m pip install --upgrade pip setuptools wheel",
-              "/opt/cloudmart/dashboard/.venv/bin/python -m pip install --upgrade flask pymysql boto3 gunicorn",
-              ("printf %s " + $service_b64 + " | base64 -d > /etc/systemd/system/cloudmart-dashboard.service"),
-              "chmod 644 /etc/systemd/system/cloudmart-dashboard.service",
-              "systemctl daemon-reload",
-              "systemctl enable cloudmart-dashboard",
-              "systemctl restart cloudmart-dashboard",
-              "sleep 3",
-              "systemctl is-active --quiet cloudmart-dashboard",
-              ("ss -ltnp | grep -q :" + $port)
-            ]}')
-
-          COMMAND_ID=$(aws ssm send-command \
-            --instance-ids "$INSTANCE_ID" \
-            --document-name "AWS-RunShellScript" \
-            --comment "Deploy CloudMart Flask dashboard" \
-            --parameters "$COMMANDS" \
-            --region "$AWS_REGION" \
-            --query "Command.CommandId" \
-            --output text)
-
-          echo "SSM command: $COMMAND_ID"
-
-          aws ssm wait command-executed \
-            --command-id "$COMMAND_ID" \
-            --instance-id "$INSTANCE_ID" \
-            --region "$AWS_REGION"
-
-          STATUS=$(aws ssm get-command-invocation \
-            --command-id "$COMMAND_ID" \
-            --instance-id "$INSTANCE_ID" \
-            --region "$AWS_REGION" \
-            --query "Status" \
-            --output text)
-
-          aws ssm get-command-invocation \
-            --command-id "$COMMAND_ID" \
-            --instance-id "$INSTANCE_ID" \
-            --region "$AWS_REGION" \
-            --query "[StandardOutputContent,StandardErrorContent]" \
-            --output text
-
-          if [ "$STATUS" != "Success" ]; then
-            echo "ERROR: Dashboard deployment failed with status: $STATUS"
-            exit 1
-          fi
-
-          echo "Dashboard deployment completed successfully."
 
       # ------------------------------------------------------
       # VERIFY API STACK

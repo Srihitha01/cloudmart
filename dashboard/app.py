@@ -4,7 +4,7 @@ import logging
 import boto3
 import pymysql
 from datetime import datetime
-from flask import Flask, Response, render_template_string, request, redirect, url_for, session
+from flask import Flask, render_template, render_template_string, request, redirect, url_for, session
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("cloudmart-dashboard")
@@ -256,21 +256,6 @@ def health():
     return {"status": "healthy", "service": "CloudMart Operations Dashboard"}
 
 
-DASH = """
-<div class="hero"><h1>CloudMart Overview</h1><p>Live operational visibility for inventory, customers, orders, events, and S3 reports.</p></div>
-<div class="toolbar"><form class="search" method="get" action="{{url_for('search')}}"><input name="q" placeholder="Search products, orders, or customers"><button>Search</button></form></div>
-<div class="cards">
-<a class="card" href="{{url_for('products_page')}}"><div class="label">Products</div><div class="number">{{summary['products']}}</div></a>
-<a class="card" href="{{url_for('customers_page')}}"><div class="label">Customers</div><div class="number">{{summary['customers']}}</div></a>
-<a class="card" href="{{url_for('orders_page')}}"><div class="label">Orders</div><div class="number">{{summary['orders']}}</div></a>
-<a class="card" href="{{url_for('products_page', filter='low_stock')}}"><div class="label">Low stock</div><div class="number">{{summary['low']}}</div></a>
-<a class="card" href="{{url_for('orders_page', status='FAILED')}}"><div class="label">Failed orders</div><div class="number">{{summary['failed']}}</div></a>
-</div>
-<div class="panel"><div class="heading"><h3>Current inventory</h3><a href="{{url_for('products_page')}}">View all</a></div><div class="table"><table><tr><th>ID</th><th>Product</th><th>Category</th><th>Price</th><th>Stock</th><th>Status</th><th></th></tr>{%for p in products%}<tr><td>{{p.product_id}}</td><td>{{p.name}}</td><td>{{p.category}}</td><td>{{rupees(p.price)}}</td><td>{{p.stock_quantity}}</td><td>{%if p.stock_quantity<=p.reorder_threshold%}<span class="badge amber">Low stock</span>{%else%}<span class="badge green">Healthy</span>{%endif%}</td><td><a href="{{url_for('product_detail',product_id=p.product_id)}}">Details</a></td></tr>{%else%}<tr><td colspan="7" class="empty">No products found.</td></tr>{%endfor%}</table></div></div>
-<div class="panel"><div class="heading"><h3>Recent orders</h3><a href="{{url_for('orders_page')}}">View all</a></div><div class="table"><table><tr><th>Order</th><th>Customer</th><th>Date</th><th>Amount</th><th>Status</th><th></th></tr>{%for o in orders%}<tr><td><a href="{{url_for('order_detail',order_id=o.order_id)}}">#{{o.order_id}}</a></td><td>#{{o.customer_id}}</td><td>{{shown(o.order_date)}}</td><td>{{rupees(o.total_amount)}}</td><td><span class="badge {%if o.status in ['FAILED','CANCELLED']%}red{%elif o.status in ['CONFIRMED','DELIVERED']%}green{%else%}blue{%endif%}">{{o.status}}</span></td><td><a href="{{url_for('order_detail',order_id=o.order_id)}}">Details</a></td></tr>{%else%}<tr><td colspan="6" class="empty">No orders found.</td></tr>{%endfor%}</table></div></div>
-"""
-
-
 @app.route("/")
 def dashboard():
     g = guard()
@@ -279,7 +264,8 @@ def dashboard():
         summary = context()["summary"]
         products = all_rows("""SELECT p.product_id,p.name,COALESCE(c.name,'Uncategorized') category,p.price,p.stock_quantity,p.reorder_threshold FROM products p LEFT JOIN categories c ON p.category_id=c.category_id WHERE p.deleted_at IS NULL ORDER BY p.product_id LIMIT 12""")
         orders = all_rows("SELECT order_id,customer_id,status,order_date,total_amount FROM orders ORDER BY order_date DESC LIMIT 12")
-        return page("Overview", DASH, summary=summary, products=products, orders=orders)
+        values = context(summary=summary, products=products, orders=orders)
+        return render_template("index.html", title="Overview", **values)
     except Exception as exc:
         return page("Overview", '<div class="panel"><div class="empty">Database error: {{error}}</div></div>', error=str(exc))
 
@@ -379,7 +365,7 @@ def events_page():
 def reports_page():
     g = guard()
     if g: return g
-    body = """{% if cloudwatch_url %}<div class="panel"><div class="heading"><h3>Monitoring</h3><span class="muted">CloudWatch</span></div><p>Open the CloudMart operations dashboard in CloudWatch.</p><a class="btn" href="{{cloudwatch_url}}" target="_blank" rel="noopener">Open CloudWatch dashboard</a></div>{% endif %}<div class="panel"><div class="heading"><h3>Daily reports</h3><span class="muted">{{report_bucket or 'Bucket not configured'}}</span></div>{%if reports%}<div class="table"><table><tr><th>Report</th><th>Size</th><th>Generated</th><th>Actions</th></tr>{%for r in reports%}<tr><td>{{r.key}}</td><td>{{r.size}} bytes</td><td>{{shown(r.last_modified)}}</td><td><a class="btn alt" href="{{url_for('report_view', key=r.key)}}">View report</a> <a class="btn alt" href="{{url_for('report_download', key=r.key)}}">Download CSV</a></td></tr>{%endfor%}</table></div>{%else%}<div class="empty">No generated reports found. Verify the report Lambda, EventBridge schedule, and S3 bucket parameter.</div>{%endif%}</div>"""
+    body = """{% if cloudwatch_url %}<div class="panel"><div class="heading"><h3>Monitoring</h3><span class="muted">CloudWatch</span></div><p>Open the CloudMart operations dashboard in CloudWatch.</p><a class="btn" href="{{cloudwatch_url}}" target="_blank" rel="noopener">Open CloudWatch dashboard</a></div>{% endif %}<div class="panel"><div class="heading"><h3>Daily reports</h3><span class="muted">{{report_bucket or 'Bucket not configured'}}</span></div>{%if reports%}<div class="table"><table><tr><th>Report</th><th>Size</th><th>Generated</th><th>Actions</th></tr>{%for r in reports%}<tr><td>{{r.key}}</td><td>{{r.size}} bytes</td><td>{{shown(r.last_modified)}}</td><td><a class="btn alt" href="{{url_for('report_view', key=r.key)}}">View report</a> <a class="btn alt" href="{{r.url}}" target="_blank" rel="noopener">Download CSV</a></td></tr>{%endfor%}</table></div>{%else%}<div class="empty">No generated reports found. Verify the report Lambda, EventBridge schedule, and S3 bucket parameter.</div>{%endif%}</div>"""
     return page("Daily reports", body)
 
 
@@ -393,8 +379,13 @@ def report_view():
         return page("Report details", '<div class="panel"><div class="empty">Invalid report.</div></div>'), 400
     try:
         raw = s3.get_object(Bucket=bucket, Key=key)["Body"].read().decode("utf-8-sig", errors="replace")
-        body = """<div class="toolbar"><a class="btn alt" href="{{url_for('reports_page')}}">← Back to reports</a><a class="btn alt" href="{{url_for('report_download', key=key)}}">Download CSV</a></div><div class="panel"><div class="heading"><h3>{{key}}</h3><span class="muted">Report preview</span></div><pre style="white-space:pre-wrap;overflow:auto;background:#f8faff;border:1px solid var(--line);border-radius:10px;padding:18px;line-height:1.6">{{content}}</pre></div>"""
-        return page("Report details", body, key=key, content=raw)
+        report_url = s3.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": bucket, "Key": key},
+            ExpiresIn=3600,
+        )
+        body = """<div class="toolbar"><a class="btn alt" href="{{url_for('reports_page')}}">← Back to reports</a><a class="btn alt" href="{{report_url}}" target="_blank" rel="noopener">Download CSV</a></div><div class="panel"><div class="heading"><h3>{{key}}</h3><span class="muted">Private S3 report · presigned for 1 hour</span></div><pre style="white-space:pre-wrap;overflow:auto;background:#f8faff;border:1px solid var(--line);border-radius:10px;padding:18px;line-height:1.6">{{content}}</pre></div>"""
+        return page("Report details", body, key=key, content=raw, report_url=report_url)
     except Exception as exc:
         logger.exception("Report preview failed")
         return page("Report details", '<div class="panel"><div class="empty">Unable to read report: {{error}}</div></div>', error=str(exc)), 500
@@ -409,12 +400,15 @@ def report_download():
     if not bucket or not key.startswith("daily-reports/") or not key.lower().endswith(".csv"):
         return "Invalid report", 400
     try:
-        raw = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
-        filename = key.rsplit("/", 1)[-1]
-        return Response(raw, mimetype="text/csv", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+        presigned_url = s3.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": bucket, "Key": key},
+            ExpiresIn=3600,
+        )
+        return redirect(presigned_url)
     except Exception as exc:
-        logger.exception("Report download failed")
-        return f"Unable to download report: {exc}", 500
+        logger.exception("Presigned report URL generation failed")
+        return f"Unable to create report download URL: {exc}", 500
 
 
 @app.route("/search")
