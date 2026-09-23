@@ -60,56 +60,12 @@ Parameters:
     Default: cloudmart-dev-mysql
     Description: RDS DB instance identifier used by CloudWatch RDS metrics
 
-  OrderAlertsTopicArn:
-    Type: String
-    Default: arn:aws:sns:ap-south-1:285150348844:cloudmart-dev-order-alerts
-    Description: SNS topic ARN for order and infrastructure monitoring alerts
-
-  AlertEmail:
-    Type: String
-    NoEcho: true
-    AllowedPattern: '^[^@\s]+@[^@\s]+\.[^@\s]+$'
-    ConstraintDescription: Must be a valid email address.
-    Description: Email address that receives CloudMart alert notifications
-
-  RdsDbInstanceIdentifier:
-    Type: String
-    Default: cloudmart-dev-mysql
-    Description: RDS DB instance identifier used by CloudWatch RDS metrics
-
-
-# ============================================================
-# RESOURCES
-# ============================================================
 
 # ============================================================
 # RESOURCES
 # ============================================================
 
 Resources:
-
-  # ==========================================================
-  # SNS EMAIL ALERT SUBSCRIPTIONS
-  # Creates the email subscriptions for the existing CloudMart
-  # product and order alert topics. AWS sends a confirmation email
-  # to AlertEmail; the subscription must be confirmed before alerts
-  # are delivered to the mailbox.
-  # ==========================================================
-
-  ProductAlertsEmailSubscription:
-    Type: AWS::SNS::Subscription
-    Properties:
-      TopicArn: !Ref ProductAlertsTopicArn
-      Protocol: email
-      Endpoint: !Ref AlertEmail
-
-  OrderAlertsEmailSubscription:
-    Type: AWS::SNS::Subscription
-    Properties:
-      TopicArn: !Ref OrderAlertsTopicArn
-      Protocol: email
-      Endpoint: !Ref AlertEmail
-
 
   # ==========================================================
   # API GATEWAY REST API
