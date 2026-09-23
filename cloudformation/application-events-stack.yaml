@@ -107,9 +107,6 @@ Parameters:
   AuthorizerLambdaS3Key:
     Type: String
 
-  AuthorizerLambdaS3Key:
-    Type: String
-
     Description:
       S3 key for the Lambda Authorizer artifact
 
@@ -264,21 +261,6 @@ Resources:
       Layers:
 
         - !Ref PyMySQLLayer
-
-      VpcConfig:
-
-        SecurityGroupIds:
-
-          - Fn::ImportValue:
-              Fn::Sub: cloudmart-${Environment}-LambdaSecurityGroupId
-
-        SubnetIds:
-
-          - Fn::ImportValue:
-              Fn::Sub: cloudmart-${Environment}-PrivateSubnetId
-
-          - Fn::ImportValue:
-              Fn::Sub: cloudmart-${Environment}-SecondaryPrivateSubnetId
 
       Environment:
 
@@ -1013,10 +995,6 @@ Resources:
                   write_timeout=30,
                   autocommit=False
               )
-
-      Description:
-        Sends successful CloudMart order lifecycle events to Order SNS alerts
-
           def send_cfn_response(event, context, status, reason=None):
               response_body = {
                   "Status": status,
@@ -1058,6 +1036,7 @@ Resources:
                           statement = statement.strip()
                           if not statement:
                               continue
+
                           try:
                               cursor.execute(statement)
                           except pymysql.err.OperationalError as error:
@@ -1071,10 +1050,13 @@ Resources:
                                   }))
                                   continue
                               raise
+
                   connection.commit()
+
               except Exception:
                   connection.rollback()
                   raise
+
               finally:
                   connection.close()
 
@@ -1110,7 +1092,6 @@ Resources:
                   )
 
 
-
   # ==========================================================
   # AUTOMATIC DATABASE SCHEMA INITIALIZATION
   # ==========================================================
@@ -1123,7 +1104,6 @@ Resources:
       - SchemaInitializerLambda
 
     Properties:
-
       ServiceToken:
         !GetAtt SchemaInitializerLambda.Arn
 
@@ -1132,7 +1112,6 @@ Resources:
 
       SchemaVersion:
         !Ref SchemaS3Key
-
 
 
   # ==========================================================
@@ -1144,21 +1123,19 @@ Resources:
     Type: AWS::SNS::Topic
 
     Properties:
-
       TopicName:
         !Sub cloudmart-${Environment}-product-alerts
 
       DisplayName:
         CloudMart Product Alerts
 
-      State:
-        ENABLED
-
+      Tags:
         - Key: Name
           Value:
             !Sub cloudmart-${Environment}-product-alerts
 
-        source:
+        - Key: Project
+          Value: CloudMart
 
         - Key: Environment
           Value:
@@ -1173,23 +1150,20 @@ Resources:
 
     Type: AWS::SNS::Topic
 
-    Description:
-      CloudMart EventBridge Event Bus name
-
+    Properties:
       TopicName:
         !Sub cloudmart-${Environment}-order-alerts
 
       DisplayName:
         CloudMart Order Alerts
 
-      Name:
-        !Sub cloudmart-${Environment}-EventBusName
-
+      Tags:
         - Key: Name
           Value:
             !Sub cloudmart-${Environment}-order-alerts
 
-  EventBusArn:
+        - Key: Project
+          Value: CloudMart
 
         - Key: Environment
           Value:
@@ -1198,68 +1172,102 @@ Resources:
 
   # ==========================================================
   # SNS EMAIL SUBSCRIPTIONS
-  # These are operations/monitoring subscriptions only.
-  # Customers are never subscribed to these topics.
-  # Email subscriptions require the recipient to confirm the
-  # SNS subscription once after the stack is deployed.
   # ==========================================================
 
   ProductAlertEmailSubscription:
+
     Type: AWS::SNS::Subscription
+
     Properties:
-      TopicArn: !Ref ProductAlertTopic
-      Protocol: email
-      Endpoint: !Ref AlertEmail
+      TopicArn:
+        !Ref ProductAlertTopic
+
+      Protocol:
+        email
+
+      Endpoint:
+        !Ref AlertEmail
+
 
   OrderAlertEmailSubscription:
+
     Type: AWS::SNS::Subscription
+
     Properties:
-      TopicArn: !Ref OrderAlertTopic
-      Protocol: email
-      Endpoint: !Ref AlertEmail
+      TopicArn:
+        !Ref OrderAlertTopic
+
+      Protocol:
+        email
+
+      Endpoint:
+        !Ref AlertEmail
 
 
   # ==========================================================
   # EVENTBRIDGE -> SNS RESOURCE POLICIES
-  # EventBridge publishes to SNS using a resource-based policy.
-  # No customer-facing subscription is created.
   # ==========================================================
 
   ProductAlertTopicPolicy:
+
     Type: AWS::SNS::TopicPolicy
+
     Properties:
       Topics:
         - !Ref ProductAlertTopic
+
       PolicyDocument:
         Version: '2012-10-17'
+
         Statement:
           - Sid: AllowEventBridgeToPublishProductAlerts
             Effect: Allow
+
             Principal:
-              Service: events.amazonaws.com
-            Action: sns:Publish
-            Resource: !Ref ProductAlertTopic
+              Service:
+                - events.amazonaws.com
+
+            Action:
+              - sns:Publish
+
+            Resource:
+              !Ref ProductAlertTopic
+
             Condition:
               StringEquals:
-                AWS:SourceAccount: !Ref AWS::AccountId
+                AWS:SourceAccount:
+                  !Ref AWS::AccountId
+
 
   OrderAlertTopicPolicy:
+
     Type: AWS::SNS::TopicPolicy
+
     Properties:
       Topics:
         - !Ref OrderAlertTopic
+
       PolicyDocument:
         Version: '2012-10-17'
+
         Statement:
           - Sid: AllowEventBridgeToPublishOrderAlerts
             Effect: Allow
+
             Principal:
-              Service: events.amazonaws.com
-            Action: sns:Publish
-            Resource: !Ref OrderAlertTopic
+              Service:
+                - events.amazonaws.com
+
+            Action:
+              - sns:Publish
+
+            Resource:
+              !Ref OrderAlertTopic
+
             Condition:
               StringEquals:
-                AWS:SourceAccount: !Ref AWS::AccountId
+                AWS:SourceAccount:
+                  !Ref AWS::AccountId
 
 
   # ==========================================================
@@ -1270,16 +1278,10 @@ Resources:
 
     Type: AWS::Events::Rule
 
-    Description:
-      Product Lambda ARN
-
-    Value:
-      !GetAtt ProductLambda.Arn
-
-    Export:
+    Properties:
 
       Name:
-        !Sub cloudmart-${Environment}-ProductLambdaArn
+        !Sub cloudmart-${Environment}-low-stock-rule
 
       Description:
         Sends low-stock inventory events to Product SNS alerts
@@ -1287,32 +1289,22 @@ Resources:
       EventBusName:
         !Ref CloudMartEventBus
 
-  ProductLambdaName:
+      State:
+        ENABLED
 
-    Description:
-      Product Lambda name
+      EventPattern:
 
-    Value:
-      !Ref ProductLambda
-
+        source:
           - cloudmart.inventory
 
-      Name:
-        !Sub cloudmart-${Environment}-ProductLambdaName
-
+        detail-type:
           - LowStock
 
-  # ==========================================================
-  # ORDER LAMBDA
-  # ==========================================================
+        detail:
+          low_stock:
+            - true
 
-  OrderLambdaArn:
-
-    Description:
-      Order Lambda ARN
-
-    Value:
-      !GetAtt OrderLambda.Arn
+      Targets:
 
         - Arn:
             !Ref ProductAlertTopic
@@ -1321,6 +1313,7 @@ Resources:
             ProductLowStockSNSTarget
 
           InputTransformer:
+
             InputPathsMap:
               productId: "$.detail.product_id"
               productName: "$.detail.product_name"
@@ -1359,11 +1352,9 @@ Resources:
       EventPattern:
 
         source:
-
           - cloudmart.orders
 
         detail-type:
-
           - OrderFailed
 
       Targets:
@@ -1375,23 +1366,27 @@ Resources:
             OrderFailedSNSTarget
 
           InputTransformer:
+
             InputPathsMap:
               eventType: "$.detail-type"
               orderId: "$.detail.order_id"
+              customerId: "$.detail.customer_id"
               status: "$.detail.status"
               totalAmount: "$.detail.total_amount"
               failureReason: "$.detail.failure_reason"
 
             InputTemplate: >
               "CloudMart ORDER FAILED ALERT: Event <eventType>.
-              Order ID: <orderId>, Status: <status>,
-              Total Amount: <totalAmount>,
+              Order ID: <orderId>, Customer ID: <customerId>,
+              Status: <status>, Total Amount: <totalAmount>,
               Failure Reason: <failureReason>."
 
-  OrderProcessorLambdaArn:
 
-    Description:
-      Order Processor Lambda ARN
+# ============================================================
+# OUTPUTS
+# ============================================================
+
+Outputs:
 
 
   # ==========================================================
@@ -1407,7 +1402,6 @@ Resources:
       !Ref CloudMartEventBus
 
     Export:
-
       Name:
         !Sub cloudmart-${Environment}-EventBusName
 
@@ -1421,7 +1415,6 @@ Resources:
       !GetAtt CloudMartEventBus.Arn
 
     Export:
-
       Name:
         !Sub cloudmart-${Environment}-EventBusArn
 
@@ -1433,33 +1426,27 @@ Resources:
   LambdaAuthorizerArn:
 
     Description:
-      Order Processor Lambda name
+      Lambda Authorizer ARN
 
     Value:
-      !Ref OrderProcessorLambda
+      !GetAtt LambdaAuthorizer.Arn
 
     Export:
-
       Name:
-        !Sub cloudmart-${Environment}-OrderProcessorLambdaName
+        !Sub cloudmart-${Environment}-LambdaAuthorizerArn
 
 
-  # ==========================================================
-  # DAILY REPORT LAMBDA
-  # ==========================================================
-
-  DailyReportLambdaArn:
+  LambdaAuthorizerName:
 
     Description:
       Lambda Authorizer name
 
     Value:
-      !GetAtt DailyReportLambda.Arn
+      !Ref LambdaAuthorizer
 
     Export:
-
       Name:
-        !Sub cloudmart-${Environment}-DailyReportLambdaArn
+        !Sub cloudmart-${Environment}-LambdaAuthorizerName
 
 
   # ==========================================================
@@ -1475,7 +1462,6 @@ Resources:
       !GetAtt CustomerLambda.Arn
 
     Export:
-
       Name:
         !Sub cloudmart-${Environment}-CustomerLambdaArn
 
@@ -1489,7 +1475,6 @@ Resources:
       !Ref CustomerLambda
 
     Export:
-
       Name:
         !Sub cloudmart-${Environment}-CustomerLambdaName
 
@@ -1501,29 +1486,27 @@ Resources:
   ProductLambdaArn:
 
     Description:
-      Daily Report Lambda name
+      Product Lambda ARN
 
     Value:
-      !Ref DailyReportLambda
+      !GetAtt ProductLambda.Arn
 
     Export:
-
       Name:
-        !Sub cloudmart-${Environment}-DailyReportLambdaName
+        !Sub cloudmart-${Environment}-ProductLambdaArn
 
 
-  DailyReportScheduleArn:
+  ProductLambdaName:
 
     Description:
       Product Lambda name
 
     Value:
-      !GetAtt DailyReportSchedule.Arn
+      !Ref ProductLambda
 
     Export:
-
       Name:
-        !Sub cloudmart-${Environment}-DailyReportScheduleArn
+        !Sub cloudmart-${Environment}-ProductLambdaName
 
 
   # ==========================================================
@@ -1539,7 +1522,6 @@ Resources:
       !GetAtt OrderLambda.Arn
 
     Export:
-
       Name:
         !Sub cloudmart-${Environment}-OrderLambdaArn
 
@@ -1553,7 +1535,6 @@ Resources:
       !Ref OrderLambda
 
     Export:
-
       Name:
         !Sub cloudmart-${Environment}-OrderLambdaName
 
@@ -1571,7 +1552,6 @@ Resources:
       !GetAtt OrderProcessorLambda.Arn
 
     Export:
-
       Name:
         !Sub cloudmart-${Environment}-OrderProcessorLambdaArn
 
@@ -1585,7 +1565,6 @@ Resources:
       !Ref OrderProcessorLambda
 
     Export:
-
       Name:
         !Sub cloudmart-${Environment}-OrderProcessorLambdaName
 
@@ -1603,7 +1582,6 @@ Resources:
       !GetAtt DailyReportLambda.Arn
 
     Export:
-
       Name:
         !Sub cloudmart-${Environment}-DailyReportLambdaArn
 
@@ -1617,7 +1595,6 @@ Resources:
       !Ref DailyReportLambda
 
     Export:
-
       Name:
         !Sub cloudmart-${Environment}-DailyReportLambdaName
 
@@ -1631,7 +1608,6 @@ Resources:
       !GetAtt DailyReportSchedule.Arn
 
     Export:
-
       Name:
         !Sub cloudmart-${Environment}-DailyReportScheduleArn
 
@@ -1649,7 +1625,6 @@ Resources:
       !GetAtt SchemaInitializerLambda.Arn
 
     Export:
-
       Name:
         !Sub cloudmart-${Environment}-SchemaInitializerLambdaArn
 
@@ -1663,7 +1638,6 @@ Resources:
       !Ref SchemaInitializerLambda
 
     Export:
-
       Name:
         !Sub cloudmart-${Environment}-SchemaInitializerLambdaName
 
@@ -1681,7 +1655,6 @@ Resources:
       !Ref PyMySQLLayer
 
     Export:
-
       Name:
         !Sub cloudmart-${Environment}-PyMySQLLayerArn
 
@@ -1699,7 +1672,6 @@ Resources:
       !Ref ProductAlertTopic
 
     Export:
-
       Name:
         !Sub cloudmart-${Environment}-ProductAlertTopicArn
 
@@ -1713,7 +1685,6 @@ Resources:
       !Ref OrderAlertTopic
 
     Export:
-
       Name:
         !Sub cloudmart-${Environment}-OrderAlertTopicArn
 
@@ -1731,7 +1702,6 @@ Resources:
       !GetAtt LowStockEventRule.Arn
 
     Export:
-
       Name:
         !Sub cloudmart-${Environment}-LowStockEventRuleArn
 
@@ -1745,6 +1715,5 @@ Resources:
       !GetAtt OrderFailedEventsToSNSRule.Arn
 
     Export:
-
       Name:
-        !Sub cloudmart-${Environment}-OrderFailedEventsToSNSRuleArn 
+        !Sub cloudmart-${Environment}-OrderFailedEventsToSNSRuleArn
