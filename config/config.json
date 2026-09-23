@@ -1,6 +1,18 @@
-﻿{
-  "Environment": "dev",
-  "Project": "CloudMart",
-  "ManagedBy": "GitHubActions",
-  "Owner": "platform-team"
-}
+[
+  {
+    "Key": "Environment",
+    "Value": "dev"
+  },
+  {
+    "Key": "Project",
+    "Value": "CloudMart"
+  },
+  {
+    "Key": "ManagedBy",
+    "Value": "GitHubActions"
+  },
+  {
+    "Key": "Owner",
+    "Value": "platform-team"
+  }
+]
