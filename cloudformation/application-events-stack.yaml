@@ -1164,6 +1164,36 @@ Resources:
 
 
   # ==========================================================
+  # PRODUCT NOTIFICATION SNS TOPIC
+  # Separate from the operational Product Alert SNS topic.
+  # The same AlertEmail receives both streams as two distinct emails.
+  # ==========================================================
+
+  ProductNotificationTopic:
+
+    Type: AWS::SNS::Topic
+
+    Properties:
+      TopicName:
+        !Sub cloudmart-${Environment}-product-notifications
+
+      DisplayName:
+        CloudMart Product Notifications
+
+      Tags:
+        - Key: Name
+          Value:
+            !Sub cloudmart-${Environment}-product-notifications
+
+        - Key: Project
+          Value: CloudMart
+
+        - Key: Environment
+          Value:
+            !Ref Environment
+
+
+  # ==========================================================
   # ORDER ALERT SNS TOPIC
   # ==========================================================
 
@@ -1239,6 +1269,21 @@ Resources:
         !Ref AlertEmail
 
 
+  ProductNotificationEmailSubscription:
+
+    Type: AWS::SNS::Subscription
+
+    Properties:
+      TopicArn:
+        !Ref ProductNotificationTopic
+
+      Protocol:
+        email
+
+      Endpoint:
+        !Ref AlertEmail
+
+
   OrderAlertEmailSubscription:
 
     Type: AWS::SNS::Subscription
@@ -1298,6 +1343,37 @@ Resources:
 
             Resource:
               !Ref ProductAlertTopic
+
+            Condition:
+              StringEquals:
+                AWS:SourceAccount:
+                  !Ref AWS::AccountId
+
+
+  ProductNotificationTopicPolicy:
+
+    Type: AWS::SNS::TopicPolicy
+
+    Properties:
+      Topics:
+        - !Ref ProductNotificationTopic
+
+      PolicyDocument:
+        Version: '2012-10-17'
+
+        Statement:
+          - Sid: AllowEventBridgeToPublishProductNotifications
+            Effect: Allow
+
+            Principal:
+              Service:
+                - events.amazonaws.com
+
+            Action:
+              - sns:Publish
+
+            Resource:
+              !Ref ProductNotificationTopic
 
             Condition:
               StringEquals:
@@ -1382,7 +1458,7 @@ Resources:
         !Sub cloudmart-${Environment}-low-stock-rule
 
       Description:
-        Sends low-stock inventory events to Product SNS alerts
+        Sends low-stock inventory events to both Product Alert and Product Notification SNS topics
 
       EventBusName:
         !Ref CloudMartEventBus
@@ -1408,7 +1484,152 @@ Resources:
             !Ref ProductAlertTopic
 
           Id:
-            ProductLowStockSNSTarget
+            ProductLowStockAlertSNSTarget
+
+          InputTransformer:
+
+            InputPathsMap:
+              productId: "$.detail.product_id"
+              productName: "$.detail.product_name"
+              oldStock: "$.detail.old_stock"
+              newStock: "$.detail.new_stock"
+              threshold: "$.detail.low_stock_threshold"
+
+            InputTemplate: >
+              "CloudMart LOW STOCK ALERT: Product <productName>
+              (ID: <productId>) stock changed from <oldStock> to
+              <newStock>. Reorder threshold: <threshold>."
+
+        - Arn:
+            !Ref ProductNotificationTopic
+
+          Id:
+            ProductLowStockNotificationSNSTarget
+
+          InputTransformer:
+
+            InputPathsMap:
+              productId: "$.detail.product_id"
+              productName: "$.detail.product_name"
+              oldStock: "$.detail.old_stock"
+              newStock: "$.detail.new_stock"
+              threshold: "$.detail.low_stock_threshold"
+
+            InputTemplate: >
+              "CloudMart LOW STOCK: Product <productName>
+              (ID: <productId>) stock changed from <oldStock> to
+              <newStock>. Reorder threshold: <threshold>."
+
+
+  # ==========================================================
+  # PRODUCT LAMBDA LOW STOCK -> PRODUCT SNS
+  #
+  # The Product Lambda publishes stock updates as:
+  #   source     = cloudmart.product
+  #   detail-type = Inventory Changed
+  #   detail.low_stock = true
+  #
+  # This rule catches that event and sends it to the Product Alert SNS topic.
+  # The existing LowStockEventRule below remains in place for the
+  # Order Processor's cloudmart.inventory / LowStock events.
+  # ==========================================================
+
+  ProductInventoryLowStockEventRule:
+
+    Type: AWS::Events::Rule
+
+    Properties:
+
+      Name:
+        !Sub cloudmart-${Environment}-product-low-stock-rule
+
+      Description:
+        Sends the Product Lambda Inventory Changed low-stock event to the Product Notification SNS topic
+
+      EventBusName:
+        !Ref CloudMartEventBus
+
+      State:
+        ENABLED
+
+      EventPattern:
+
+        source:
+          - cloudmart.product
+
+        detail-type:
+          - Inventory Changed
+
+        detail:
+          low_stock:
+            - true
+
+      Targets:
+
+        - Arn:
+            !Ref ProductNotificationTopic
+
+          Id:
+            ProductInventoryLowStockNotificationSNSTarget
+
+          InputTransformer:
+
+            InputPathsMap:
+              productId: "$.detail.product_id"
+              productName: "$.detail.product_name"
+              oldStock: "$.detail.old_stock"
+              newStock: "$.detail.new_stock"
+              threshold: "$.detail.low_stock_threshold"
+
+            InputTemplate: >
+              "CloudMart LOW STOCK: Product <productName>
+              (ID: <productId>) stock changed from <oldStock> to
+              <newStock>. Reorder threshold: <threshold>."
+
+
+  # ==========================================================
+  # PRODUCT LAMBDA LOW STOCK ALERT EVENT
+  # Product Lambda publishes LowStockAlert when inventory crosses
+  # the configured reorder threshold.
+  # ==========================================================
+
+  ProductLowStockAlertEventRule:
+
+    Type: AWS::Events::Rule
+
+    Properties:
+
+      Name:
+        !Sub cloudmart-${Environment}-product-low-stock-alert-rule
+
+      Description:
+        Sends Product Lambda LowStockAlert events to Product Alert SNS
+
+      EventBusName:
+        !Ref CloudMartEventBus
+
+      State:
+        ENABLED
+
+      EventPattern:
+
+        source:
+          - cloudmart.product
+
+        detail-type:
+          - LowStockAlert
+
+        detail:
+          low_stock:
+            - true
+
+      Targets:
+
+        - Arn:
+            !Ref ProductAlertTopic
+
+          Id:
+            ProductLowStockAlertEventSNSTarget
 
           InputTransformer:
 
@@ -2057,6 +2278,19 @@ Outputs:
     Export:
       Name:
         !Sub cloudmart-${Environment}-ProductAlertTopicArn
+
+
+  ProductNotificationTopicArn:
+
+    Description:
+      Product Notification SNS Topic ARN
+
+    Value:
+      !Ref ProductNotificationTopic
+
+    Export:
+      Name:
+        !Sub cloudmart-${Environment}-ProductNotificationTopicArn
 
 
   OrderAlertTopicArn:

@@ -1,37 +1,31 @@
-import base64
+
+import hashlib
 import json
-import math
 import os
-from decimal import Decimal, InvalidOperation
-from typing import Any, Dict, Optional, Tuple
+from decimal import Decimal
 
 import boto3
 import pymysql
 from botocore.config import Config
-from botocore.exceptions import BotoCoreError, ClientError
 
 
 # ==========================================================
-# AWS CLIENT CONFIGURATION
+# AWS CLIENTS
 # ==========================================================
-# Keep every AWS SDK call bounded so a private-subnet/VPC
-# connectivity problem cannot consume the full API timeout.
 
 AWS_API_CONFIG = Config(
     connect_timeout=2,
-    read_timeout=2,
-    retries={
-        "max_attempts": 1,
-        "mode": "standard",
-    },
+    read_timeout=3,
+    retries={"max_attempts": 1, "mode": "standard"}
 )
 
 ssm = boto3.client("ssm", config=AWS_API_CONFIG)
 events = boto3.client("events", config=AWS_API_CONFIG)
+cloudwatch = boto3.client("cloudwatch", config=AWS_API_CONFIG)
 
 
 # ==========================================================
-# ENVIRONMENT
+# SSM PARAMETER NAMES
 # ==========================================================
 
 DB_NAME_PARAMETER = os.environ["DB_NAME_PARAMETER"]
@@ -41,464 +35,117 @@ DB_USERNAME_PARAMETER = os.environ["DB_USERNAME_PARAMETER"]
 DB_PASSWORD_PARAMETER = os.environ["DB_PASSWORD_PARAMETER"]
 EVENT_BUS_NAME = os.environ["EVENT_BUS_NAME"]
 
-SSM_PARAMETER_NAMES = {
-    "db_name": DB_NAME_PARAMETER,
-    "db_host": DB_ENDPOINT_PARAMETER,
-    "db_port": DB_PORT_PARAMETER,
-    "db_username": DB_USERNAME_PARAMETER,
-    "db_password": DB_PASSWORD_PARAMETER,
-}
-
-# Warm-Lambda cache. A cold start makes one SSM request instead of five.
-_PARAMETER_CACHE: Optional[Dict[str, str]] = None
-
-
-# ==========================================================
-# CUSTOM EXCEPTIONS
-# ==========================================================
-
-class DependencyError(Exception):
-    """A required AWS/RDS dependency is unavailable or misconfigured."""
-
 
 # ==========================================================
 # STRUCTURED LOGGING
 # ==========================================================
 
-def log_event(level: str, message: str, **details: Any) -> None:
+def log_event(level, message, **details):
     record = {
         "level": level,
         "service": "cloudmart-product-lambda",
         "message": message,
-        **details,
+        **details
     }
+
     print(json.dumps(record, default=str))
 
 
-# ==========================================================
-# CLOUDWATCH METRICS VIA EMF
-# ==========================================================
-# This avoids an extra synchronous cloudwatch.put_metric_data()
-# network call during customer-facing API requests.
-
-
-def publish_custom_metric(metric_name: str, value: float = 1) -> None:
+def publish_custom_metric(metric_name, value=1):
+    """Publish a CloudMart business metric without delaying the API request."""
     try:
-        metric_value = float(value)
-        if not math.isfinite(metric_value):
-            metric_value = 0.0
-
-        emf_record = {
-            "_aws": {
-                "Timestamp": __import__("time").time_ns() // 1_000_000,
-                "CloudWatchMetrics": [
-                    {
-                        "Namespace": "CloudMart/Business",
-                        "Dimensions": [[]],
-                        "Metrics": [
-                            {
-                                "Name": metric_name,
-                                "Unit": "Count",
-                            }
-                        ],
-                    }
-                ],
-            },
-            metric_name: metric_value,
-        }
-        print(json.dumps(emf_record, default=str))
+        cloudwatch.put_metric_data(
+            Namespace="CloudMart/Business",
+            MetricData=[
+                {
+                    "MetricName": metric_name,
+                    "Value": float(value),
+                    "Unit": "Count"
+                }
+            ]
+        )
     except Exception as exc:
-        # A metric must never break a successful business operation.
         log_event(
             "WARN",
-            "Custom metric emission skipped",
+            "Custom metric publishing skipped",
             metric_name=metric_name,
             error_type=type(exc).__name__,
-            error=str(exc),
+            error=str(exc)
         )
 
+def publish_inventory_event(event_detail, request_id, product_id):
+    """Publish product inventory events to EventBridge.
 
-# ==========================================================
-# RESPONSE
-# ==========================================================
+    Every stock change publishes the normal ``Inventory Changed`` event.
+    When the resulting stock is at/below the reorder threshold, the same
+    inventory change also publishes a dedicated ``LowStockAlert`` event.
 
-def response(status_code: int, body: Any) -> Dict[str, Any]:
-    return {
-        "statusCode": status_code,
-        "headers": {
-            "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Headers": "Content-Type,Authorization",
-            "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
-        },
-        "body": json.dumps(body, default=str),
-    }
+    EventBridge rules route these two event types to separate SNS topics so
+    the same low-stock condition can generate two separate emails:
+      1. Product notification email
+      2. Product low-stock alert email
 
-
-# ==========================================================
-# SSM PARAMETERS
-# ==========================================================
-
-def _load_parameters() -> Dict[str, str]:
-    global _PARAMETER_CACHE
-
-    if _PARAMETER_CACHE is not None:
-        return _PARAMETER_CACHE
-
-    log_event(
-        "INFO",
-        "Loading database parameters from SSM",
-        parameter_names=list(SSM_PARAMETER_NAMES.values()),
-    )
-
+    Database state remains authoritative; EventBridge is best-effort.
+    """
     try:
-        result = ssm.get_parameters(
-            Names=list(SSM_PARAMETER_NAMES.values()),
-            WithDecryption=True,
-        )
-    except (BotoCoreError, ClientError) as exc:
+        entries = [
+            {
+                "EventBusName": EVENT_BUS_NAME,
+                "Source": "cloudmart.product",
+                "DetailType": "Inventory Changed",
+                "Detail": json.dumps(event_detail, default=str)
+            }
+        ]
+
+        if bool(event_detail.get("low_stock")):
+            entries.append(
+                {
+                    "EventBusName": EVENT_BUS_NAME,
+                    "Source": "cloudmart.product",
+                    "DetailType": "LowStockAlert",
+                    "Detail": json.dumps(event_detail, default=str)
+                }
+            )
+
+        result = events.put_events(Entries=entries)
+
+        failed_count = int(result.get("FailedEntryCount", 0) or 0)
+
+        if failed_count:
+            log_event(
+                "WARN",
+                "Product inventory event publishing failed; product update retained",
+                request_id=request_id,
+                product_id=product_id,
+                low_stock=bool(event_detail.get("low_stock")),
+                event_result=result
+            )
+            return False
+
         log_event(
-            "ERROR",
-            "Unable to read database parameters from SSM",
+            "INFO",
+            "Product inventory event(s) published",
+            request_id=request_id,
+            product_id=product_id,
+            low_stock=bool(event_detail.get("low_stock")),
+            event_count=len(entries)
+        )
+        return True
+
+    except Exception as exc:
+        log_event(
+            "WARN",
+            "Product inventory event publishing skipped; product update retained",
+            request_id=request_id,
+            product_id=product_id,
             error_type=type(exc).__name__,
-            error=str(exc),
+            error=str(exc)
         )
-        raise DependencyError("Database configuration is temporarily unavailable") from exc
+        return False
 
-    values_by_name = {
-        item["Name"]: item["Value"]
-        for item in result.get("Parameters", [])
-    }
 
-    missing = [
-        name
-        for name in SSM_PARAMETER_NAMES.values()
-        if name not in values_by_name
-    ]
-
-    if missing:
-        log_event(
-            "ERROR",
-            "Required SSM parameters are missing",
-            missing_parameters=missing,
-        )
-        raise DependencyError("Required database configuration is missing")
-
-    _PARAMETER_CACHE = {
-        key: values_by_name[name]
-        for key, name in SSM_PARAMETER_NAMES.items()
-    }
-
-    log_event(
-        "INFO",
-        "Database parameters loaded from SSM",
-        cached=True,
-    )
-
-    return _PARAMETER_CACHE
-
-
-# Backward-compatible helper for internal use.
-def get_parameter(name: str) -> str:
-    params = _load_parameters()
-    for key, parameter_name in SSM_PARAMETER_NAMES.items():
-        if parameter_name == name:
-            return params[key]
-
-    try:
-        result = ssm.get_parameter(
-            Name=name,
-            WithDecryption=True,
-        )
-        return result["Parameter"]["Value"]
-    except (BotoCoreError, ClientError) as exc:
-        raise DependencyError("Required configuration is unavailable") from exc
-
-
-# ==========================================================
-# DATABASE CONNECTION
-# ==========================================================
-
-def get_db_connection() -> pymysql.connections.Connection:
-    params = _load_parameters()
-
-    try:
-        db_port = int(params["db_port"])
-    except (TypeError, ValueError) as exc:
-        raise DependencyError("Database port configuration is invalid") from exc
-
-    log_event(
-        "INFO",
-        "Connecting to RDS",
-        host=params["db_host"],
-        port=db_port,
-        database=params["db_name"],
-    )
-
-    try:
-        connection = pymysql.connect(
-            host=params["db_host"],
-            port=db_port,
-            user=params["db_username"],
-            password=params["db_password"],
-            database=params["db_name"],
-            connect_timeout=4,
-            read_timeout=4,
-            write_timeout=4,
-            cursorclass=pymysql.cursors.DictCursor,
-            autocommit=False,
-        )
-
-        # Prevent SELECT ... FOR UPDATE from waiting indefinitely for a lock.
-        with connection.cursor() as cursor:
-            cursor.execute("SET SESSION innodb_lock_wait_timeout = 3")
-
-        log_event("INFO", "RDS connection established")
-        return connection
-
-    except pymysql.MySQLError as exc:
-        log_event(
-            "ERROR",
-            "RDS connection failed",
-            error_type=type(exc).__name__,
-            error=str(exc),
-        )
-        raise DependencyError("Database is temporarily unavailable") from exc
-
-
-# ==========================================================
-# REQUEST HELPERS
-# ==========================================================
-
-def parse_body(event: Dict[str, Any]) -> Dict[str, Any]:
-    body = event.get("body")
-
-    if body is None:
-        return {}
-
-    if isinstance(body, dict):
-        return body
-
-    if not isinstance(body, str):
-        raise ValueError("Request body must be JSON")
-
-    if event.get("isBase64Encoded"):
-        try:
-            body = base64.b64decode(body).decode("utf-8")
-        except Exception as exc:
-            raise ValueError("Request body contains invalid base64 data") from exc
-
-    if not body.strip():
-        return {}
-
-    try:
-        parsed = json.loads(body)
-    except json.JSONDecodeError as exc:
-        raise ValueError("Request body contains invalid JSON") from exc
-
-    if not isinstance(parsed, dict):
-        raise ValueError("Request body must contain a JSON object")
-
-    return parsed
-
-
-def get_product_id(event: Dict[str, Any]) -> Optional[int]:
-    path_parameters = event.get("pathParameters") or {}
-    raw_id = path_parameters.get("id") or path_parameters.get("product_id")
-
-    if raw_id is None:
-        return None
-
-    try:
-        product_id = int(raw_id)
-    except (TypeError, ValueError) as exc:
-        raise ValueError("Product id must be an integer") from exc
-
-    if product_id <= 0:
-        raise ValueError("Product id must be greater than zero")
-
-    return product_id
-
-
-def get_request_id(context: Any) -> Optional[str]:
-    return getattr(context, "aws_request_id", None)
-
-
-# ==========================================================
-# VALIDATION
-# ==========================================================
-
-def validate_create_payload(data: Dict[str, Any]) -> Dict[str, Any]:
-    required_fields = ["category_id", "name", "price"]
-    missing = [field for field in required_fields if field not in data]
-
-    if missing:
-        raise ValueError("Missing required fields: " + ", ".join(missing))
-
-    try:
-        category_id = int(data["category_id"])
-    except (TypeError, ValueError) as exc:
-        raise ValueError("category_id must be an integer") from exc
-
-    if category_id <= 0:
-        raise ValueError("category_id must be greater than zero")
-
-    name = str(data["name"]).strip()
-    if not name:
-        raise ValueError("name is required")
-
-    try:
-        price = Decimal(str(data["price"]))
-    except (InvalidOperation, TypeError, ValueError) as exc:
-        raise ValueError("price must be a valid number") from exc
-
-    if not price.is_finite():
-        raise ValueError("price must be a finite number")
-
-    if price < 0:
-        raise ValueError("price cannot be negative")
-
-    try:
-        stock_quantity = int(data.get("stock_quantity", 0))
-    except (TypeError, ValueError) as exc:
-        raise ValueError("stock_quantity must be an integer") from exc
-
-    if stock_quantity < 0:
-        raise ValueError("stock_quantity cannot be negative")
-
-    try:
-        reorder_threshold = int(data.get("reorder_threshold", 5))
-    except (TypeError, ValueError) as exc:
-        raise ValueError("reorder_threshold must be an integer") from exc
-
-    if reorder_threshold < 0:
-        raise ValueError("reorder_threshold cannot be negative")
-
-    description = data.get("description")
-    if description is not None:
-        description = str(description).strip()
-
-    return {
-        "category_id": category_id,
-        "name": name,
-        "description": description,
-        "price": price,
-        "stock_quantity": stock_quantity,
-        "reorder_threshold": reorder_threshold,
-    }
-
-
-def validate_update_payload(data: Dict[str, Any]) -> Dict[str, Any]:
-    allowed_fields = {
-        "category_id",
-        "name",
-        "description",
-        "price",
-        "stock_quantity",
-        "reorder_threshold",
-    }
-
-    update_fields = {
-        key: data[key]
-        for key in allowed_fields
-        if key in data
-    }
-
-    if not update_fields:
-        raise ValueError("No valid fields provided for update")
-
-    if "category_id" in update_fields:
-        try:
-            update_fields["category_id"] = int(update_fields["category_id"])
-        except (TypeError, ValueError) as exc:
-            raise ValueError("category_id must be an integer") from exc
-        if update_fields["category_id"] <= 0:
-            raise ValueError("category_id must be greater than zero")
-
-    if "name" in update_fields:
-        update_fields["name"] = str(update_fields["name"]).strip()
-        if not update_fields["name"]:
-            raise ValueError("name cannot be empty")
-
-    if "price" in update_fields:
-        try:
-            update_fields["price"] = Decimal(str(update_fields["price"]))
-        except (InvalidOperation, TypeError, ValueError) as exc:
-            raise ValueError("price must be a valid number") from exc
-        if not update_fields["price"].is_finite():
-            raise ValueError("price must be a finite number")
-        if update_fields["price"] < 0:
-            raise ValueError("price cannot be negative")
-
-    if "stock_quantity" in update_fields:
-        try:
-            update_fields["stock_quantity"] = int(update_fields["stock_quantity"])
-        except (TypeError, ValueError) as exc:
-            raise ValueError("stock_quantity must be an integer") from exc
-        if update_fields["stock_quantity"] < 0:
-            raise ValueError("stock_quantity cannot be negative")
-
-    if "reorder_threshold" in update_fields:
-        try:
-            update_fields["reorder_threshold"] = int(update_fields["reorder_threshold"])
-        except (TypeError, ValueError) as exc:
-            raise ValueError("reorder_threshold must be an integer") from exc
-        if update_fields["reorder_threshold"] < 0:
-            raise ValueError("reorder_threshold cannot be negative")
-
-    if "description" in update_fields and update_fields["description"] is not None:
-        update_fields["description"] = str(update_fields["description"]).strip()
-
-    return update_fields
-
-
-# ==========================================================
-# SERVICE AUTHORIZATION
-# ==========================================================
-
-def get_authorizer_context(event: Dict[str, Any]) -> Dict[str, Any]:
-    return (event.get("requestContext") or {}).get("authorizer") or {}
-
-
-def is_admin(event: Dict[str, Any]) -> bool:
-    auth = get_authorizer_context(event)
-    return str(auth.get("role", "")).strip().upper() == "ADMIN"
-
-
-def require_admin(event: Dict[str, Any]) -> None:
-    if not is_admin(event):
-        raise PermissionError("Admin permission is required")
-
-
-# ==========================================================
-# PRODUCT QUERIES
-# ==========================================================
-
-def fetch_product(cursor: Any, product_id: int) -> Optional[Dict[str, Any]]:
-    cursor.execute(
-        """
-        SELECT
-            product_id,
-            category_id,
-            name,
-            description,
-            price,
-            stock_quantity,
-            reorder_threshold,
-            status,
-            created_at,
-            updated_at
-        FROM products
-        WHERE product_id = %s
-          AND deleted_at IS NULL
-        """,
-        (product_id,),
-    )
-    return cursor.fetchone()
-
-
-def publish_inventory_count(connection: Any) -> None:
-    """Best-effort inventory metric; no CloudWatch API network call."""
+def publish_inventory_count(connection):
+    """Publish total available inventory quantity as a best-effort metric."""
     try:
         with connection.cursor() as cursor:
             cursor.execute(
@@ -511,92 +158,320 @@ def publish_inventory_count(connection: Any) -> None:
             result = cursor.fetchone() or {}
             publish_custom_metric(
                 "InventoryCount",
-                result.get("inventory_count", 0),
+                result.get("inventory_count", 0)
             )
     except Exception as exc:
         log_event(
             "WARN",
             "Inventory count metric skipped",
             error_type=type(exc).__name__,
-            error=str(exc),
+            error=str(exc)
         )
 
+# ==========================================================
+# API RESPONSE
+# ==========================================================
+
+def response(status_code, body):
+    return {
+        "statusCode": status_code,
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "body": json.dumps(
+            body,
+            default=str
+        )
+    }
+
 
 # ==========================================================
-# EVENTBRIDGE
+# SSM PARAMETER
 # ==========================================================
 
-def publish_inventory_event(
-    event_detail: Dict[str, Any],
-    request_id: Optional[str],
-    product_id: int,
-) -> bool:
-    """Best effort only. Never blocks the successful DB update indefinitely."""
+def get_parameter(name):
+    parameter = ssm.get_parameter(
+        Name=name,
+        WithDecryption=True
+    )
+
+    return parameter["Parameter"]["Value"]
+
+
+# ==========================================================
+# DATABASE CONNECTION
+# ==========================================================
+
+def get_db_connection():
+
+    db_name = get_parameter(
+        DB_NAME_PARAMETER
+    )
+
+    db_host = get_parameter(
+        DB_ENDPOINT_PARAMETER
+    )
+
+    db_port = int(
+        get_parameter(
+            DB_PORT_PARAMETER
+        )
+    )
+
+    db_username = get_parameter(
+        DB_USERNAME_PARAMETER
+    )
+
+    db_password = get_parameter(
+        DB_PASSWORD_PARAMETER
+    )
+
+    return pymysql.connect(
+        host=db_host,
+        port=db_port,
+        user=db_username,
+        password=db_password,
+        database=db_name,
+        connect_timeout=5,
+        read_timeout=5,
+        write_timeout=5,
+        cursorclass=pymysql.cursors.DictCursor,
+        autocommit=False
+    )
+
+
+# ==========================================================
+# REQUEST BODY
+# ==========================================================
+
+def parse_body(event):
+
+    body = event.get("body")
+
+    if body is None:
+        return {}
+
+    if isinstance(body, dict):
+        return body
+
+    if not isinstance(body, str):
+
+        raise ValueError(
+            "Request body must be JSON"
+        )
+
+    if not body.strip():
+        return {}
+
     try:
-        log_event(
-            "INFO",
-            "Publishing inventory event",
-            request_id=request_id,
-            product_id=product_id,
+
+        parsed = json.loads(body)
+
+    except json.JSONDecodeError:
+
+        raise ValueError(
+            "Request body contains invalid JSON"
         )
 
-        result = events.put_events(
-            Entries=[
-                {
-                    "EventBusName": EVENT_BUS_NAME,
-                    "Source": "cloudmart.product",
-                    "DetailType": "Inventory Changed",
-                    "Detail": json.dumps(event_detail, default=str),
-                }
-            ]
+    if not isinstance(parsed, dict):
+
+        raise ValueError(
+            "Request body must contain a JSON object"
         )
 
-        failed_count = int(result.get("FailedEntryCount", 0))
-        if failed_count:
-            log_event(
-                "WARN",
-                "Inventory event rejected by EventBridge; DB update retained",
-                request_id=request_id,
-                product_id=product_id,
-                failed_count=failed_count,
-                event_result=result,
+    return parsed
+
+
+# ==========================================================
+# PRODUCT ID
+# ==========================================================
+
+def get_product_id(event):
+
+    path_parameters = (
+        event.get("pathParameters") or {}
+    )
+
+    product_id = path_parameters.get(
+        "id"
+    )
+
+    if product_id is None:
+        return None
+
+    try:
+
+        return int(product_id)
+
+    except (TypeError, ValueError):
+
+        raise ValueError(
+            "Product id must be an integer"
+        )
+
+
+# ==========================================================
+# CREATE VALIDATION
+# ==========================================================
+
+def validate_create_payload(data):
+
+    required_fields = [
+        "category_id",
+        "name",
+        "price"
+    ]
+
+    missing = [
+        field
+        for field in required_fields
+        if field not in data
+    ]
+
+    if missing:
+
+        raise ValueError(
+            "Missing required fields: "
+            + ", ".join(missing)
+        )
+
+    try:
+
+        category_id = int(
+            data["category_id"]
+        )
+
+    except (TypeError, ValueError):
+
+        raise ValueError(
+            "category_id must be an integer"
+        )
+
+    name = str(
+        data["name"]
+    ).strip()
+
+    if not name:
+
+        raise ValueError(
+            "name is required"
+        )
+
+    try:
+
+        price = Decimal(
+            str(data["price"])
+        )
+
+    except Exception:
+
+        raise ValueError(
+            "price must be a valid number"
+        )
+
+    if price < 0:
+
+        raise ValueError(
+            "price cannot be negative"
+        )
+
+    try:
+
+        stock_quantity = int(
+            data.get(
+                "stock_quantity",
+                0
             )
-            return False
-
-        log_event(
-            "INFO",
-            "Inventory event published",
-            request_id=request_id,
-            product_id=product_id,
         )
-        return True
 
-    except (BotoCoreError, ClientError, Exception) as exc:  # noqa: B036
-        log_event(
-            "WARN",
-            "Inventory event skipped; DB update retained",
-            request_id=request_id,
-            product_id=product_id,
-            error_type=type(exc).__name__,
-            error=str(exc),
+    except (TypeError, ValueError):
+
+        raise ValueError(
+            "stock_quantity must be an integer"
         )
-        return False
+
+    if stock_quantity < 0:
+
+        raise ValueError(
+            "stock_quantity cannot be negative"
+        )
+
+    try:
+
+        reorder_threshold = int(
+            data.get(
+                "reorder_threshold",
+                5
+            )
+        )
+
+    except (TypeError, ValueError):
+
+        raise ValueError(
+            "reorder_threshold must be an integer"
+        )
+
+    if reorder_threshold < 0:
+
+        raise ValueError(
+            "reorder_threshold cannot be negative"
+        )
+
+    description = data.get(
+        "description"
+    )
+
+    if description is not None:
+
+        description = str(
+            description
+        ).strip()
+
+    return {
+        "category_id":
+            category_id,
+        "name":
+            name,
+        "description":
+            description,
+        "price":
+            price,
+        "stock_quantity":
+            stock_quantity,
+        "reorder_threshold":
+            reorder_threshold
+    }
+
+
 
 
 # ==========================================================
 # CREATE PRODUCT
 # ==========================================================
 
-def create_product(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
-    require_admin(event)
-    data = validate_create_payload(parse_body(event))
-    request_id = get_request_id(context)
+def create_product(
+    event,
+    context
+):
+
+    permission_error = require_admin(event)
+    if permission_error is not None:
+        return permission_error
+
+    data = parse_body(event)
+
+    product = validate_create_payload(
+        data
+    )
+
     connection = None
 
     try:
+
         connection = get_db_connection()
 
         with connection.cursor() as cursor:
+
             cursor.execute(
                 """
                 INSERT INTO products (
@@ -607,54 +482,80 @@ def create_product(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                     stock_quantity,
                     reorder_threshold
                 )
-                VALUES (%s, %s, %s, %s, %s, %s)
+                VALUES (
+                    %s,
+                    %s,
+                    %s,
+                    %s,
+                    %s,
+                    %s
+                )
                 """,
                 (
-                    data["category_id"],
-                    data["name"],
-                    data["description"],
-                    data["price"],
-                    data["stock_quantity"],
-                    data["reorder_threshold"],
-                ),
+                    product["category_id"],
+                    product["name"],
+                    product["description"],
+                    product["price"],
+                    product["stock_quantity"],
+                    product["reorder_threshold"]
+                )
             )
+
             product_id = cursor.lastrowid
 
         connection.commit()
 
-        # Business metrics are best-effort after the transaction succeeds.
         publish_inventory_count(connection)
-        if data["stock_quantity"] <= data["reorder_threshold"]:
+
+        if product["stock_quantity"] <= product["reorder_threshold"]:
             publish_custom_metric("LowStockEvents")
 
         log_event(
             "INFO",
             "Product created",
-            request_id=request_id,
-            product_id=product_id,
+            request_id=
+                context.aws_request_id,
+            product_id=
+                product_id
         )
 
         return response(
             201,
             {
-                "message": "Product created successfully",
-                "product_id": product_id,
-            },
+                "message":
+                    "Product created successfully",
+                "product_id":
+                    product_id
+            }
         )
 
     except pymysql.err.IntegrityError as exc:
-        if connection:
+
+        if connection is not None:
+
             connection.rollback()
+
         log_event(
             "ERROR",
             "Product creation failed",
-            request_id=request_id,
-            error_type=type(exc).__name__,
-            error=str(exc),
+            request_id=
+                context.aws_request_id,
+            error_type=
+                type(exc).__name__,
+            error=str(exc)
         )
-        return response(400, {"message": "Invalid product data"})
+
+        return response(
+            400,
+            {
+                "message":
+                    "Invalid product data"
+            }
+        )
+
     finally:
-        if connection:
+
+        if connection is not None:
             connection.close()
 
 
@@ -662,14 +563,19 @@ def create_product(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 # GET ALL PRODUCTS
 # ==========================================================
 
-def get_products(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
+def get_products(
+    event,
+    context
+):
+
     connection = None
-    request_id = get_request_id(context)
 
     try:
+
         connection = get_db_connection()
 
         with connection.cursor() as cursor:
+
             cursor.execute(
                 """
                 SELECT
@@ -687,21 +593,28 @@ def get_products(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 ORDER BY product_id
                 """
             )
+
             products = cursor.fetchall()
 
-        # Keep the dashboard metric, but never make it an AWS network dependency.
         publish_inventory_count(connection)
 
         log_event(
             "INFO",
             "Products retrieved",
-            request_id=request_id,
-            count=len(products),
+            request_id=
+                context.aws_request_id,
+            count=
+                len(products)
         )
-        return response(200, products)
+
+        return response(
+            200,
+            products
+        )
 
     finally:
-        if connection:
+
+        if connection is not None:
             connection.close()
 
 
@@ -709,63 +622,326 @@ def get_products(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 # GET ONE PRODUCT
 # ==========================================================
 
-def get_product(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
-    product_id = get_product_id(event)
+def get_product(
+    event,
+    context
+):
+
+    product_id = get_product_id(
+        event
+    )
+
     if product_id is None:
-        return response(400, {"message": "Product id is required"})
+
+        return response(
+            400,
+            {
+                "message":
+                    "Product id is required"
+            }
+        )
 
     connection = None
-    request_id = get_request_id(context)
 
     try:
+
         connection = get_db_connection()
+
         with connection.cursor() as cursor:
-            product = fetch_product(cursor, product_id)
+
+            cursor.execute(
+                """
+                SELECT
+                    product_id,
+                    category_id,
+                    name,
+                    description,
+                    price,
+                    stock_quantity,
+                    reorder_threshold,
+                    created_at,
+                    updated_at
+                FROM products
+                WHERE product_id = %s
+                  AND deleted_at IS NULL
+                """,
+                (product_id,)
+            )
+
+            product = cursor.fetchone()
 
         if product is None:
-            return response(404, {"message": "Product not found"})
+
+            return response(
+                404,
+                {
+                    "message":
+                        "Product not found"
+                }
+            )
 
         log_event(
             "INFO",
             "Product retrieved",
-            request_id=request_id,
-            product_id=product_id,
+            request_id=
+                context.aws_request_id,
+            product_id=
+                product_id
         )
-        return response(200, product)
+
+        return response(
+            200,
+            product
+        )
 
     finally:
-        if connection:
+
+        if connection is not None:
             connection.close()
 
 
 # ==========================================================
-# UPDATE PRODUCT / INVENTORY
+# UPDATE PRODUCT
 # ==========================================================
 
-def update_product(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
-    require_admin(event)
+def update_product(
+    event,
+    context
+):
 
-    product_id = get_product_id(event)
-    if product_id is None:
-        return response(400, {"message": "Product id is required"})
+    permission_error = require_admin(event)
+    if permission_error is not None:
+        return permission_error
 
-    update_fields = validate_update_payload(parse_body(event))
-    request_id = get_request_id(context)
-    connection = None
-
-    log_event(
-        "INFO",
-        "Starting product update",
-        request_id=request_id,
-        product_id=product_id,
-        fields=list(update_fields.keys()),
+    product_id = get_product_id(
+        event
     )
 
+    if product_id is None:
+
+        return response(
+            400,
+            {
+                "message":
+                    "Product id is required"
+            }
+        )
+
+    data = parse_body(
+        event
+    )
+
+    allowed_fields = {
+        "category_id",
+        "name",
+        "description",
+        "price",
+        "stock_quantity",
+        "reorder_threshold"
+    }
+
+    update_fields = {
+        key: data[key]
+        for key in allowed_fields
+        if key in data
+    }
+
+    if not update_fields:
+
+        return response(
+            400,
+            {
+                "message":
+                    "No valid fields provided for update"
+            }
+        )
+
+    # ------------------------------------------------------
+    # Validate category
+    # ------------------------------------------------------
+
+    if "category_id" in update_fields:
+
+        try:
+
+            update_fields[
+                "category_id"
+            ] = int(
+                update_fields[
+                    "category_id"
+                ]
+            )
+
+        except (TypeError, ValueError):
+
+            return response(
+                400,
+                {
+                    "message":
+                        "category_id must be an integer"
+                }
+            )
+
+    # ------------------------------------------------------
+    # Validate name
+    # ------------------------------------------------------
+
+    if "name" in update_fields:
+
+        update_fields["name"] = str(
+            update_fields["name"]
+        ).strip()
+
+        if not update_fields["name"]:
+
+            return response(
+                400,
+                {
+                    "message":
+                        "name cannot be empty"
+                }
+            )
+
+    # ------------------------------------------------------
+    # Validate price
+    # ------------------------------------------------------
+
+    if "price" in update_fields:
+
+        try:
+
+            update_fields["price"] = Decimal(
+                str(
+                    update_fields["price"]
+                )
+            )
+
+        except Exception:
+
+            return response(
+                400,
+                {
+                    "message":
+                        "price must be a valid number"
+                }
+            )
+
+        if update_fields["price"] < 0:
+
+            return response(
+                400,
+                {
+                    "message":
+                        "price cannot be negative"
+                }
+            )
+
+    # ------------------------------------------------------
+    # Validate stock
+    # ------------------------------------------------------
+
+    if "stock_quantity" in update_fields:
+
+        try:
+
+            update_fields[
+                "stock_quantity"
+            ] = int(
+                update_fields[
+                    "stock_quantity"
+                ]
+            )
+
+        except (TypeError, ValueError):
+
+            return response(
+                400,
+                {
+                    "message":
+                        "stock_quantity must be an integer"
+                }
+            )
+
+        if update_fields[
+            "stock_quantity"
+        ] < 0:
+
+            return response(
+                400,
+                {
+                    "message":
+                        "stock_quantity cannot be negative"
+                }
+            )
+
+    # ------------------------------------------------------
+    # Validate threshold
+    # ------------------------------------------------------
+
+    if "reorder_threshold" in update_fields:
+
+        try:
+
+            update_fields[
+                "reorder_threshold"
+            ] = int(
+                update_fields[
+                    "reorder_threshold"
+                ]
+            )
+
+        except (TypeError, ValueError):
+
+            return response(
+                400,
+                {
+                    "message":
+                        "reorder_threshold must be an integer"
+                }
+            )
+
+        if update_fields[
+            "reorder_threshold"
+        ] < 0:
+
+            return response(
+                400,
+                {
+                    "message":
+                        "reorder_threshold cannot be negative"
+                }
+            )
+
+    # ------------------------------------------------------
+    # Normalize description
+    # ------------------------------------------------------
+
+    if "description" in update_fields:
+
+        if update_fields[
+            "description"
+        ] is not None:
+
+            update_fields[
+                "description"
+            ] = str(
+                update_fields[
+                    "description"
+                ]
+            ).strip()
+
+    connection = None
+
     try:
+
         connection = get_db_connection()
 
         with connection.cursor() as cursor:
-            # Lock the row so concurrent stock changes cannot overwrite each other.
+
+            # ------------------------------------------------
+            # Read old inventory state
+            # ------------------------------------------------
+
             cursor.execute(
                 """
                 SELECT
@@ -776,112 +952,231 @@ def update_product(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 FROM products
                 WHERE product_id = %s
                   AND deleted_at IS NULL
-                FOR UPDATE
                 """,
-                (product_id,),
+                (product_id,)
             )
-            existing_product = cursor.fetchone()
+
+            existing_product = (
+                cursor.fetchone()
+            )
 
             if existing_product is None:
-                connection.rollback()
-                return response(404, {"message": "Product not found"})
 
-            old_stock_quantity = int(existing_product["stock_quantity"])
-            old_reorder_threshold = int(existing_product["reorder_threshold"])
+                return response(
+                    404,
+                    {
+                        "message":
+                            "Product not found"
+                    }
+                )
+
+            old_stock_quantity = int(
+                existing_product[
+                    "stock_quantity"
+                ]
+            )
+
+            old_reorder_threshold = int(
+                existing_product[
+                    "reorder_threshold"
+                ]
+            )
+
+            # ------------------------------------------------
+            # Build update query
+            # ------------------------------------------------
 
             fields = []
             values = []
+
             for field, value in update_fields.items():
-                fields.append(f"{field} = %s")
-                values.append(value)
 
-            fields.append("updated_at = CURRENT_TIMESTAMP")
-            values.append(product_id)
+                fields.append(
+                    f"{field} = %s"
+                )
 
-            cursor.execute(
-                f"""
+                values.append(
+                    value
+                )
+
+            values.append(
+                product_id
+            )
+
+            query = f"""
                 UPDATE products
                 SET {", ".join(fields)}
                 WHERE product_id = %s
                   AND deleted_at IS NULL
-                """,
-                tuple(values),
-            )
+            """
 
-            updated_product = fetch_product(cursor, product_id)
+            cursor.execute(
+                query,
+                tuple(values)
+            )
 
         connection.commit()
 
-        new_stock_quantity = int(
-            update_fields.get("stock_quantity", old_stock_quantity)
-        )
-        new_reorder_threshold = int(
-            update_fields.get("reorder_threshold", old_reorder_threshold)
-        )
-        stock_changed = new_stock_quantity != old_stock_quantity
-        low_stock = new_stock_quantity <= new_reorder_threshold
-
-        # Metrics happen after the DB commit and cannot roll it back.
         publish_inventory_count(connection)
+
+        # ----------------------------------------------------
+        # Determine new inventory state
+        # ----------------------------------------------------
+
+        new_stock_quantity = int(
+            update_fields.get(
+                "stock_quantity",
+                old_stock_quantity
+            )
+        )
+
+        new_reorder_threshold = int(
+            update_fields.get(
+                "reorder_threshold",
+                old_reorder_threshold
+            )
+        )
+
+        stock_changed = (
+            new_stock_quantity
+            != old_stock_quantity
+        )
+
+        low_stock = (
+            new_stock_quantity
+            <= new_reorder_threshold
+        )
+
         if stock_changed and low_stock:
             publish_custom_metric("LowStockEvents")
 
         event_published = False
+
+        # ----------------------------------------------------
+        # Publish inventory event
+        # ----------------------------------------------------
+
         if stock_changed:
+
             event_detail = {
                 "product_id": product_id,
                 "product_name": existing_product["name"],
                 "old_stock": old_stock_quantity,
                 "new_stock": new_stock_quantity,
                 "low_stock_threshold": new_reorder_threshold,
-                "low_stock": low_stock,
+                "low_stock": low_stock
             }
+
             event_published = publish_inventory_event(
                 event_detail=event_detail,
-                request_id=request_id,
-                product_id=product_id,
+                request_id=context.aws_request_id,
+                product_id=product_id
             )
+
+        # ----------------------------------------------------
+        # Final structured log
+        # ----------------------------------------------------
 
         log_event(
             "INFO",
             "Product updated",
-            request_id=request_id,
-            product_id=product_id,
-            previous_stock_quantity=old_stock_quantity,
-            new_stock_quantity=new_stock_quantity,
-            reorder_threshold=new_reorder_threshold,
-            low_stock=low_stock,
-            event_published=event_published,
+            request_id=
+                context.aws_request_id,
+            product_id=
+                product_id,
+            previous_stock_quantity=
+                old_stock_quantity,
+            new_stock_quantity=
+                new_stock_quantity,
+            reorder_threshold=
+                new_reorder_threshold,
+            low_stock=
+                low_stock,
+            event_published=
+                event_published
         )
 
         return response(
             200,
             {
-                "message": "Product updated successfully",
-                "product_id": product_id,
-                "previous_stock_quantity": old_stock_quantity,
-                "new_stock_quantity": new_stock_quantity,
-                "reorder_threshold": new_reorder_threshold,
-                "low_stock": low_stock,
-                "event_published": event_published,
-            },
+                "message":
+                    "Product updated successfully",
+
+                "product_id":
+                    product_id,
+
+                "previous_stock_quantity":
+                    old_stock_quantity,
+
+                "new_stock_quantity":
+                    new_stock_quantity,
+
+                "reorder_threshold":
+                    new_reorder_threshold,
+
+                "low_stock":
+                    low_stock,
+
+                "event_published":
+                    event_published
+            }
         )
 
     except pymysql.err.IntegrityError as exc:
-        if connection:
+
+        if connection is not None:
             connection.rollback()
+
         log_event(
             "ERROR",
             "Product update failed",
-            request_id=request_id,
-            product_id=product_id,
-            error_type=type(exc).__name__,
-            error=str(exc),
+            request_id=
+                context.aws_request_id,
+            product_id=
+                product_id,
+            error_type=
+                type(exc).__name__,
+            error=str(exc)
         )
-        return response(400, {"message": "Invalid product update"})
+
+        return response(
+            400,
+            {
+                "message":
+                    "Invalid product update"
+            }
+        )
+
+    except Exception as exc:
+
+        if connection is not None:
+            connection.rollback()
+
+        log_event(
+            "ERROR",
+            "Product update failed",
+            request_id=
+                context.aws_request_id,
+            product_id=
+                product_id,
+            error_type=
+                type(exc).__name__,
+            error=str(exc)
+        )
+
+        return response(
+            500,
+            {
+                "message":
+                    "Product update failed",
+                "request_id":
+                    context.aws_request_id
+            }
+        )
 
     finally:
-        if connection:
+
+        if connection is not None:
             connection.close()
 
 
@@ -889,195 +1184,296 @@ def update_product(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 # DELETE PRODUCT
 # ==========================================================
 
-def delete_product(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
-    require_admin(event)
+def delete_product(
+    event,
+    context
+):
 
-    product_id = get_product_id(event)
+    permission_error = require_admin(event)
+    if permission_error is not None:
+        return permission_error
+
+    product_id = get_product_id(
+        event
+    )
+
     if product_id is None:
-        return response(400, {"message": "Product id is required"})
+
+        return response(
+            400,
+            {
+                "message":
+                    "Product id is required"
+            }
+        )
 
     connection = None
-    request_id = get_request_id(context)
 
     try:
+
         connection = get_db_connection()
 
         with connection.cursor() as cursor:
+
             cursor.execute(
                 """
-                SELECT product_id
+                SELECT
+                    product_id
                 FROM products
                 WHERE product_id = %s
                   AND deleted_at IS NULL
-                FOR UPDATE
                 """,
-                (product_id,),
+                (product_id,)
             )
+
             product = cursor.fetchone()
 
             if product is None:
-                connection.rollback()
-                return response(404, {"message": "Product not found"})
 
+                return response(
+                    404,
+                    {
+                        "message":
+                            "Product not found"
+                    }
+                )
+
+            # Soft delete
             cursor.execute(
                 """
                 UPDATE products
                 SET
-                    deleted_at = CURRENT_TIMESTAMP,
-                    status = 'INACTIVE',
-                    updated_at = CURRENT_TIMESTAMP
+                    deleted_at = NOW(),
+                    status = 'INACTIVE'
                 WHERE product_id = %s
                   AND deleted_at IS NULL
                 """,
-                (product_id,),
+                (product_id,)
             )
 
         connection.commit()
+
         publish_inventory_count(connection)
 
         log_event(
             "INFO",
             "Product deleted",
-            request_id=request_id,
-            product_id=product_id,
+            request_id=
+                context.aws_request_id,
+            product_id=
+                product_id
         )
 
         return response(
             200,
             {
-                "message": "Product deleted successfully",
-                "product_id": product_id,
-            },
+                "message":
+                    "Product deleted successfully",
+                "product_id":
+                    product_id
+            }
         )
 
     finally:
-        if connection:
+
+        if connection is not None:
             connection.close()
+
+
+# ==========================================================
+# SERVICE-LAYER AUTHORIZATION
+# ==========================================================
+
+def get_authorizer_context(event):
+    return (event.get("requestContext") or {}).get("authorizer") or {}
+
+
+def is_admin(event):
+    return str(
+        get_authorizer_context(event).get("role", "")
+    ).upper() == "ADMIN"
+
+
+def require_admin(event):
+    if not is_admin(event):
+        return response(
+            403,
+            {
+                "message": "Admin permission is required"
+            }
+        )
+
+    return None
 
 
 # ==========================================================
 # MAIN LAMBDA HANDLER
 # ==========================================================
 
-def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
-    request_id = get_request_id(context)
+def lambda_handler(
+    event,
+    context
+):
 
-    request_context = event.get("requestContext") or {}
+    request_id = (
+        context.aws_request_id
+    )
+
     http_method = (
-        event.get("httpMethod")
-        or request_context.get("http", {}).get("method")
-        or ""
-    ).upper()
+        event.get(
+            "httpMethod"
+        )
+        or event.get(
+            "requestContext",
+            {}
+        )
+        .get(
+            "http",
+            {}
+        )
+        .get(
+            "method"
+        )
+    )
 
-    resource = event.get("resource", "")
+    resource = event.get(
+        "resource",
+        ""
+    )
 
     log_event(
         "INFO",
         "Product request received",
-        request_id=request_id,
-        http_method=http_method,
-        resource=resource,
+        request_id=
+            request_id,
+        http_method=
+            http_method,
+        resource=
+            resource
     )
 
     try:
-        if http_method == "OPTIONS":
-            return response(200, {"message": "OK"})
 
-        if http_method == "POST" and resource == "/products":
-            return create_product(event, context)
 
-        if http_method == "GET" and resource == "/products":
-            return get_products(event, context)
 
-        if http_method == "GET" and resource == "/products/{id}":
-            return get_product(event, context)
+        # ----------------------------------------------------
+        # POST /products
+        # ----------------------------------------------------
 
-        if http_method == "PUT" and resource == "/products/{id}":
-            return update_product(event, context)
+        if (
+            http_method == "POST"
+            and resource == "/products"
+        ):
 
-        if http_method == "DELETE" and resource == "/products/{id}":
-            return delete_product(event, context)
+            return create_product(
+                event,
+                context
+            )
 
-        return response(404, {"message": "Unsupported API route"})
+        # ----------------------------------------------------
+        # GET /products
+        # ----------------------------------------------------
 
-    except PermissionError as exc:
-        log_event(
-            "WARN",
-            "Authorization denied",
-            request_id=request_id,
-            error=str(exc),
+        if (
+            http_method == "GET"
+            and resource == "/products"
+        ):
+
+            return get_products(
+                event,
+                context
+            )
+
+        # ----------------------------------------------------
+        # GET /products/{id}
+        # ----------------------------------------------------
+
+        if (
+            http_method == "GET"
+            and resource == "/products/{id}"
+        ):
+
+            return get_product(
+                event,
+                context
+            )
+
+        # ----------------------------------------------------
+        # PUT /products/{id}
+        # ----------------------------------------------------
+
+        if (
+            http_method == "PUT"
+            and resource == "/products/{id}"
+        ):
+
+            return update_product(
+                event,
+                context
+            )
+
+        # ----------------------------------------------------
+        # DELETE /products/{id}
+        # ----------------------------------------------------
+
+        if (
+            http_method == "DELETE"
+            and resource == "/products/{id}"
+        ):
+
+            return delete_product(
+                event,
+                context
+            )
+
+        # ----------------------------------------------------
+        # Unsupported route
+        # ----------------------------------------------------
+
+        return response(
+            404,
+            {
+                "message":
+                    "Unsupported API route"
+            }
         )
-        return response(403, {"message": str(exc)})
 
     except ValueError as exc:
+
         log_event(
             "WARN",
             "Invalid product request",
-            request_id=request_id,
-            error=str(exc),
-        )
-        return response(400, {"message": str(exc)})
-
-    except DependencyError as exc:
-        log_event(
-            "ERROR",
-            "Required dependency unavailable",
-            request_id=request_id,
-            error_type=type(exc).__name__,
-            error=str(exc),
-        )
-        return response(
-            503,
-            {
-                "message": str(exc),
-                "request_id": request_id,
-            },
+            request_id=
+                request_id,
+            error=str(exc)
         )
 
-    except pymysql.err.OperationalError as exc:
-        log_event(
-            "ERROR",
-            "Database operational error",
-            request_id=request_id,
-            error_type=type(exc).__name__,
-            error=str(exc),
-        )
         return response(
-            503,
+            400,
             {
-                "message": "Database is temporarily unavailable",
-                "request_id": request_id,
-            },
-        )
-
-    except pymysql.MySQLError as exc:
-        log_event(
-            "ERROR",
-            "Database operation failed",
-            request_id=request_id,
-            error_type=type(exc).__name__,
-            error=str(exc),
-        )
-        return response(
-            500,
-            {
-                "message": "Database operation failed",
-                "request_id": request_id,
-            },
+                "message":
+                    str(exc)
+            }
         )
 
     except Exception as exc:
+
         log_event(
             "ERROR",
             "Product request failed",
-            request_id=request_id,
-            error_type=type(exc).__name__,
-            error=str(exc),
+            request_id=
+                request_id,
+            error_type=
+                type(exc).__name__,
+            error=str(exc)
         )
+
         return response(
             500,
             {
-                "message": "Internal server error",
-                "request_id": request_id,
-            },
+                "message":
+                    "Internal server error",
+                "request_id":
+                    request_id
+            }
         )
