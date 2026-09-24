@@ -373,6 +373,24 @@ Resources:
                   - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/db/*
 
 
+        - PolicyName: CustomerLambdaAuthSSM
+
+          PolicyDocument:
+
+            Version: '2012-10-17'
+
+            Statement:
+
+              - Effect: Allow
+
+                Action:
+                  - ssm:GetParameter
+                  - ssm:PutParameter
+
+                Resource:
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/auth/customer-tokens
+
+
         - PolicyName: CustomerLambdaEventBridge
 
           PolicyDocument:
