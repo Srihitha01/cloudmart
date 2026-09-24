@@ -5,7 +5,6 @@ import hashlib
 import logging
 import boto3
 import pymysql
-from botocore.config import Config
 
 
 # ==========================================================
@@ -25,15 +24,8 @@ DB_PORT_PARAMETER = os.environ["DB_PORT_PARAMETER"]
 DB_NAME_PARAMETER = os.environ["DB_NAME_PARAMETER"]
 DB_USERNAME_PARAMETER = os.environ["DB_USERNAME_PARAMETER"]
 DB_PASSWORD_PARAMETER = os.environ["DB_PASSWORD_PARAMETER"]
-CUSTOMER_TOKENS_PARAMETER = os.environ.get("CUSTOMER_TOKENS_PARAMETER", "")
 
-AWS_API_CONFIG = Config(
-    connect_timeout=2,
-    read_timeout=3,
-    retries={"max_attempts": 1, "mode": "standard"}
-)
-
-ssm = boto3.client("ssm", config=AWS_API_CONFIG)
+ssm = boto3.client("ssm")
 
 
 # ==========================================================
@@ -92,138 +84,11 @@ def get_connection():
         user=get_parameter(DB_USERNAME_PARAMETER),
         password=get_parameter(DB_PASSWORD_PARAMETER),
         database=get_parameter(DB_NAME_PARAMETER),
-        connect_timeout=5,
-        read_timeout=5,
-        write_timeout=5,
+        connect_timeout=10,
+        read_timeout=30,
+        write_timeout=30,
         autocommit=False,
         cursorclass=pymysql.cursors.DictCursor
-    )
-
-
-# ==========================================================
-# CUSTOMER TOKEN MAPPING IN SSM
-#
-# The Lambda Authorizer uses the SecureString parameter
-# /cloudmart/<environment>/auth/customer-tokens as
-# token -> customer_id mapping.
-#
-# The customers table continues to store ONLY the SHA-256
-# hash of the bearer token.
-# ==========================================================
-
-def get_customer_token_map():
-    if not CUSTOMER_TOKENS_PARAMETER:
-        raise RuntimeError(
-            "CUSTOMER_TOKENS_PARAMETER environment variable is missing"
-        )
-
-    value = get_parameter(CUSTOMER_TOKENS_PARAMETER)
-
-    try:
-        mapping = json.loads(value)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(
-            "Customer token SSM parameter contains invalid JSON"
-        ) from exc
-
-    if not isinstance(mapping, dict):
-        raise RuntimeError(
-            "Customer token SSM parameter must be a JSON object"
-        )
-
-    normalized = {}
-
-    for token, customer_id in mapping.items():
-        try:
-            normalized[str(token)] = int(customer_id)
-        except (TypeError, ValueError):
-            logger.warning(
-                json.dumps({
-                    "event": "INVALID_CUSTOMER_TOKEN_MAPPING_ENTRY",
-                    "customer_id": str(customer_id)
-                })
-            )
-
-    return normalized
-
-
-def save_customer_token_map(mapping):
-    if not CUSTOMER_TOKENS_PARAMETER:
-        raise RuntimeError(
-            "CUSTOMER_TOKENS_PARAMETER environment variable is missing"
-        )
-
-    ssm.put_parameter(
-        Name=CUSTOMER_TOKENS_PARAMETER,
-        Value=json.dumps(
-            mapping,
-            separators=(",", ":")
-        ),
-        Type="SecureString",
-        Overwrite=True
-    )
-
-
-def add_customer_token_mapping(raw_token, customer_id):
-    token = str(raw_token).strip()
-
-    if not token:
-        raise ValueError("bearer_token cannot be empty")
-
-    mapping = get_customer_token_map()
-
-    existing_customer_id = mapping.get(token)
-
-    if (
-        existing_customer_id is not None
-        and int(existing_customer_id) != int(customer_id)
-    ):
-        raise ValueError(
-            "bearer_token is already assigned to another customer"
-        )
-
-    mapping[token] = int(customer_id)
-
-    save_customer_token_map(mapping)
-
-    logger.info(
-        json.dumps({
-            "event": "CUSTOMER_AUTH_MAPPING_UPDATED",
-            "customer_id": int(customer_id)
-        })
-    )
-
-
-def remove_customer_token_mapping(customer_id):
-    if not CUSTOMER_TOKENS_PARAMETER:
-        logger.warning(
-            json.dumps({
-                "event": "CUSTOMER_AUTH_MAPPING_PARAMETER_MISSING",
-                "customer_id": int(customer_id)
-            })
-        )
-        return
-
-    mapping = get_customer_token_map()
-
-    tokens_to_remove = [
-        token
-        for token, mapped_customer_id in mapping.items()
-        if int(mapped_customer_id) == int(customer_id)
-    ]
-
-    for token in tokens_to_remove:
-        mapping.pop(token, None)
-
-    if tokens_to_remove:
-        save_customer_token_map(mapping)
-
-    logger.info(
-        json.dumps({
-            "event": "CUSTOMER_AUTH_MAPPING_REMOVED",
-            "customer_id": int(customer_id),
-            "tokens_removed": len(tokens_to_remove)
-        })
     )
 
 
@@ -515,14 +380,6 @@ def create_customer(event):
 
             customer_id = cursor.lastrowid
 
-            # Synchronize the authorizer token map BEFORE committing.
-            # If SSM fails, the database transaction rolls back and the
-            # customer is not left in a state where it cannot authenticate.
-            add_customer_token_mapping(
-                raw_token,
-                customer_id
-            )
-
         connection.commit()
 
         logger.info(
@@ -553,20 +410,6 @@ def create_customer(event):
         return error(
             409,
             "A customer with this email already exists"
-        )
-
-    except ValueError as exc:
-        if connection:
-            connection.rollback()
-
-        logger.warning(
-            "Customer creation validation/auth-mapping failed: %s",
-            str(exc)
-        )
-
-        return error(
-            409,
-            str(exc)
         )
 
     except Exception:
@@ -909,15 +752,6 @@ def delete_customer(event):
             )
 
         connection.commit()
-
-        try:
-            remove_customer_token_mapping(customer_id)
-        except Exception:
-            # The DB soft-delete succeeded. Do not convert it into a 500
-            # just because external SSM cleanup is temporarily unavailable.
-            logger.exception(
-                "Customer soft-delete succeeded but auth mapping cleanup failed"
-            )
 
         logger.info(
             json.dumps(

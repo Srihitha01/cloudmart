@@ -408,26 +408,31 @@ def authenticate_customer(token):
             "Checking hashed bearer token in customers table",
         )
 
+        # IMPORTANT:
+        # A bearer token is NOT a unique customer identifier.
+        # Multiple ACTIVE customers may intentionally share the same
+        # SHA-256 token hash. The authorizer therefore validates only
+        # that the token belongs to at least one active customer and
+        # passes the token hash downstream. The service Lambda then
+        # validates the requested customer_id against that hash.
         with connection.cursor() as cursor:
 
             cursor.execute(
                 """
-                SELECT
-                    customer_id,
-                    status,
-                    deleted_at
-                FROM customers
-                WHERE bearer_token = %s
-                  AND status = 'ACTIVE'
-                  AND deleted_at IS NULL
-                LIMIT 1
+                SELECT EXISTS(
+                    SELECT 1
+                    FROM customers
+                    WHERE bearer_token = %s
+                      AND status = 'ACTIVE'
+                      AND deleted_at IS NULL
+                ) AS token_exists
                 """,
                 (token_hash,),
             )
 
-            customer = cursor.fetchone()
+            result = cursor.fetchone() or {}
 
-        if customer is None:
+        if not result.get("token_exists"):
 
             log_event(
                 "WARNING",
@@ -436,17 +441,16 @@ def authenticate_customer(token):
 
             return None
 
-        customer_id = customer["customer_id"]
-
         log_event(
             "INFO",
-            "Customer bearer token validated",
-            customer_id=customer_id,
+            "Bearer token validated against active customer records",
         )
 
         return {
             "role": "CUSTOMER",
-            "customer_id": str(customer_id),
+            # The token hash is passed as authorizer context so the
+            # service Lambda can verify the URL customer_id.
+            "token_hash": token_hash,
         }
 
     except pymysql.MySQLError as exc:
@@ -589,9 +593,7 @@ def lambda_handler(event, context):
             )
 
         return allow(
-            principal_id=(
-                f"customer-{customer_identity['customer_id']}"
-            ),
+            principal_id="customer-token",
             method_arn=method_arn,
             identity=customer_identity,
         )

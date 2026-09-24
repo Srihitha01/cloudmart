@@ -29,6 +29,7 @@ lambda_client = boto3.client(
     "lambda",
     config=ORDER_PROCESSOR_INVOKE_CONFIG
 )
+cloudwatch = boto3.client("cloudwatch", config=AWS_API_CONFIG)
 
 _PARAMETER_CACHE = {}
 _PARAMETER_CACHE_TTL_SECONDS = 300
@@ -263,6 +264,39 @@ def get_auth_context(event):
     )
 
 
+def get_authorizer_token_hash(event):
+    """
+    Read the SHA-256 bearer-token hash placed in authorizer context.
+
+    The same token may belong to multiple customers, so the token hash
+    is used together with the customer_id from the URL to authorize
+    the specific customer.
+    """
+    request_context = event.get(
+        "requestContext",
+        {}
+    )
+
+    authorizer = request_context.get(
+        "authorizer",
+        {}
+    )
+
+    token_hash = authorizer.get(
+        "token_hash"
+    )
+
+    if not isinstance(token_hash, str):
+        return None
+
+    token_hash = token_hash.strip().lower()
+
+    if len(token_hash) != 64:
+        return None
+
+    return token_hash
+
+
 # ==========================================================
 # GET PATH PARAMETER
 # ==========================================================
@@ -385,7 +419,7 @@ def validate_customer_access(
     allow_admin=False
 ):
 
-    role, authenticated_customer_id = (
+    role, _authenticated_customer_id = (
         get_auth_context(event)
     )
 
@@ -395,26 +429,61 @@ def validate_customer_access(
 
     if role == "CUSTOMER":
 
-        if authenticated_customer_id is None:
-
-            raise PermissionError(
-                "Customer identity is missing"
-            )
-
-        if (
-            authenticated_customer_id
-            !=
-            url_customer_id
-        ):
-
-            raise PermissionError(
-                "You cannot access another customer's orders"
-            )
-
-        return (
-            role,
-            authenticated_customer_id
+        token_hash = get_authorizer_token_hash(
+            event
         )
+
+        if token_hash is None:
+
+            raise PermissionError(
+                "Customer bearer-token context is missing"
+            )
+
+        # IMPORTANT:
+        # bearer_token is intentionally NOT UNIQUE. The URL customer_id
+        # selects the customer, while the bearer-token hash proves that
+        # the same token is associated with that customer.
+        connection = None
+
+        try:
+
+            connection = get_db_connection()
+
+            with connection.cursor() as cursor:
+
+                cursor.execute(
+                    """
+                    SELECT customer_id
+                    FROM customers
+                    WHERE customer_id = %s
+                      AND bearer_token = %s
+                      AND status = 'ACTIVE'
+                      AND deleted_at IS NULL
+                    LIMIT 1
+                    """,
+                    (
+                        url_customer_id,
+                        token_hash
+                    )
+                )
+
+                customer = cursor.fetchone()
+
+            if customer is None:
+
+                raise PermissionError(
+                    "Bearer token is not authorized for this customer"
+                )
+
+            return (
+                role,
+                url_customer_id
+            )
+
+        finally:
+
+            if connection is not None:
+                connection.close()
 
     if (
         role == "ADMIN"
@@ -624,44 +693,33 @@ def invoke_order_processor(
 # ==========================================================
 
 def publish_custom_metric(metric_name, value=1):
-    """
-    Publish a CloudWatch business metric using Embedded Metric Format (EMF).
-    The metric is emitted to the Lambda log stream, avoiding a synchronous
-    CloudWatch API call from the private, no-NAT VPC.
-    """
-    try:
-        metric_record = {
-            "_aws": {
-                "Timestamp": int(time.time() * 1000),
-                "CloudWatchMetrics": [
-                    {
-                        "Namespace": "CloudMart/Business",
-                        "Dimensions": [[]],
-                        "Metrics": [
-                            {
-                                "Name": metric_name,
-                                "Unit": "Count"
-                            }
-                        ]
-                    }
-                ]
-            },
-            metric_name: value
-        }
 
-        print(json.dumps(metric_record, default=str))
+    try:
+
+        cloudwatch.put_metric_data(
+            Namespace="CloudMart/Business",
+            MetricData=[
+                {
+                    "MetricName": metric_name,
+                    "Value": value,
+                    "Unit": "Count"
+                }
+            ]
+        )
 
         log_event(
             "INFO",
-            "Custom CloudWatch EMF metric emitted",
+            "Custom CloudWatch metric published",
             metric_name=metric_name,
             value=value
         )
 
     except Exception as exc:
+
+        # Metric publication must not change a successful database operation
         log_event(
             "ERROR",
-            "Custom CloudWatch EMF metric emission failed",
+            "Custom CloudWatch metric publication failed",
             metric_name=metric_name,
             value=value,
             error_type=type(exc).__name__,
@@ -797,69 +855,6 @@ def publish_inventory_event(
         )
         return False
 
-
-
-def publish_inventory_events_batch(inventory_events):
-    """
-    Publish inventory changes in EventBridge batches of up to 10 entries.
-    This prevents one network call per product from consuming the API
-    Gateway's ~29 second integration window.
-    """
-    if not inventory_events:
-        return True
-
-    entries = []
-
-    for inventory in inventory_events:
-        detail = {
-            "product_id": inventory["product_id"],
-            "old_stock": inventory["old_stock"],
-            "new_stock": inventory["new_stock"]
-        }
-
-        entries.append(
-            {
-                "EventBusName": EVENT_BUS_NAME,
-                "Source": "cloudmart.inventory",
-                "DetailType": "InventoryChanged",
-                "Detail": json.dumps(detail)
-            }
-        )
-
-    all_succeeded = True
-
-    for start in range(0, len(entries), 10):
-        batch = entries[start:start + 10]
-
-        try:
-            result = events.put_events(Entries=batch)
-
-            if result.get("FailedEntryCount", 0):
-                all_succeeded = False
-                log_event(
-                    "WARN",
-                    "One or more inventory events failed",
-                    failed_entry_count=result.get("FailedEntryCount", 0),
-                    event_result=result
-                )
-            else:
-                log_event(
-                    "INFO",
-                    "Inventory events published",
-                    count=len(batch)
-                )
-
-        except Exception as exc:
-            all_succeeded = False
-            log_event(
-                "WARN",
-                "Inventory event batch publishing failed",
-                count=len(batch),
-                error_type=type(exc).__name__,
-                error=str(exc)
-            )
-
-    return all_succeeded
 
 
 # ==========================================================
@@ -2351,9 +2346,36 @@ def update_order_status(
             requested_status
             == "CANCELLED"
         ):
-            publish_inventory_events_batch(
-                inventory_events
-            )
+
+            for inventory in inventory_events:
+
+                try:
+
+                    publish_inventory_event(
+                        product_id=
+                            inventory[
+                                "product_id"
+                            ],
+
+                        old_stock=
+                            inventory[
+                                "old_stock"
+                            ],
+
+                        new_stock=
+                            inventory[
+                                "new_stock"
+                            ]
+                    )
+
+                except Exception as exc:
+
+                    log_event(
+                        "ERROR",
+                        "Inventory event publishing failed",
+                        order_id=order_id,
+                        error=str(exc)
+                    )
 
         return response(
             200,
