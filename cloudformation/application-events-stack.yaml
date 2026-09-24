@@ -343,9 +343,11 @@ Resources:
           Fn::Sub: cloudmart-${Environment}-CustomerLambdaRoleArn
 
       Timeout:
-        29
+        30
+
       MemorySize:
-        512
+        256
+
       Layers:
 
         - !Ref PyMySQLLayer
@@ -433,8 +435,10 @@ Resources:
 
       Timeout:
         29
+
       MemorySize:
         512
+
       Layers:
 
         - !Ref PyMySQLLayer
@@ -476,9 +480,6 @@ Resources:
           EVENT_BUS_NAME:
             !Ref CloudMartEventBus
 
-      # The deployment pipeline must supply a unique ProductLambdaS3Key
-      # whenever the Lambda artifact changes. Reusing the same S3 key without
-      # updating the object/version can leave AWS executing an older package.
       Code:
 
         S3Bucket:
@@ -525,9 +526,11 @@ Resources:
           Fn::Sub: cloudmart-${Environment}-OrderLambdaRoleArn
 
       Timeout:
-        29
+        30
+
       MemorySize:
-        512
+        256
+
       Layers:
 
         - !Ref PyMySQLLayer
@@ -619,8 +622,10 @@ Resources:
 
       Timeout:
         60
+
       MemorySize:
-        512
+        256
+
       Layers:
 
         - !Ref PyMySQLLayer

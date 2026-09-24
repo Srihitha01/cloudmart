@@ -1,18 +1,38 @@
 import json
 import os
+import time
 
 import boto3
 import pymysql
+from botocore.config import Config
 
 
 # ==========================================================
 # AWS CLIENTS
 # ==========================================================
 
-ssm = boto3.client("ssm")
-events = boto3.client("events")
-lambda_client = boto3.client("lambda")
-cloudwatch = boto3.client("cloudwatch")
+AWS_API_CONFIG = Config(
+    connect_timeout=2,
+    read_timeout=3,
+    retries={"max_attempts": 1, "mode": "standard"}
+)
+
+ORDER_PROCESSOR_INVOKE_CONFIG = Config(
+    connect_timeout=2,
+    read_timeout=22,
+    retries={"max_attempts": 1, "mode": "standard"}
+)
+
+ssm = boto3.client("ssm", config=AWS_API_CONFIG)
+events = boto3.client("events", config=AWS_API_CONFIG)
+lambda_client = boto3.client(
+    "lambda",
+    config=ORDER_PROCESSOR_INVOKE_CONFIG
+)
+cloudwatch = boto3.client("cloudwatch", config=AWS_API_CONFIG)
+
+_PARAMETER_CACHE = {}
+_PARAMETER_CACHE_TTL_SECONDS = 300
 
 
 # ==========================================================
@@ -76,17 +96,36 @@ def response(status_code, body):
 # ==========================================================
 
 def get_parameter(name):
+    """Read an SSM parameter with a short warm-container cache."""
+    now = time.monotonic()
+    cached = _PARAMETER_CACHE.get(name)
 
-    parameter = ssm.get_parameter(
-        Name=name,
-        WithDecryption=True
-    )
+    if cached is not None:
+        cached_value, cached_at = cached
+        if now - cached_at < _PARAMETER_CACHE_TTL_SECONDS:
+            return cached_value
 
-    return parameter[
-        "Parameter"
-    ][
-        "Value"
-    ]
+    try:
+        parameter = ssm.get_parameter(
+            Name=name,
+            WithDecryption=True
+        )
+        value = parameter["Parameter"]["Value"]
+    except Exception as exc:
+        log_event(
+            "ERROR",
+            "Unable to read SSM parameter",
+            parameter_name=name,
+            error_type=type(exc).__name__,
+            error=str(exc)
+        )
+        raise RuntimeError(
+            "CloudMart configuration could not be loaded"
+        ) from exc
+
+    _PARAMETER_CACHE[name] = (value, now)
+    return value
+
 
 
 # ==========================================================
@@ -94,48 +133,37 @@ def get_parameter(name):
 # ==========================================================
 
 def get_db_connection():
+    connection = None
 
-    db_name = get_parameter(
-        DB_NAME_PARAMETER
-    )
-
-    db_host = get_parameter(
-        DB_ENDPOINT_PARAMETER
-    )
-
-    db_port = int(
-        get_parameter(
-            DB_PORT_PARAMETER
+    try:
+        connection = pymysql.connect(
+            host=get_parameter(DB_ENDPOINT_PARAMETER),
+            port=int(get_parameter(DB_PORT_PARAMETER)),
+            user=get_parameter(DB_USERNAME_PARAMETER),
+            password=get_parameter(DB_PASSWORD_PARAMETER),
+            database=get_parameter(DB_NAME_PARAMETER),
+            connect_timeout=5,
+            read_timeout=5,
+            write_timeout=5,
+            cursorclass=pymysql.cursors.DictCursor,
+            autocommit=False
         )
-    )
 
-    db_username = get_parameter(
-        DB_USERNAME_PARAMETER
-    )
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SET SESSION innodb_lock_wait_timeout = 5"
+            )
 
-    db_password = get_parameter(
-        DB_PASSWORD_PARAMETER
-    )
+        return connection
 
-    connection = pymysql.connect(
-        host=db_host,
-        port=db_port,
-        user=db_username,
-        password=db_password,
-        database=db_name,
-        connect_timeout=10,
-        read_timeout=10,
-        write_timeout=10,
-        cursorclass=pymysql.cursors.DictCursor,
-        autocommit=False
-    )
+    except Exception:
+        if connection is not None:
+            try:
+                connection.close()
+            except Exception:
+                pass
+        raise
 
-    # Prevent SELECT ... FOR UPDATE from waiting for a locked row
-    # until the Lambda's full 30-second timeout.
-    with connection.cursor() as cursor:
-        cursor.execute("SET SESSION innodb_lock_wait_timeout = 5")
-
-    return connection
 
 
 # ==========================================================
@@ -421,6 +449,11 @@ def validate_order_items(items):
             "items must be a non-empty array"
         )
 
+    if len(items) > 50:
+        raise ValueError(
+            "A maximum of 50 products can be included in one order"
+        )
+
     validated_items = []
 
     product_ids = set()
@@ -515,59 +548,76 @@ def invoke_order_processor(
     order_data,
     context
 ):
-
     payload = json.dumps(
-        order_data
-    ).encode(
-        "utf-8"
-    )
+        order_data,
+        default=str
+    ).encode("utf-8")
 
-    result = lambda_client.invoke(
-        FunctionName=
-            ORDER_PROCESSOR_FUNCTION_NAME,
-
-        InvocationType=
-            "RequestResponse",
-
-        Payload=payload
-    )
-
-    if result.get(
-        "FunctionError"
-    ):
-
-        raise RuntimeError(
-            "Order processor Lambda execution failed"
+    try:
+        result = lambda_client.invoke(
+            FunctionName=ORDER_PROCESSOR_FUNCTION_NAME,
+            InvocationType="RequestResponse",
+            Payload=payload
         )
 
-    raw_payload = result[
-        "Payload"
-    ].read()
-
-    if isinstance(
-        raw_payload,
-        bytes
-    ):
-
-        raw_payload = raw_payload.decode(
-            "utf-8"
-        )
-
-    processor_response = json.loads(
-        raw_payload
-    )
-
-    log_event(
-        "INFO",
-        "Order processor invoked",
-        request_id=context.aws_request_id,
-        processor_status_code=
-            processor_response.get(
-                "statusCode"
+        if result.get("FunctionError"):
+            log_event(
+                "ERROR",
+                "Order processor returned a function error",
+                request_id=context.aws_request_id,
+                function_error=result.get("FunctionError")
             )
-    )
+            raise RuntimeError(
+                "Order processor Lambda execution failed"
+            )
 
-    return processor_response
+        raw_payload = result["Payload"].read()
+
+        if isinstance(raw_payload, bytes):
+            raw_payload = raw_payload.decode("utf-8")
+
+        if not raw_payload:
+            raise RuntimeError(
+                "Order processor returned an empty response"
+            )
+
+        try:
+            processor_response = json.loads(raw_payload)
+        except json.JSONDecodeError as exc:
+            log_event(
+                "ERROR",
+                "Order processor returned invalid JSON",
+                request_id=context.aws_request_id,
+                error=str(exc)
+            )
+            raise RuntimeError(
+                "Order processor returned an invalid response"
+            ) from exc
+
+        if not isinstance(processor_response, dict):
+            raise RuntimeError(
+                "Order processor returned an invalid response object"
+            )
+
+        log_event(
+            "INFO",
+            "Order processor invoked",
+            request_id=context.aws_request_id,
+            processor_status_code=processor_response.get("statusCode")
+        )
+
+        return processor_response
+
+    except Exception as exc:
+        log_event(
+            "ERROR",
+            "Order processor invocation failed",
+            request_id=context.aws_request_id,
+            error_type=type(exc).__name__,
+            error=str(exc)
+        )
+        raise
+
 
 
 # ==========================================================
@@ -622,68 +672,60 @@ def publish_order_event(
     reason=None,
     items=None
 ):
-
     detail = {
         "order_id": order_id,
         "customer_id": customer_id,
         "status": status,
-        "total_amount": str(
-            total_amount
-        )
+        "total_amount": str(total_amount)
     }
 
     if reason:
-
         detail["reason"] = reason
 
     if items is not None:
-
         detail["items"] = items
 
-    result = events.put_events(
-        Entries=[
-            {
-                "EventBusName":
-                    EVENT_BUS_NAME,
+    try:
+        result = events.put_events(
+            Entries=[
+                {
+                    "EventBusName": EVENT_BUS_NAME,
+                    "Source": "cloudmart.orders",
+                    "DetailType": detail_type,
+                    "Detail": json.dumps(detail, default=str)
+                }
+            ]
+        )
 
-                "Source":
-                    "cloudmart.orders",
-
-                "DetailType":
-                    detail_type,
-
-                "Detail":
-                    json.dumps(
-                        detail,
-                        default=str
-                    )
-            }
-        ]
-    )
-
-    if result.get(
-        "FailedEntryCount",
-        0
-    ) != 0:
+        if result.get("FailedEntryCount", 0):
+            log_event(
+                "WARN",
+                "Order event publishing failed; database state retained",
+                order_id=order_id,
+                detail_type=detail_type,
+                event_result=result
+            )
+            return False
 
         log_event(
-            "ERROR",
-            "Order event publishing failed",
+            "INFO",
+            "Order event published",
+            order_id=order_id,
+            detail_type=detail_type
+        )
+        return True
+
+    except Exception as exc:
+        log_event(
+            "WARN",
+            "Order event publishing skipped; database state retained",
             order_id=order_id,
             detail_type=detail_type,
-            event_result=result
+            error_type=type(exc).__name__,
+            error=str(exc)
         )
+        return False
 
-        raise RuntimeError(
-            f"Failed to publish {detail_type} event"
-        )
-
-    log_event(
-        "INFO",
-        "Order event published",
-        order_id=order_id,
-        detail_type=detail_type
-    )
 
 
 # ==========================================================
@@ -695,41 +737,56 @@ def publish_inventory_event(
     old_stock,
     new_stock
 ):
-
     detail = {
         "product_id": product_id,
         "old_stock": old_stock,
         "new_stock": new_stock
     }
 
-    result = events.put_events(
-        Entries=[
-            {
-                "EventBusName":
-                    EVENT_BUS_NAME,
+    try:
+        result = events.put_events(
+            Entries=[
+                {
+                    "EventBusName": EVENT_BUS_NAME,
+                    "Source": "cloudmart.inventory",
+                    "DetailType": "InventoryChanged",
+                    "Detail": json.dumps(detail)
+                }
+            ]
+        )
 
-                "Source":
-                    "cloudmart.inventory",
+        if result.get("FailedEntryCount", 0):
+            log_event(
+                "WARN",
+                "Inventory event publishing failed; database state retained",
+                product_id=product_id,
+                old_stock=old_stock,
+                new_stock=new_stock,
+                event_result=result
+            )
+            return False
 
-                "DetailType":
-                    "InventoryChanged",
+        log_event(
+            "INFO",
+            "Inventory event published",
+            product_id=product_id,
+            old_stock=old_stock,
+            new_stock=new_stock
+        )
+        return True
 
-                "Detail":
-                    json.dumps(
-                        detail
-                    )
-            }
-        ]
-    )
+    except Exception as exc:
+        log_event(
+            "WARN",
+            "Inventory event publishing skipped; database state retained",
+            product_id=product_id,
+            old_stock=old_stock,
+            new_stock=new_stock,
+            error_type=type(exc).__name__,
+            error=str(exc)
+        )
+        return False
 
-    log_event(
-        "INFO",
-        "Inventory event published",
-        product_id=product_id,
-        old_stock=old_stock,
-        new_stock=new_stock,
-        event_result=result
-    )
 
 
 # ==========================================================
