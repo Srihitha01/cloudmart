@@ -20,7 +20,6 @@ AWS_API_CONFIG = Config(
 
 ssm = boto3.client("ssm", config=AWS_API_CONFIG)
 events = boto3.client("events", config=AWS_API_CONFIG)
-cloudwatch = boto3.client("cloudwatch", config=AWS_API_CONFIG)
 
 _PARAMETER_CACHE = {}
 _PARAMETER_CACHE_TTL_SECONDS = 300
@@ -42,14 +41,10 @@ EVENT_BUS_NAME = os.environ["EVENT_BUS_NAME"]
 # STRUCTURED LOGGING
 # ==========================================================
 
-def publish_custom_metric(metric_name, value=1):
-    """
-    Emit a CloudWatch Embedded Metric Format (EMF) record through
-    CloudWatch Logs. This does not require cloudwatch:PutMetricData.
-    """
-    try:
-        import time
 
+def publish_custom_metric(metric_name, value=1):
+    """Emit a CloudWatch EMF metric through Lambda logs; never call CloudWatch synchronously."""
+    try:
         metric_record = {
             "_aws": {
                 "Timestamp": int(time.time() * 1000),
@@ -60,38 +55,23 @@ def publish_custom_metric(metric_name, value=1):
                         "Metrics": [
                             {
                                 "Name": metric_name,
-                                "Unit": "Count"
+                                "Unit": "Count",
                             }
-                        ]
+                        ],
                     }
-                ]
+                ],
             },
-            metric_name: value
+            metric_name: value,
         }
-
         print(json.dumps(metric_record, default=str))
-
-        log_event(
-            "INFO",
-            "Custom CloudWatch EMF metric emitted",
-            metric_name=metric_name,
-            value=value
-        )
-
     except Exception as exc:
         log_event(
-            "ERROR",
-            "Custom CloudWatch EMF metric emission failed",
+            "WARN",
+            "CloudWatch EMF metric emission failed",
             metric_name=metric_name,
-            value=value,
             error_type=type(exc).__name__,
-            error=str(exc)
+            error=str(exc),
         )
-
-
-# ==========================================================
-# STRUCTURED LOGGING
-# ==========================================================
 
 def log_event(level, message, **details):
 
@@ -124,141 +104,138 @@ def response(status_code, body):
 # SSM PARAMETER
 # ==========================================================
 
-def get_parameter(name):
-    """Read an SSM parameter with a short warm-container cache."""
+
+def load_database_parameters():
+    global _PARAMETER_CACHE, _PARAMETER_CACHE_AT
+
     now = time.monotonic()
-    cached = _PARAMETER_CACHE.get(name)
+    if _PARAMETER_CACHE and (now - _PARAMETER_CACHE_AT) < _PARAMETER_CACHE_TTL_SECONDS:
+        return _PARAMETER_CACHE
 
-    if cached is not None:
-        cached_value, cached_at = cached
-        if now - cached_at < _PARAMETER_CACHE_TTL_SECONDS:
-            return cached_value
+    names = [
+        DB_NAME_PARAMETER,
+        DB_ENDPOINT_PARAMETER,
+        DB_PORT_PARAMETER,
+        DB_USERNAME_PARAMETER,
+        DB_PASSWORD_PARAMETER,
+    ]
 
-    try:
-        parameter = ssm.get_parameter(
-            Name=name,
-            WithDecryption=True
-        )
-        value = parameter["Parameter"]["Value"]
-    except Exception as exc:
-        log_event(
-            "ERROR",
-            "Unable to read SSM parameter",
-            parameter_name=name,
-            error_type=type(exc).__name__,
-            error=str(exc)
-        )
+    result = ssm.get_parameters(
+        Names=names,
+        WithDecryption=True,
+    )
+
+    returned = {
+        item["Name"]: item["Value"]
+        for item in result.get("Parameters", [])
+    }
+    missing = [name for name in names if name not in returned]
+    if missing:
         raise RuntimeError(
-            "CloudMart configuration could not be loaded"
-        ) from exc
+            "Missing CloudMart database parameters: " + ", ".join(missing)
+        )
 
-    _PARAMETER_CACHE[name] = (value, now)
-    return value
+    _PARAMETER_CACHE = {
+        "database": returned[DB_NAME_PARAMETER],
+        "host": returned[DB_ENDPOINT_PARAMETER],
+        "port": int(returned[DB_PORT_PARAMETER]),
+        "username": returned[DB_USERNAME_PARAMETER],
+        "password": returned[DB_PASSWORD_PARAMETER],
+    }
+    _PARAMETER_CACHE_AT = now
+    return _PARAMETER_CACHE
 
 
+def get_parameter(name):
+    db = load_database_parameters()
+    mapping = {
+        DB_NAME_PARAMETER: db["database"],
+        DB_ENDPOINT_PARAMETER: db["host"],
+        DB_PORT_PARAMETER: str(db["port"]),
+        DB_USERNAME_PARAMETER: db["username"],
+        DB_PASSWORD_PARAMETER: db["password"],
+    }
+    if name not in mapping:
+        raise RuntimeError(f"Unsupported SSM parameter requested: {name}")
+    return mapping[name]
 
-# ==========================================================
-# DATABASE CONNECTION
-# ==========================================================
 
 def get_db_connection():
-    connection = None
+    db = load_database_parameters()
+    connection = pymysql.connect(
+        host=db["host"],
+        port=db["port"],
+        user=db["username"],
+        password=db["password"],
+        database=db["database"],
+        connect_timeout=3,
+        read_timeout=5,
+        write_timeout=5,
+        autocommit=False,
+        cursorclass=pymysql.cursors.DictCursor,
+    )
+    with connection.cursor() as cursor:
+        cursor.execute("SET SESSION innodb_lock_wait_timeout = 5")
+    return connection
 
+
+def publish_event(source, detail_type, detail):
+    entry = {
+        "EventBusName": EVENT_BUS_NAME,
+        "Source": source,
+        "DetailType": detail_type,
+        "Detail": json.dumps(detail, default=str),
+    }
     try:
-        connection = pymysql.connect(
-            host=get_parameter(DB_ENDPOINT_PARAMETER),
-            port=int(get_parameter(DB_PORT_PARAMETER)),
-            user=get_parameter(DB_USERNAME_PARAMETER),
-            password=get_parameter(DB_PASSWORD_PARAMETER),
-            database=get_parameter(DB_NAME_PARAMETER),
-            connect_timeout=5,
-            read_timeout=5,
-            write_timeout=5,
-            cursorclass=pymysql.cursors.DictCursor,
-            autocommit=False
-        )
-
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "SET SESSION innodb_lock_wait_timeout = 5"
-            )
-
-        return connection
-
-    except Exception:
-        if connection is not None:
-            try:
-                connection.close()
-            except Exception:
-                pass
-        raise
-
-
-
-# ==========================================================
-# PUBLISH EVENT
-# ==========================================================
-
-def publish_event(
-    source,
-    detail_type,
-    detail
-):
-    """Best-effort EventBridge publishing; DB state remains authoritative."""
-    try:
-        result = events.put_events(
-            Entries=[
-                {
-                    "EventBusName": EVENT_BUS_NAME,
-                    "Source": source,
-                    "DetailType": detail_type,
-                    "Detail": json.dumps(
-                        detail,
-                        default=str
-                    )
-                }
-            ]
-        )
-
-        failed_count = int(
-            result.get("FailedEntryCount", 0) or 0
-        )
-
-        if failed_count:
+        result = events.put_events(Entries=[entry])
+        if int(result.get("FailedEntryCount", 0) or 0):
             log_event(
                 "WARN",
-                "Event publishing failed; database state retained",
+                "EventBridge event failed",
                 source=source,
                 detail_type=detail_type,
-                event_result=result
+                result=result,
             )
             return False
-
-        log_event(
-            "INFO",
-            "Event published successfully",
-            source=source,
-            detail_type=detail_type,
-            detail=detail
-        )
         return True
-
     except Exception as exc:
         log_event(
             "WARN",
-            "Event publishing skipped; database state retained",
+            "EventBridge publish skipped",
             source=source,
             detail_type=detail_type,
             error_type=type(exc).__name__,
-            error=str(exc)
+            error=str(exc),
         )
         return False
 
 
-
-# ==========================================================
-# PUBLISH ORDER EVENT
-# ==========================================================
+def publish_events(entries, context_name):
+    """Publish up to 10 EventBridge entries per request."""
+    if not entries:
+        return True
+    overall_ok = True
+    for start in range(0, len(entries), 10):
+        try:
+            result = events.put_events(Entries=entries[start:start + 10])
+            if int(result.get("FailedEntryCount", 0) or 0):
+                overall_ok = False
+                log_event(
+                    "WARN",
+                    "EventBridge batch contains failed entries",
+                    context_name=context_name,
+                    result=result,
+                )
+        except Exception as exc:
+            overall_ok = False
+            log_event(
+                "WARN",
+                "EventBridge batch publish skipped",
+                context_name=context_name,
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
+    return overall_ok
 
 def publish_order_event(
     detail_type,
@@ -909,125 +886,30 @@ def confirm_order(
             # DEDUCT INVENTORY
             # --------------------------------------------------
 
-            for product in locked_products:
-
-                new_stock = (
-                    product["stock_quantity"]
-                    -
-                    product["quantity"]
-                )
-
-                cursor.execute(
-                    """
-                    UPDATE products
-                    SET stock_quantity = %s
-                    WHERE product_id = %s
-                      AND deleted_at IS NULL
-                    """,
-                    (
-                        new_stock,
-                        product["product_id"]
-                    )
-                )
-
-            # --------------------------------------------------
-            # CONFIRM ORDER
-            # --------------------------------------------------
-
-            cursor.execute(
-                """
-                UPDATE orders
-                SET status = %s
-                WHERE order_id = %s
-                  AND status = %s
-                """,
-                (
-                    "CONFIRMED",
-                    order_id,
-                    "PENDING"
-                )
-            )
-
-            if cursor.rowcount != 1:
-
-                raise ValueError(
-                    "Order could not be confirmed"
-                )
-
-            # --------------------------------------------------
-            # CREATE ORDER LOG
-            # --------------------------------------------------
-
-            cursor.execute(
-                """
-                INSERT INTO order_logs (
-                    order_id,
-                    previous_status,
-                    new_status,
-                    changed_by,
-                    note
-                )
-                VALUES (
-                    %s,
-                    %s,
-                    %s,
-                    %s,
-                    %s
-                )
-                """,
-                (
-                    order_id,
-                    "PENDING",
-                    "CONFIRMED",
-                    "system",
-                    "Order confirmed and inventory deducted"
-                )
-            )
-
-        connection.commit()
-
-        log_event(
-            "INFO",
-            "Order confirmed",
-            request_id=context.aws_request_id,
-            order_id=order_id,
-            customer_id=customer_id,
-            total_amount=total_amount
-        )
-
-        # --------------------------------------------------
-        # ORDER CONFIRMED
-        # --------------------------------------------------
-
-        publish_order_event(
-            detail_type="OrderConfirmed",
-            order_id=order_id,
-            customer_id=customer_id,
-            status="CONFIRMED",
-            total_amount=total_amount
-        )
-
-        # --------------------------------------------------
-        # LOW STOCK CHECK
-        # --------------------------------------------------
-
+            low_stock_entries = []
         for product in locked_products:
-
             new_stock = (
                 product["stock_quantity"]
-                -
-                product["quantity"]
+                - product["quantity"]
             )
+            if new_stock <= product["reorder_threshold"]:
+                detail = {
+                    "product_id": product["product_id"],
+                    "product_name": product["product_name"],
+                    "old_stock": product["stock_quantity"],
+                    "new_stock": new_stock,
+                    "low_stock_threshold": product["reorder_threshold"],
+                    "low_stock": True,
+                }
+                low_stock_entries.append({
+                    "EventBusName": EVENT_BUS_NAME,
+                    "Source": "cloudmart.inventory",
+                    "DetailType": "LowStock",
+                    "Detail": json.dumps(detail, default=str),
+                })
 
-            publish_low_stock_event(
-                product_id=product["product_id"],
-                product_name=product["product_name"],
-                old_stock=product["stock_quantity"],
-                new_stock=new_stock,
-                low_stock_threshold=product[
-                    "reorder_threshold"
-                ]
-            )
+        if low_stock_entries:
+            publish_events(low_stock_entries, "low-stock")
 
         return {
             "order_id": order_id,

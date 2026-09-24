@@ -29,10 +29,6 @@ lambda_client = boto3.client(
     "lambda",
     config=ORDER_PROCESSOR_INVOKE_CONFIG
 )
-cloudwatch = boto3.client("cloudwatch", config=AWS_API_CONFIG)
-
-_PARAMETER_CACHE = {}
-_PARAMETER_CACHE_TTL_SECONDS = 300
 
 
 # ==========================================================
@@ -95,80 +91,89 @@ def response(status_code, body):
 # SSM PARAMETER
 # ==========================================================
 
-def get_parameter(name):
-    """Read an SSM parameter with a short warm-container cache."""
-    now = time.monotonic()
-    cached = _PARAMETER_CACHE.get(name)
 
-    if cached is not None:
-        cached_value, cached_at = cached
-        if now - cached_at < _PARAMETER_CACHE_TTL_SECONDS:
-            return cached_value
+_PARAMETER_CACHE = {}
+_PARAMETER_CACHE_AT = 0.0
+_PARAMETER_CACHE_TTL_SECONDS = 300
+
+
+def load_database_parameters():
+    """Load all five database settings in one SSM request and cache them."""
+    global _PARAMETER_CACHE, _PARAMETER_CACHE_AT
+
+    now = time.monotonic()
+    if _PARAMETER_CACHE and (now - _PARAMETER_CACHE_AT) < _PARAMETER_CACHE_TTL_SECONDS:
+        return _PARAMETER_CACHE
+
+    names = [
+        DB_NAME_PARAMETER,
+        DB_ENDPOINT_PARAMETER,
+        DB_PORT_PARAMETER,
+        DB_USERNAME_PARAMETER,
+        DB_PASSWORD_PARAMETER,
+    ]
 
     try:
-        parameter = ssm.get_parameter(
-            Name=name,
-            WithDecryption=True
+        result = ssm.get_parameters(
+            Names=names,
+            WithDecryption=True,
         )
-        value = parameter["Parameter"]["Value"]
     except Exception as exc:
-        log_event(
-            "ERROR",
-            "Unable to read SSM parameter",
-            parameter_name=name,
-            error_type=type(exc).__name__,
-            error=str(exc)
-        )
+        raise RuntimeError("CloudMart database configuration could not be loaded") from exc
+
+    returned = {
+        item["Name"]: item["Value"]
+        for item in result.get("Parameters", [])
+    }
+
+    missing = [name for name in names if name not in returned]
+    if missing:
         raise RuntimeError(
-            "CloudMart configuration could not be loaded"
-        ) from exc
+            "Missing CloudMart database parameters: " + ", ".join(missing)
+        )
 
-    _PARAMETER_CACHE[name] = (value, now)
-    return value
+    _PARAMETER_CACHE = {
+        "database": returned[DB_NAME_PARAMETER],
+        "host": returned[DB_ENDPOINT_PARAMETER],
+        "port": int(returned[DB_PORT_PARAMETER]),
+        "username": returned[DB_USERNAME_PARAMETER],
+        "password": returned[DB_PASSWORD_PARAMETER],
+    }
+    _PARAMETER_CACHE_AT = now
+    return _PARAMETER_CACHE
 
 
-
-# ==========================================================
-# DATABASE CONNECTION
-# ==========================================================
+def get_parameter(name):
+    """Compatibility wrapper for database parameters."""
+    db = load_database_parameters()
+    mapping = {
+        DB_NAME_PARAMETER: db["database"],
+        DB_ENDPOINT_PARAMETER: db["host"],
+        DB_PORT_PARAMETER: str(db["port"]),
+        DB_USERNAME_PARAMETER: db["username"],
+        DB_PASSWORD_PARAMETER: db["password"],
+    }
+    if name not in mapping:
+        raise RuntimeError(f"Unsupported SSM parameter requested: {name}")
+    return mapping[name]
 
 def get_db_connection():
-    connection = None
-
-    try:
-        connection = pymysql.connect(
-            host=get_parameter(DB_ENDPOINT_PARAMETER),
-            port=int(get_parameter(DB_PORT_PARAMETER)),
-            user=get_parameter(DB_USERNAME_PARAMETER),
-            password=get_parameter(DB_PASSWORD_PARAMETER),
-            database=get_parameter(DB_NAME_PARAMETER),
-            connect_timeout=5,
-            read_timeout=5,
-            write_timeout=5,
-            cursorclass=pymysql.cursors.DictCursor,
-            autocommit=False
-        )
-
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "SET SESSION innodb_lock_wait_timeout = 5"
-            )
-
-        return connection
-
-    except Exception:
-        if connection is not None:
-            try:
-                connection.close()
-            except Exception:
-                pass
-        raise
-
-
-
-# ==========================================================
-# PARSE REQUEST BODY
-# ==========================================================
+    db = load_database_parameters()
+    connection = pymysql.connect(
+        host=db["host"],
+        port=db["port"],
+        user=db["username"],
+        password=db["password"],
+        database=db["database"],
+        connect_timeout=3,
+        read_timeout=5,
+        write_timeout=5,
+        autocommit=False,
+        cursorclass=pymysql.cursors.DictCursor,
+    )
+    with connection.cursor() as cursor:
+        cursor.execute("SET SESSION innodb_lock_wait_timeout = 5")
+    return connection
 
 def parse_body(event):
 
@@ -616,70 +621,40 @@ def invoke_order_processor(
     order_data,
     context
 ):
-    payload = json.dumps(
-        order_data,
-        default=str
-    ).encode("utf-8")
+    """Invoke the Order Processor asynchronously.
+
+    The order architecture uses direct Lambda invocation rather than SQS.
+    Async invocation keeps POST /orders safely below API Gateway's timeout
+    while the processor handles PENDING -> PLACED -> CONFIRMED/FAILED and
+    sends the EventBridge/SNS notifications.
+    """
+    payload = json.dumps(order_data, default=str).encode("utf-8")
 
     try:
         result = lambda_client.invoke(
             FunctionName=ORDER_PROCESSOR_FUNCTION_NAME,
-            InvocationType="RequestResponse",
+            InvocationType="Event",
             Payload=payload
         )
 
-        if result.get("FunctionError"):
-            log_event(
-                "ERROR",
-                "Order processor returned a function error",
-                request_id=context.aws_request_id,
-                function_error=result.get("FunctionError")
-            )
+        status_code = int(result.get("StatusCode", 0) or 0)
+        if status_code not in (200, 202):
             raise RuntimeError(
-                "Order processor Lambda execution failed"
-            )
-
-        raw_payload = result["Payload"].read()
-
-        if isinstance(raw_payload, bytes):
-            raw_payload = raw_payload.decode("utf-8")
-
-        if not raw_payload:
-            raise RuntimeError(
-                "Order processor returned an empty response"
-            )
-
-        try:
-            processor_response = json.loads(raw_payload)
-        except json.JSONDecodeError as exc:
-            log_event(
-                "ERROR",
-                "Order processor returned invalid JSON",
-                request_id=context.aws_request_id,
-                error=str(exc)
-            )
-            raise RuntimeError(
-                "Order processor returned an invalid response"
-            ) from exc
-
-        if not isinstance(processor_response, dict):
-            raise RuntimeError(
-                "Order processor returned an invalid response object"
+                f"Order processor async invocation returned status {status_code}"
             )
 
         log_event(
             "INFO",
-            "Order processor invoked",
+            "Order processor invoked asynchronously",
             request_id=context.aws_request_id,
-            processor_status_code=processor_response.get("statusCode")
+            invocation_status=status_code
         )
-
-        return processor_response
+        return True
 
     except Exception as exc:
         log_event(
             "ERROR",
-            "Order processor invocation failed",
+            "Order processor async invocation failed",
             request_id=context.aws_request_id,
             error_type=type(exc).__name__,
             error=str(exc)
@@ -692,44 +667,66 @@ def invoke_order_processor(
 # PUBLISH CUSTOM CLOUDWATCH BUSINESS METRIC
 # ==========================================================
 
+
 def publish_custom_metric(metric_name, value=1):
-
+    """Emit a CloudWatch EMF metric through Lambda logs; never call CloudWatch synchronously."""
     try:
-
-        cloudwatch.put_metric_data(
-            Namespace="CloudMart/Business",
-            MetricData=[
-                {
-                    "MetricName": metric_name,
-                    "Value": value,
-                    "Unit": "Count"
-                }
-            ]
-        )
-
-        log_event(
-            "INFO",
-            "Custom CloudWatch metric published",
-            metric_name=metric_name,
-            value=value
-        )
-
+        metric_record = {
+            "_aws": {
+                "Timestamp": int(time.time() * 1000),
+                "CloudWatchMetrics": [
+                    {
+                        "Namespace": "CloudMart/Business",
+                        "Dimensions": [[]],
+                        "Metrics": [
+                            {
+                                "Name": metric_name,
+                                "Unit": "Count",
+                            }
+                        ],
+                    }
+                ],
+            },
+            metric_name: value,
+        }
+        print(json.dumps(metric_record, default=str))
     except Exception as exc:
-
-        # Metric publication must not change a successful database operation
         log_event(
-            "ERROR",
-            "Custom CloudWatch metric publication failed",
+            "WARN",
+            "CloudWatch EMF metric emission failed",
             metric_name=metric_name,
-            value=value,
             error_type=type(exc).__name__,
-            error=str(exc)
+            error=str(exc),
         )
 
 
-# ==========================================================
-# PUBLISH ORDER EVENT
-# ==========================================================
+def _publish_event_entries(entries, context_name):
+    """Best-effort EventBridge publish in batches of at most 10 entries."""
+    overall_ok = True
+    for start in range(0, len(entries), 10):
+        batch = entries[start:start + 10]
+        try:
+            result = events.put_events(Entries=batch)
+            if int(result.get("FailedEntryCount", 0) or 0):
+                overall_ok = False
+                log_event(
+                    "WARN",
+                    "EventBridge publishing returned failed entries",
+                    context_name=context_name,
+                    failed_entry_count=result.get("FailedEntryCount"),
+                    result=result,
+                )
+        except Exception as exc:
+            overall_ok = False
+            log_event(
+                "WARN",
+                "EventBridge publishing skipped",
+                context_name=context_name,
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
+    return overall_ok
+
 
 def publish_order_event(
     detail_type,
@@ -738,67 +735,58 @@ def publish_order_event(
     status,
     total_amount,
     reason=None,
-    items=None
+    items=None,
 ):
     detail = {
         "order_id": order_id,
         "customer_id": customer_id,
         "status": status,
-        "total_amount": str(total_amount)
+        "total_amount": str(total_amount),
     }
 
     if reason:
         detail["reason"] = reason
-
     if items is not None:
         detail["items"] = items
 
-    try:
-        result = events.put_events(
-            Entries=[
-                {
-                    "EventBusName": EVENT_BUS_NAME,
-                    "Source": "cloudmart.orders",
-                    "DetailType": detail_type,
-                    "Detail": json.dumps(detail, default=str)
-                }
-            ]
-        )
+    entries = [{
+        "EventBusName": EVENT_BUS_NAME,
+        "Source": "cloudmart.orders",
+        "DetailType": detail_type,
+        "Detail": json.dumps(detail, default=str),
+    }]
 
-        if result.get("FailedEntryCount", 0):
-            log_event(
-                "WARN",
-                "Order event publishing failed; database state retained",
-                order_id=order_id,
-                detail_type=detail_type,
-                event_result=result
-            )
-            return False
+    return _publish_event_entries(entries, f"order:{detail_type}")
 
-        log_event(
-            "INFO",
-            "Order event published",
-            order_id=order_id,
-            detail_type=detail_type
-        )
+
+def publish_inventory_events(inventory_events):
+    if not inventory_events:
         return True
 
-    except Exception as exc:
-        log_event(
-            "WARN",
-            "Order event publishing skipped; database state retained",
-            order_id=order_id,
-            detail_type=detail_type,
-            error_type=type(exc).__name__,
-            error=str(exc)
-        )
-        return False
+    entries = []
+    for item in inventory_events:
+        detail = {
+            "product_id": item["product_id"],
+            "old_stock": item["old_stock"],
+            "new_stock": item["new_stock"],
+        }
+        entries.append({
+            "EventBusName": EVENT_BUS_NAME,
+            "Source": "cloudmart.inventory",
+            "DetailType": "InventoryChanged",
+            "Detail": json.dumps(detail, default=str),
+        })
+
+    return _publish_event_entries(entries, "inventory")
 
 
 
-# ==========================================================
-# PUBLISH INVENTORY EVENT
-# ==========================================================
+def publish_inventory_event(product_id, old_stock, new_stock):
+    return publish_inventory_events([{
+        "product_id": product_id,
+        "old_stock": old_stock,
+        "new_stock": new_stock,
+    }])
 
 def publish_inventory_event(
     product_id,
@@ -898,48 +886,19 @@ def create_order(
                 items
         }
 
-        processor_response = (
-            invoke_order_processor(
-                order_data,
-                context
-            )
+        invoke_order_processor(
+            order_data,
+            context
         )
-
-        status_code = (
-            processor_response.get(
-                "statusCode",
-                500
-            )
-        )
-
-        response_body = (
-            processor_response.get(
-                "body",
-                {}
-            )
-        )
-
-        if isinstance(
-            response_body,
-            str
-        ):
-
-            try:
-
-                response_body = json.loads(
-                    response_body
-                )
-
-            except json.JSONDecodeError:
-
-                response_body = {
-                    "message":
-                        response_body
-                }
 
         return response(
-            status_code,
-            response_body
+            202,
+            {
+                "success": True,
+                "message": "Order accepted for processing",
+                "customer_id": customer_id,
+                "status": "PENDING"
+            }
         )
 
     except PermissionError as exc:
@@ -1660,35 +1619,7 @@ def update_customer_order(
         # PUBLISH INVENTORY EVENTS
         # ----------------------------------------------
 
-        for inventory in inventory_events:
-
-            try:
-
-                publish_inventory_event(
-                    product_id=
-                        inventory[
-                            "product_id"
-                        ],
-
-                    old_stock=
-                        inventory[
-                            "old_stock"
-                        ],
-
-                    new_stock=
-                        inventory[
-                            "new_stock"
-                        ]
-                )
-
-            except Exception as exc:
-
-                log_event(
-                    "ERROR",
-                    "Inventory event publishing failed",
-                    order_id=order_id,
-                    error=str(exc)
-                )
+        publish_inventory_events(inventory_events)
 
         # ----------------------------------------------
         # PUBLISH ORDER UPDATED EVENT
@@ -1945,43 +1876,17 @@ def update_order_status(
 
         if role == "CUSTOMER":
 
-            if (
-                requested_status
-                !=
-                "CANCELLED"
-            ):
-
+            if requested_status != "CANCELLED":
                 return response(
                     403,
                     {
-                        "message":
-                            "Customer can only cancel orders"
+                        "message": "Customer can only cancel orders"
                     }
                 )
 
-            url_customer_id = (
-                get_url_customer_id(
-                    event
-                )
-            )
-
-            if (
-                authenticated_customer_id
-                !=
-                url_customer_id
-            ):
-
-                return response(
-                    403,
-                    {
-                        "message":
-                            "You cannot modify another customer's order"
-                    }
-                )
-
-            customer_id = (
-                authenticated_customer_id
-            )
+            # Shared bearer tokens are allowed. The URL customer_id and
+            # token hash together identify the specific customer.
+            _, customer_id = validate_customer_access(event)
 
         # ----------------------------------------------
         # ADMIN DELIVER
@@ -2347,35 +2252,7 @@ def update_order_status(
             == "CANCELLED"
         ):
 
-            for inventory in inventory_events:
-
-                try:
-
-                    publish_inventory_event(
-                        product_id=
-                            inventory[
-                                "product_id"
-                            ],
-
-                        old_stock=
-                            inventory[
-                                "old_stock"
-                            ],
-
-                        new_stock=
-                            inventory[
-                                "new_stock"
-                            ]
-                    )
-
-                except Exception as exc:
-
-                    log_event(
-                        "ERROR",
-                        "Inventory event publishing failed",
-                        order_id=order_id,
-                        error=str(exc)
-                    )
+            publish_inventory_events(inventory_events)
 
         return response(
             200,

@@ -1,8 +1,8 @@
-import os
-import json
 import hashlib
-import logging
 import hmac
+import json
+import os
+import time
 
 import boto3
 import pymysql
@@ -10,260 +10,99 @@ from botocore.config import Config
 
 
 # ==========================================================
-# LOGGING
-# ==========================================================
-
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
-
-
-# ==========================================================
-# AWS CLIENT CONFIG
-#
-# The authorizer must fail fast instead of consuming the
-# entire API Gateway timeout when SSM is temporarily slow.
+# CONFIGURATION
 # ==========================================================
 
 AWS_CONFIG = Config(
     connect_timeout=2,
     read_timeout=3,
-    retries={
-        "max_attempts": 1,
-        "mode": "standard",
-    },
+    retries={"max_attempts": 1, "mode": "standard"},
 )
 
-ssm = boto3.client(
-    "ssm",
-    config=AWS_CONFIG,
-)
+ssm = boto3.client("ssm", config=AWS_CONFIG)
 
-
-# ==========================================================
-# ENVIRONMENT
-# ==========================================================
-
+DB_NAME_PARAMETER = os.environ["DB_NAME_PARAMETER"]
 DB_ENDPOINT_PARAMETER = os.environ["DB_ENDPOINT_PARAMETER"]
 DB_PORT_PARAMETER = os.environ["DB_PORT_PARAMETER"]
-DB_NAME_PARAMETER = os.environ["DB_NAME_PARAMETER"]
 DB_USERNAME_PARAMETER = os.environ["DB_USERNAME_PARAMETER"]
 DB_PASSWORD_PARAMETER = os.environ["DB_PASSWORD_PARAMETER"]
-
 ADMIN_TOKEN_PARAMETER = os.environ["ADMIN_TOKEN_PARAMETER"]
 
-
-# ==========================================================
-# WARM-START CACHE
-#
-# Lambda containers can be reused. Cache the SSM database
-# configuration and admin token so every request does not
-# make six network calls.
-# ==========================================================
-
-_PARAMETER_CACHE = {}
+_PARAMETER_CACHE = None
+_PARAMETER_CACHE_AT = 0.0
+_PARAMETER_CACHE_TTL_SECONDS = 300
 _ADMIN_TOKEN_CACHE = None
 
 
-# ==========================================================
-# JSON LOGGING
-# ==========================================================
-
-def log_event(level, message, **details):
-    record = {
-        "service": "cloudmart-lambda-authorizer",
+def log(level, message, **details):
+    print(json.dumps({
         "level": level,
+        "service": "cloudmart-authorizer",
         "message": message,
         **details,
-    }
-
-    getattr(logger, level.lower())(
-        json.dumps(record, default=str)
-    )
+    }, default=str))
 
 
-# ==========================================================
-# RESPONSE / POLICY
-# ==========================================================
+def make_stage_wildcard(method_arn):
+    try:
+        parts = method_arn.split(":")
+        if len(parts) < 6:
+            return method_arn
 
-def generate_policy(
-    principal_id,
-    effect,
-    method_arn,
-    context=None,
-):
-    """
-    The authorizer authenticates the caller.
+        resource = parts[5].split("/")
+        if len(resource) < 2:
+            return method_arn
 
-    We return a stage-wide Allow policy for an authenticated
-    identity. Route/business permissions are enforced again
-    by the Product / Customer / Order Lambdas.
+        api_id = resource[0]
+        stage = resource[1]
 
-    Stage-wide policy also avoids authorizer-cache problems
-    where a policy generated for one method would otherwise
-    be reused for a different method.
-    """
+        return (
+            f"{parts[0]}:{parts[1]}:{parts[2]}:{parts[3]}:"
+            f"{parts[4]}:{api_id}/{stage}/*/*"
+        )
+    except Exception:
+        return method_arn
 
-    policy_resource = make_stage_wildcard(method_arn)
 
+def generate_policy(principal_id, effect, method_arn, context=None):
     policy = {
         "principalId": str(principal_id),
         "policyDocument": {
             "Version": "2012-10-17",
-            "Statement": [
-                {
-                    "Action": "execute-api:Invoke",
-                    "Effect": effect,
-                    "Resource": policy_resource,
-                }
-            ],
+            "Statement": [{
+                "Action": "execute-api:Invoke",
+                "Effect": effect,
+                "Resource": make_stage_wildcard(method_arn),
+            }],
         },
     }
 
     if context:
         policy["context"] = {
-            str(key): str(value)
-            for key, value in context.items()
+            str(k): str(v)
+            for k, v in context.items()
         }
 
     return policy
 
 
-def allow(principal_id, method_arn, identity):
-    return generate_policy(
-        principal_id=principal_id,
-        effect="Allow",
-        method_arn=method_arn,
-        context=identity,
-    )
-
-
-def deny(principal_id, method_arn):
-    return generate_policy(
-        principal_id=principal_id,
-        effect="Deny",
-        method_arn=method_arn,
-    )
-
-
-def make_stage_wildcard(method_arn):
-    """
-    Example:
-      arn:aws:execute-api:ap-south-1:123456789012:apiid/dev/POST/foo
-
-    becomes:
-      arn:aws:execute-api:ap-south-1:123456789012:apiid/dev/*/*
-    """
-
-    try:
-        parts = method_arn.split(":")
-
-        if len(parts) < 6:
-            return method_arn
-
-        execute_api_part = parts[5]
-
-        api_parts = execute_api_part.split("/")
-
-        if len(api_parts) < 2:
-            return method_arn
-
-        api_id = api_parts[0]
-        stage = api_parts[1]
-
-        return (
-            f"{parts[0]}:{parts[1]}:{parts[2]}:"
-            f"{parts[3]}:{parts[4]}:{api_id}/{stage}/*/*"
-        )
-
-    except Exception:
-        return method_arn
-
-
-# ==========================================================
-# TOKEN EXTRACTION
-# ==========================================================
-
-def extract_bearer_token(event):
-    """
-    API Gateway TOKEN authorizer normally sends:
-
-        authorizationToken = "Bearer <token>"
-
-    We also support lower-case "bearer".
-    """
-
-    authorization_header = event.get(
-        "authorizationToken",
-        "",
-    )
-
-    if not isinstance(
-        authorization_header,
-        str,
-    ):
-        return None
-
-    parts = authorization_header.strip().split()
-
-    if len(parts) != 2:
-        return None
-
-    scheme, token = parts
-
-    if scheme.lower() != "bearer":
-        return None
-
-    token = token.strip()
-
-    if not token:
-        return None
-
-    return token
-
-
-# ==========================================================
-# TOKEN HASHING
-#
-# IMPORTANT:
-# The raw bearer token is NEVER compared with the database.
-# We hash the supplied token and compare that SHA-256 hash
-# with customers.bearer_token.
-# ==========================================================
-
-def hash_token(token):
-    return hashlib.sha256(
-        token.encode("utf-8")
-    ).hexdigest()
-
-
-# ==========================================================
-# SSM PARAMETER LOADER
-# ==========================================================
-
 def load_database_parameters():
-    """
-    Load all five DB parameters in ONE SSM request.
+    global _PARAMETER_CACHE, _PARAMETER_CACHE_AT
 
-    Cached for the lifetime of the warm Lambda container.
-    """
-
-    global _PARAMETER_CACHE
-
-    if _PARAMETER_CACHE:
+    now = time.monotonic()
+    if (
+        _PARAMETER_CACHE is not None
+        and (now - _PARAMETER_CACHE_AT) < _PARAMETER_CACHE_TTL_SECONDS
+    ):
         return _PARAMETER_CACHE
 
     names = [
+        DB_NAME_PARAMETER,
         DB_ENDPOINT_PARAMETER,
         DB_PORT_PARAMETER,
-        DB_NAME_PARAMETER,
         DB_USERNAME_PARAMETER,
         DB_PASSWORD_PARAMETER,
     ]
-
-    log_event(
-        "INFO",
-        "Loading database parameters from SSM",
-    )
 
     result = ssm.get_parameters(
         Names=names,
@@ -275,31 +114,20 @@ def load_database_parameters():
         for item in result.get("Parameters", [])
     }
 
-    missing = [
-        name
-        for name in names
-        if name not in returned
-    ]
-
+    missing = [name for name in names if name not in returned]
     if missing:
         raise RuntimeError(
-            "Missing required SSM database parameters: "
-            + ", ".join(missing)
+            "Missing CloudMart DB parameters: " + ", ".join(missing)
         )
 
     _PARAMETER_CACHE = {
+        "database": returned[DB_NAME_PARAMETER],
         "host": returned[DB_ENDPOINT_PARAMETER],
         "port": int(returned[DB_PORT_PARAMETER]),
-        "database": returned[DB_NAME_PARAMETER],
         "username": returned[DB_USERNAME_PARAMETER],
         "password": returned[DB_PASSWORD_PARAMETER],
     }
-
-    log_event(
-        "INFO",
-        "Database parameters loaded",
-    )
-
+    _PARAMETER_CACHE_AT = now
     return _PARAMETER_CACHE
 
 
@@ -309,114 +137,72 @@ def get_admin_token():
     if _ADMIN_TOKEN_CACHE is not None:
         return _ADMIN_TOKEN_CACHE
 
-    log_event(
-        "INFO",
-        "Loading admin token from SSM",
-    )
-
     result = ssm.get_parameter(
         Name=ADMIN_TOKEN_PARAMETER,
         WithDecryption=True,
     )
 
-    token = (
-        result["Parameter"]["Value"]
-        or ""
-    ).strip()
-
+    token = str(result["Parameter"]["Value"] or "").strip()
     if not token:
-        raise RuntimeError(
-            "Admin authentication token is empty"
-        )
+        raise RuntimeError("Admin authentication token is empty")
 
     _ADMIN_TOKEN_CACHE = token
+    return token
 
-    return _ADMIN_TOKEN_CACHE
-
-
-# ==========================================================
-# DATABASE CONNECTION
-# ==========================================================
 
 def get_connection():
-    """
-    Connect to the private RDS database with bounded timeouts.
-    """
-
     db = load_database_parameters()
 
-    log_event(
-        "INFO",
-        "Opening RDS connection",
-    )
-
-    connection = pymysql.connect(
+    return pymysql.connect(
         host=db["host"],
         port=db["port"],
         user=db["username"],
         password=db["password"],
         database=db["database"],
         cursorclass=pymysql.cursors.DictCursor,
-        connect_timeout=4,
+        connect_timeout=3,
         read_timeout=4,
         write_timeout=4,
         autocommit=True,
     )
 
-    log_event(
-        "INFO",
-        "RDS connection established",
-    )
 
-    return connection
+def extract_bearer_token(event):
+    raw = event.get("authorizationToken", "")
+    if not isinstance(raw, str):
+        return None
+
+    parts = raw.strip().split()
+    if len(parts) != 2:
+        return None
+
+    scheme, token = parts
+    if scheme.lower() != "bearer" or not token:
+        return None
+
+    return token.strip()
 
 
-# ==========================================================
-# CUSTOMER AUTHENTICATION
-#
-# REQUIRED BEHAVIOR:
-#
-#   raw bearer token
-#          |
-#          v
-#   SHA-256(raw token)
-#          |
-#          v
-#   customers.bearer_token
-#          |
-#          v
-#   active customer?
-#          |
-#          +---- yes ---> CUSTOMER identity
-#          |
-#          +---- no ----> DENY
-#
-# No SSM customer-token mapping is used.
-# ==========================================================
+def hash_token(token):
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
 
 def authenticate_customer(token):
-    token_hash = hash_token(token)
+    """
+    A bearer token is a credential, not a customer primary key.
 
+    Multiple ACTIVE customers may intentionally share the same token.
+    The authorizer therefore validates only that at least one ACTIVE
+    customer has the hash and returns the hash itself in context.
+    Service Lambdas combine that hash with the URL customer_id.
+    """
+    token_hash = hash_token(token)
     connection = None
 
     try:
-
         connection = get_connection()
 
-        log_event(
-            "INFO",
-            "Checking hashed bearer token in customers table",
-        )
-
-        # IMPORTANT:
-        # A bearer token is NOT a unique customer identifier.
-        # Multiple ACTIVE customers may intentionally share the same
-        # SHA-256 token hash. The authorizer therefore validates only
-        # that the token belongs to at least one active customer and
-        # passes the token hash downstream. The service Lambda then
-        # validates the requested customer_id against that hash.
         with connection.cursor() as cursor:
-
             cursor.execute(
                 """
                 SELECT EXISTS(
@@ -425,207 +211,113 @@ def authenticate_customer(token):
                     WHERE bearer_token = %s
                       AND status = 'ACTIVE'
                       AND deleted_at IS NULL
-                ) AS token_exists
+                ) AS token_valid
                 """,
                 (token_hash,),
             )
 
-            result = cursor.fetchone() or {}
+            row = cursor.fetchone()
 
-        if not result.get("token_exists"):
-
-            log_event(
-                "WARNING",
-                "Bearer token not found in active customer records",
-            )
-
+        if not row or int(row["token_valid"]) != 1:
             return None
-
-        log_event(
-            "INFO",
-            "Bearer token validated against active customer records",
-        )
 
         return {
             "role": "CUSTOMER",
-            # The token hash is passed as authorizer context so the
-            # service Lambda can verify the URL customer_id.
             "token_hash": token_hash,
         }
 
-    except pymysql.MySQLError as exc:
-
-        log_event(
-            "ERROR",
-            "Customer authentication database error",
-            error_type=type(exc).__name__,
-            error=str(exc),
-        )
-
-        raise
-
     except Exception as exc:
-
-        log_event(
+        log(
             "ERROR",
-            "Customer authentication failed unexpectedly",
+            "Customer authentication failed",
             error_type=type(exc).__name__,
             error=str(exc),
         )
-
-        raise
+        return None
 
     finally:
-
         if connection is not None:
             connection.close()
 
 
-# ==========================================================
-# ADMIN AUTHENTICATION
-#
-# Admin token remains in SSM SecureString.
-# Customer tokens remain hashed in RDS.
-# ==========================================================
-
 def authenticate_admin(token):
+    try:
+        configured = get_admin_token()
 
-    configured_admin_token = get_admin_token()
+        if hmac.compare_digest(
+            token.encode("utf-8"),
+            configured.encode("utf-8"),
+        ):
+            return {
+                "role": "ADMIN",
+                "token_hash": "",
+            }
 
-    if not hmac.compare_digest(
-        token,
-        configured_admin_token,
-    ):
         return None
 
-    log_event(
-        "INFO",
-        "Admin bearer token validated",
-    )
+    except Exception as exc:
+        log(
+            "ERROR",
+            "Admin authentication failed",
+            error_type=type(exc).__name__,
+            error=str(exc),
+        )
+        return None
 
-    return {
-        "role": "ADMIN",
-        "customer_id": "",
-    }
-
-
-# ==========================================================
-# MAIN AUTHORIZER
-# ==========================================================
 
 def lambda_handler(event, context):
-
-    request_id = getattr(
-        context,
-        "aws_request_id",
-        "unknown",
-    )
-
-    method_arn = event.get(
-        "methodArn",
-        "*",
-    )
-
-    log_event(
-        "INFO",
-        "Authentication request received",
-        request_id=request_id,
-        authorizer_type=event.get(
-            "type",
-            "UNKNOWN",
-        ),
-    )
+    request_id = getattr(context, "aws_request_id", "unknown")
+    method_arn = event.get("methodArn", "*")
 
     token = extract_bearer_token(event)
 
-    if token is None:
+    log(
+        "INFO",
+        "Authentication request received",
+        request_id=request_id,
+        authorizer_type=event.get("type", "UNKNOWN"),
+    )
 
-        log_event(
-            "WARNING",
+    if token is None:
+        log(
+            "WARN",
             "Authentication denied",
             request_id=request_id,
             reason="INVALID_BEARER_TOKEN_FORMAT",
         )
+        return generate_policy(
+            "anonymous",
+            "Deny",
+            method_arn,
+        )
 
-        return deny(
-            principal_id="unauthorized",
+    customer_identity = authenticate_customer(token)
+    if customer_identity is not None:
+        return generate_policy(
+            principal_id=customer_identity["token_hash"],
+            effect="Allow",
             method_arn=method_arn,
+            context=customer_identity,
         )
 
-    try:
-
-        # ------------------------------------------------------
-        # ADMIN FIRST
-        # ------------------------------------------------------
-
-        admin_identity = authenticate_admin(
-            token
-        )
-
-        if admin_identity is not None:
-
-            return allow(
-                principal_id="admin",
-                method_arn=method_arn,
-                identity=admin_identity,
-            )
-
-        # ------------------------------------------------------
-        # CUSTOMER
-        # ------------------------------------------------------
-
-        customer_identity = authenticate_customer(
-            token
-        )
-
-        if customer_identity is None:
-
-            log_event(
-                "WARNING",
-                "Authentication denied",
-                request_id=request_id,
-                reason="INVALID_CUSTOMER_TOKEN",
-            )
-
-            return deny(
-                principal_id="unauthorized",
-                method_arn=method_arn,
-            )
-
-        return allow(
-            principal_id="customer-token",
+    admin_identity = authenticate_admin(token)
+    if admin_identity is not None:
+        return generate_policy(
+            principal_id="admin",
+            effect="Allow",
             method_arn=method_arn,
-            identity=customer_identity,
+            context=admin_identity,
         )
 
-    except pymysql.MySQLError as exc:
+    log(
+        "WARN",
+        "Authentication denied",
+        request_id=request_id,
+        reason="INVALID_TOKEN",
+    )
 
-        # Do not silently turn a database outage into a confusing
-        # invalid-token message. Log the real cause, then fail closed.
-        log_event(
-            "ERROR",
-            "Authentication database unavailable",
-            request_id=request_id,
-            error_type=type(exc).__name__,
-            error=str(exc),
-        )
-
-        return deny(
-            principal_id="authentication-error",
-            method_arn=method_arn,
-        )
-
-    except Exception as exc:
-
-        log_event(
-            "ERROR",
-            "Authorizer failed",
-            request_id=request_id,
-            error_type=type(exc).__name__,
-            error=str(exc),
-        )
-
-        return deny(
-            principal_id="authentication-error",
-            method_arn=method_arn,
-        )
+    return generate_policy(
+        "anonymous",
+        "Deny",
+        method_arn,
+    )

@@ -3,6 +3,7 @@ import os
 import json
 import hashlib
 import logging
+import time
 import boto3
 import pymysql
 
@@ -26,6 +27,10 @@ DB_USERNAME_PARAMETER = os.environ["DB_USERNAME_PARAMETER"]
 DB_PASSWORD_PARAMETER = os.environ["DB_PASSWORD_PARAMETER"]
 
 ssm = boto3.client("ssm")
+
+_PARAMETER_CACHE = {}
+_PARAMETER_CACHE_AT = 0.0
+_PARAMETER_CACHE_TTL_SECONDS = 300
 
 
 # ==========================================================
@@ -68,33 +73,62 @@ def error(status_code, message):
 # SSM AND DATABASE
 # ==========================================================
 
-def get_parameter(name):
-    result = ssm.get_parameter(
-        Name=name,
-        WithDecryption=True
+
+def load_database_parameters():
+    global _PARAMETER_CACHE, _PARAMETER_CACHE_AT
+
+    now = time.monotonic()
+    if _PARAMETER_CACHE and (now - _PARAMETER_CACHE_AT) < _PARAMETER_CACHE_TTL_SECONDS:
+        return _PARAMETER_CACHE
+
+    names = [
+        DB_NAME_PARAMETER,
+        DB_ENDPOINT_PARAMETER,
+        DB_PORT_PARAMETER,
+        DB_USERNAME_PARAMETER,
+        DB_PASSWORD_PARAMETER,
+    ]
+
+    result = ssm.get_parameters(
+        Names=names,
+        WithDecryption=True,
     )
 
-    return result["Parameter"]["Value"]
+    returned = {
+        item["Name"]: item["Value"]
+        for item in result.get("Parameters", [])
+    }
+    missing = [name for name in names if name not in returned]
+    if missing:
+        raise RuntimeError(
+            "Missing CloudMart database parameters: " + ", ".join(missing)
+        )
+
+    _PARAMETER_CACHE = {
+        "database": returned[DB_NAME_PARAMETER],
+        "host": returned[DB_ENDPOINT_PARAMETER],
+        "port": int(returned[DB_PORT_PARAMETER]),
+        "username": returned[DB_USERNAME_PARAMETER],
+        "password": returned[DB_PASSWORD_PARAMETER],
+    }
+    _PARAMETER_CACHE_AT = now
+    return _PARAMETER_CACHE
 
 
 def get_connection():
+    db = load_database_parameters()
     return pymysql.connect(
-        host=get_parameter(DB_ENDPOINT_PARAMETER),
-        port=int(get_parameter(DB_PORT_PARAMETER)),
-        user=get_parameter(DB_USERNAME_PARAMETER),
-        password=get_parameter(DB_PASSWORD_PARAMETER),
-        database=get_parameter(DB_NAME_PARAMETER),
-        connect_timeout=10,
-        read_timeout=30,
-        write_timeout=30,
+        host=db["host"],
+        port=db["port"],
+        user=db["username"],
+        password=db["password"],
+        database=db["database"],
+        connect_timeout=3,
+        read_timeout=5,
+        write_timeout=5,
         autocommit=False,
-        cursorclass=pymysql.cursors.DictCursor
+        cursorclass=pymysql.cursors.DictCursor,
     )
-
-
-# ==========================================================
-# AUTHENTICATION CONTEXT
-# ==========================================================
 
 def get_authorizer_context(event):
     request_context = event.get("requestContext", {})
@@ -298,32 +332,46 @@ def validate_customer_payload(
 # CUSTOMER ACCESS VALIDATION
 # ==========================================================
 
+
 def can_access_customer(event, customer_id):
     """
-    Business authorization belongs here, not in the
-    Lambda Authorizer.
-
-    ADMIN:
-        Can access any customer.
-
-    CUSTOMER:
-        Can access only their own customer record.
+    ADMIN: any customer.
+    CUSTOMER: the bearer-token hash in authorizer context must match
+    the requested customer_id. This allows one token to be shared by
+    multiple customers while keeping URL-level ownership isolation.
     """
-
     if is_admin(event):
         return True
 
-    authenticated_id = get_authenticated_customer_id(event)
+    authorizer = get_authorizer_context(event)
+    token_hash = authorizer.get("token_hash")
 
-    return (
-        authenticated_id is not None
-        and authenticated_id == customer_id
-    )
+    if not isinstance(token_hash, str):
+        return False
 
+    token_hash = token_hash.strip().lower()
+    if len(token_hash) != 64:
+        return False
 
-# ==========================================================
-# CREATE CUSTOMER
-# ==========================================================
+    connection = None
+    try:
+        connection = get_connection()
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT customer_id
+                FROM customers
+                WHERE customer_id = %s
+                  AND bearer_token = %s
+                  AND status = 'ACTIVE'
+                  AND deleted_at IS NULL
+                """,
+                (customer_id, token_hash),
+            )
+            return cursor.fetchone() is not None
+    finally:
+        if connection is not None:
+            connection.close()
 
 def create_customer(event):
     data = parse_body(event)

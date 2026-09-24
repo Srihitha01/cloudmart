@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import time
 from decimal import Decimal
 
 import boto3
@@ -21,7 +22,6 @@ AWS_API_CONFIG = Config(
 
 ssm = boto3.client("ssm", config=AWS_API_CONFIG)
 events = boto3.client("events", config=AWS_API_CONFIG)
-cloudwatch = boto3.client("cloudwatch", config=AWS_API_CONFIG)
 
 
 # ==========================================================
@@ -34,6 +34,10 @@ DB_PORT_PARAMETER = os.environ["DB_PORT_PARAMETER"]
 DB_USERNAME_PARAMETER = os.environ["DB_USERNAME_PARAMETER"]
 DB_PASSWORD_PARAMETER = os.environ["DB_PASSWORD_PARAMETER"]
 EVENT_BUS_NAME = os.environ["EVENT_BUS_NAME"]
+
+_PARAMETER_CACHE = {}
+_PARAMETER_CACHE_AT = 0.0
+_PARAMETER_CACHE_TTL_SECONDS = 300
 
 
 # ==========================================================
@@ -51,98 +55,78 @@ def log_event(level, message, **details):
     print(json.dumps(record, default=str))
 
 
+
 def publish_custom_metric(metric_name, value=1):
-    """Publish a CloudMart business metric without delaying the API request."""
+    """Emit a CloudWatch EMF metric through Lambda logs; never call CloudWatch synchronously."""
     try:
-        cloudwatch.put_metric_data(
-            Namespace="CloudMart/Business",
-            MetricData=[
-                {
-                    "MetricName": metric_name,
-                    "Value": float(value),
-                    "Unit": "Count"
-                }
-            ]
-        )
+        metric_record = {
+            "_aws": {
+                "Timestamp": int(time.time() * 1000),
+                "CloudWatchMetrics": [
+                    {
+                        "Namespace": "CloudMart/Business",
+                        "Dimensions": [[]],
+                        "Metrics": [
+                            {
+                                "Name": metric_name,
+                                "Unit": "Count",
+                            }
+                        ],
+                    }
+                ],
+            },
+            metric_name: value,
+        }
+        print(json.dumps(metric_record, default=str))
     except Exception as exc:
         log_event(
             "WARN",
-            "Custom metric publishing skipped",
+            "CloudWatch EMF metric emission failed",
             metric_name=metric_name,
             error_type=type(exc).__name__,
-            error=str(exc)
+            error=str(exc),
         )
 
-def publish_inventory_event(event_detail, request_id, product_id):
-    """Publish product inventory events to EventBridge.
 
-    Every stock change publishes the normal ``Inventory Changed`` event.
-    When the resulting stock is at/below the reorder threshold, the same
-    inventory change also publishes a dedicated ``LowStockAlert`` event.
+def publish_inventory_event(event_detail, request_id=None, product_id=None):
+    """Publish the normal inventory event and, when low, a dedicated alert event."""
+    entries = [{
+        "EventBusName": EVENT_BUS_NAME,
+        "Source": "cloudmart.product",
+        "DetailType": "Inventory Changed",
+        "Detail": json.dumps(event_detail, default=str),
+    }]
 
-    EventBridge rules route these two event types to separate SNS topics so
-    the same low-stock condition can generate two separate emails:
-      1. Product notification email
-      2. Product low-stock alert email
+    if bool(event_detail.get("low_stock")):
+        entries.append({
+            "EventBusName": EVENT_BUS_NAME,
+            "Source": "cloudmart.product",
+            "DetailType": "LowStockAlert",
+            "Detail": json.dumps(event_detail, default=str),
+        })
 
-    Database state remains authoritative; EventBridge is best-effort.
-    """
     try:
-        entries = [
-            {
-                "EventBusName": EVENT_BUS_NAME,
-                "Source": "cloudmart.product",
-                "DetailType": "Inventory Changed",
-                "Detail": json.dumps(event_detail, default=str)
-            }
-        ]
-
-        if bool(event_detail.get("low_stock")):
-            entries.append(
-                {
-                    "EventBusName": EVENT_BUS_NAME,
-                    "Source": "cloudmart.product",
-                    "DetailType": "LowStockAlert",
-                    "Detail": json.dumps(event_detail, default=str)
-                }
-            )
-
         result = events.put_events(Entries=entries)
-
-        failed_count = int(result.get("FailedEntryCount", 0) or 0)
-
-        if failed_count:
+        ok = int(result.get("FailedEntryCount", 0) or 0) == 0
+        if not ok:
             log_event(
                 "WARN",
-                "Product inventory event publishing failed; product update retained",
+                "Product EventBridge publish returned failed entries",
                 request_id=request_id,
                 product_id=product_id,
-                low_stock=bool(event_detail.get("low_stock")),
-                event_result=result
+                result=result,
             )
-            return False
-
-        log_event(
-            "INFO",
-            "Product inventory event(s) published",
-            request_id=request_id,
-            product_id=product_id,
-            low_stock=bool(event_detail.get("low_stock")),
-            event_count=len(entries)
-        )
-        return True
-
+        return ok
     except Exception as exc:
         log_event(
             "WARN",
-            "Product inventory event publishing skipped; product update retained",
+            "Product EventBridge publish skipped; product update retained",
             request_id=request_id,
             product_id=product_id,
             error_type=type(exc).__name__,
-            error=str(exc)
+            error=str(exc),
         )
         return False
-
 
 def publish_inventory_count(connection):
     """Publish total available inventory quantity as a best-effort metric."""
@@ -189,60 +173,79 @@ def response(status_code, body):
 # SSM PARAMETER
 # ==========================================================
 
-def get_parameter(name):
-    parameter = ssm.get_parameter(
-        Name=name,
-        WithDecryption=True
+
+def load_database_parameters():
+    global _PARAMETER_CACHE, _PARAMETER_CACHE_AT
+
+    now = time.monotonic()
+    if _PARAMETER_CACHE and (now - _PARAMETER_CACHE_AT) < _PARAMETER_CACHE_TTL_SECONDS:
+        return _PARAMETER_CACHE
+
+    names = [
+        DB_NAME_PARAMETER,
+        DB_ENDPOINT_PARAMETER,
+        DB_PORT_PARAMETER,
+        DB_USERNAME_PARAMETER,
+        DB_PASSWORD_PARAMETER,
+    ]
+
+    result = ssm.get_parameters(
+        Names=names,
+        WithDecryption=True,
     )
 
-    return parameter["Parameter"]["Value"]
+    returned = {
+        item["Name"]: item["Value"]
+        for item in result.get("Parameters", [])
+    }
+    missing = [name for name in names if name not in returned]
+    if missing:
+        raise RuntimeError(
+            "Missing CloudMart database parameters: " + ", ".join(missing)
+        )
+
+    _PARAMETER_CACHE = {
+        "database": returned[DB_NAME_PARAMETER],
+        "host": returned[DB_ENDPOINT_PARAMETER],
+        "port": int(returned[DB_PORT_PARAMETER]),
+        "username": returned[DB_USERNAME_PARAMETER],
+        "password": returned[DB_PASSWORD_PARAMETER],
+    }
+    _PARAMETER_CACHE_AT = now
+    return _PARAMETER_CACHE
 
 
-# ==========================================================
-# DATABASE CONNECTION
-# ==========================================================
+def get_parameter(name):
+    db = load_database_parameters()
+    mapping = {
+        DB_NAME_PARAMETER: db["database"],
+        DB_ENDPOINT_PARAMETER: db["host"],
+        DB_PORT_PARAMETER: str(db["port"]),
+        DB_USERNAME_PARAMETER: db["username"],
+        DB_PASSWORD_PARAMETER: db["password"],
+    }
+    if name not in mapping:
+        raise RuntimeError(f"Unsupported SSM parameter requested: {name}")
+    return mapping[name]
+
 
 def get_db_connection():
-
-    db_name = get_parameter(
-        DB_NAME_PARAMETER
-    )
-
-    db_host = get_parameter(
-        DB_ENDPOINT_PARAMETER
-    )
-
-    db_port = int(
-        get_parameter(
-            DB_PORT_PARAMETER
-        )
-    )
-
-    db_username = get_parameter(
-        DB_USERNAME_PARAMETER
-    )
-
-    db_password = get_parameter(
-        DB_PASSWORD_PARAMETER
-    )
-
-    return pymysql.connect(
-        host=db_host,
-        port=db_port,
-        user=db_username,
-        password=db_password,
-        database=db_name,
-        connect_timeout=5,
+    db = load_database_parameters()
+    connection = pymysql.connect(
+        host=db["host"],
+        port=db["port"],
+        user=db["username"],
+        password=db["password"],
+        database=db["database"],
+        connect_timeout=3,
         read_timeout=5,
         write_timeout=5,
+        autocommit=False,
         cursorclass=pymysql.cursors.DictCursor,
-        autocommit=False
     )
-
-
-# ==========================================================
-# REQUEST BODY
-# ==========================================================
+    with connection.cursor() as cursor:
+        cursor.execute("SET SESSION innodb_lock_wait_timeout = 5")
+    return connection
 
 def parse_body(event):
 
@@ -507,8 +510,25 @@ def create_product(
 
         publish_inventory_count(connection)
 
-        if product["stock_quantity"] <= product["reorder_threshold"]:
+        low_stock = (
+            product["stock_quantity"]
+            <= product["reorder_threshold"]
+        )
+        if low_stock:
             publish_custom_metric("LowStockEvents")
+
+        publish_inventory_event(
+            event_detail={
+                "product_id": product_id,
+                "product_name": product["name"],
+                "old_stock": product["stock_quantity"],
+                "new_stock": product["stock_quantity"],
+                "low_stock_threshold": product["reorder_threshold"],
+                "low_stock": low_stock,
+            },
+            request_id=context.aws_request_id,
+            product_id=product_id,
+        )
 
         log_event(
             "INFO",
@@ -1037,17 +1057,13 @@ def update_product(
             )
         )
 
-        stock_changed = (
-            new_stock_quantity
-            != old_stock_quantity
-        )
+        stock_changed = new_stock_quantity != old_stock_quantity
+        threshold_changed = new_reorder_threshold != old_reorder_threshold
+        inventory_condition_changed = stock_changed or threshold_changed
 
-        low_stock = (
-            new_stock_quantity
-            <= new_reorder_threshold
-        )
+        low_stock = new_stock_quantity <= new_reorder_threshold
 
-        if stock_changed and low_stock:
+        if inventory_condition_changed and low_stock:
             publish_custom_metric("LowStockEvents")
 
         event_published = False
@@ -1056,7 +1072,7 @@ def update_product(
         # Publish inventory event
         # ----------------------------------------------------
 
-        if stock_changed:
+        if inventory_condition_changed:
 
             event_detail = {
                 "product_id": product_id,
