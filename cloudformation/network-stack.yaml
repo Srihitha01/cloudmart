@@ -533,6 +533,32 @@ Resources:
 
 
   # ==========================================================
+  # CLOUDWATCH LOGS INTERFACE ENDPOINT
+  # ==========================================================
+  # Required for private Lambda functions in this no-NAT VPC
+  # to reach CloudWatch Logs privately.
+
+  CloudWatchLogsEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+
+    Properties:
+      VpcId: !Ref CloudMartVPC
+      VpcEndpointType: Interface
+
+      ServiceName:
+        !Sub com.amazonaws.${AWS::Region}.logs
+
+      PrivateDnsEnabled: true
+
+      SubnetIds:
+        - !Ref PrivateSubnet
+        - !Ref SecondaryPrivateSubnet
+
+      SecurityGroupIds:
+        - !Ref VPCEndpointSecurityGroup
+
+
+  # ==========================================================
   # LAMBDA INTERFACE ENDPOINT
   # ==========================================================
 
@@ -672,6 +698,14 @@ Outputs:
 
     Export:
       Name: !Sub cloudmart-${Environment}-SNSEndpointId
+
+
+  CloudWatchLogsEndpointId:
+    Description: CloudMart CloudWatch Logs interface endpoint ID
+    Value: !Ref CloudWatchLogsEndpoint
+
+    Export:
+      Name: !Sub cloudmart-${Environment}-CloudWatchLogsEndpointId
 
 
   LambdaEndpointId:

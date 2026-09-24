@@ -256,10 +256,28 @@ Resources:
       # The product Lambda now uses short AWS SDK timeouts and treats
       # EventBridge/CloudWatch metrics as best-effort operations.
       Timeout:
-        29
+        10
 
       MemorySize:
         512
+
+      # The authorizer validates customer bearer tokens against the
+      # hashed customers.bearer_token value in the private RDS.
+      # It therefore MUST run inside the CloudMart VPC.
+      VpcConfig:
+
+        SecurityGroupIds:
+
+          - Fn::ImportValue:
+              Fn::Sub: cloudmart-${Environment}-LambdaSecurityGroupId
+
+        SubnetIds:
+
+          - Fn::ImportValue:
+              Fn::Sub: cloudmart-${Environment}-PrivateSubnetId
+
+          - Fn::ImportValue:
+              Fn::Sub: cloudmart-${Environment}-SecondaryPrivateSubnetId
 
       Layers:
 
@@ -343,10 +361,10 @@ Resources:
           Fn::Sub: cloudmart-${Environment}-CustomerLambdaRoleArn
 
       Timeout:
-        30
+        29
 
       MemorySize:
-        256
+        512
 
       Layers:
 
@@ -526,10 +544,10 @@ Resources:
           Fn::Sub: cloudmart-${Environment}-OrderLambdaRoleArn
 
       Timeout:
-        30
+        29
 
       MemorySize:
-        256
+        512
 
       Layers:
 
@@ -624,7 +642,7 @@ Resources:
         60
 
       MemorySize:
-        256
+        512
 
       Layers:
 
