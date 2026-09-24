@@ -252,11 +252,14 @@ Resources:
         Fn::ImportValue:
           Fn::Sub: cloudmart-${Environment}-LambdaAuthorizerRoleArn
 
+      # Keep the Lambda below API Gateway REST API's ~29 second integration limit.
+      # The product Lambda now uses short AWS SDK timeouts and treats
+      # EventBridge/CloudWatch metrics as best-effort operations.
       Timeout:
-        30
+        29
 
       MemorySize:
-        256
+        512
 
       Layers:
 

@@ -6,15 +6,22 @@ from decimal import Decimal
 
 import boto3
 import pymysql
+from botocore.config import Config
 
 
 # ==========================================================
 # AWS CLIENTS
 # ==========================================================
 
-ssm = boto3.client("ssm")
-events = boto3.client("events")
-cloudwatch = boto3.client("cloudwatch")
+AWS_API_CONFIG = Config(
+    connect_timeout=2,
+    read_timeout=3,
+    retries={"max_attempts": 1, "mode": "standard"}
+)
+
+ssm = boto3.client("ssm", config=AWS_API_CONFIG)
+events = boto3.client("events", config=AWS_API_CONFIG)
+cloudwatch = boto3.client("cloudwatch", config=AWS_API_CONFIG)
 
 
 # ==========================================================
@@ -45,7 +52,7 @@ def log_event(level, message, **details):
 
 
 def publish_custom_metric(metric_name, value=1):
-    """Publish a CloudMart business metric without breaking the API request."""
+    """Publish a CloudMart business metric without delaying the API request."""
     try:
         cloudwatch.put_metric_data(
             Namespace="CloudMart/Business",
@@ -59,16 +66,66 @@ def publish_custom_metric(metric_name, value=1):
         )
     except Exception as exc:
         log_event(
-            "ERROR",
-            "Custom metric publishing failed",
+            "WARN",
+            "Custom metric publishing skipped",
             metric_name=metric_name,
             error_type=type(exc).__name__,
             error=str(exc)
         )
 
+def publish_inventory_event(event_detail, request_id, product_id):
+    """Publish inventory event as a best-effort operation.
+
+    The database update is the source of truth for the API request.
+    EventBridge failures are logged but must not turn a successful
+    product update into a 504 response.
+    """
+    try:
+        result = events.put_events(
+            Entries=[
+                {
+                    "EventBusName": EVENT_BUS_NAME,
+                    "Source": "cloudmart.product",
+                    "DetailType": "Inventory Changed",
+                    "Detail": json.dumps(event_detail)
+                }
+            ]
+        )
+
+        failed_count = result.get("FailedEntryCount", 0)
+
+        if failed_count:
+            log_event(
+                "WARN",
+                "Inventory event publishing failed; product update retained",
+                request_id=request_id,
+                product_id=product_id,
+                event_result=result
+            )
+            return False
+
+        log_event(
+            "INFO",
+            "Inventory change event published",
+            request_id=request_id,
+            product_id=product_id
+        )
+        return True
+
+    except Exception as exc:
+        log_event(
+            "WARN",
+            "Inventory event publishing skipped; product update retained",
+            request_id=request_id,
+            product_id=product_id,
+            error_type=type(exc).__name__,
+            error=str(exc)
+        )
+        return False
+
 
 def publish_inventory_count(connection):
-    """Publish total available inventory quantity."""
+    """Publish total available inventory quantity as a best-effort metric."""
     try:
         with connection.cursor() as cursor:
             cursor.execute(
@@ -85,12 +142,11 @@ def publish_inventory_count(connection):
             )
     except Exception as exc:
         log_event(
-            "ERROR",
-            "Inventory count metric failed",
+            "WARN",
+            "Inventory count metric skipped",
             error_type=type(exc).__name__,
             error=str(exc)
         )
-
 
 # ==========================================================
 # API RESPONSE
@@ -156,9 +212,9 @@ def get_db_connection():
         user=db_username,
         password=db_password,
         database=db_name,
-        connect_timeout=10,
-        read_timeout=10,
-        write_timeout=10,
+        connect_timeout=5,
+        read_timeout=5,
+        write_timeout=5,
         cursorclass=pymysql.cursors.DictCursor,
         autocommit=False
     )
@@ -991,57 +1047,11 @@ def update_product(
                 "low_stock": low_stock
             }
 
-            event_result = events.put_events(
-                Entries=[
-                    {
-                        "EventBusName": EVENT_BUS_NAME,
-                        "Source": "cloudmart.product",
-                        "DetailType": "Inventory Changed",
-                        "Detail": json.dumps(
-                            event_detail
-                        )
-                    }
-                ]
+            event_published = publish_inventory_event(
+                event_detail=event_detail,
+                request_id=context.aws_request_id,
+                product_id=product_id
             )
-
-            failed_count = event_result.get(
-                "FailedEntryCount",
-                0
-            )
-
-            if failed_count != 0:
-
-                log_event(
-                    "ERROR",
-                    "Inventory event publishing failed",
-                    request_id=
-                        context.aws_request_id,
-                    product_id=
-                        product_id,
-                    event_result=
-                        event_result
-                )
-
-            else:
-
-                event_published = True
-
-                log_event(
-                    "INFO",
-                    "Inventory change event published",
-                    request_id=
-                        context.aws_request_id,
-                    product_id=
-                        product_id,
-                    previous_stock_quantity=
-                        old_stock_quantity,
-                    stock_quantity=
-                        new_stock_quantity,
-                    reorder_threshold=
-                        new_reorder_threshold,
-                    low_stock=
-                        low_stock
-                )
 
         # ----------------------------------------------------
         # Final structured log
