@@ -646,7 +646,7 @@ def create_pending_order(
         # ORDER PENDING
         # --------------------------------------------------
 
-        publish_order_event(
+        pending_event_published = publish_order_event(
             detail_type="OrderPending",
             order_id=order_id,
             customer_id=customer_id,
@@ -654,16 +654,39 @@ def create_pending_order(
             total_amount=total_amount
         )
 
+        log_event(
+            "INFO",
+            "OrderPending event published",
+            request_id=context.aws_request_id,
+            order_id=order_id,
+            event_published=pending_event_published
+        )
+
         # --------------------------------------------------
-        # ORDER PLACED
+        # ORDER PLACED (5 SECONDS AFTER ORDER PENDING)
+        # --------------------------------------------------
+        # The requirement is to notify the subscriber first that
+        # the order is PENDING, then send the ORDER PLACED
+        # notification approximately 5 seconds later.
         # --------------------------------------------------
 
-        publish_order_event(
+        time.sleep(5)
+
+        placed_event_published = publish_order_event(
             detail_type="OrderPlaced",
             order_id=order_id,
             customer_id=customer_id,
             status="PENDING",
             total_amount=total_amount
+        )
+
+        log_event(
+            "INFO",
+            "OrderPlaced event published after 5-second delay",
+            request_id=context.aws_request_id,
+            order_id=order_id,
+            event_published=placed_event_published,
+            delay_seconds=5
         )
 
         return {

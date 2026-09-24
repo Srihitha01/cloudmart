@@ -1403,6 +1403,273 @@ Resources:
               Failure Reason: <failureReason>."
 
 
+  # ==========================================================
+  # PENDING ORDER EVENTS -> ORDER SNS
+  # ==========================================================
+
+  OrderPendingEventsToSNSRule:
+
+    Type: AWS::Events::Rule
+
+    Properties:
+
+      Name:
+        !Sub cloudmart-${Environment}-order-pending-alert-rule
+
+      Description:
+        Sends order pending notifications to SNS
+
+      EventBusName:
+        !Ref CloudMartEventBus
+
+      State:
+        ENABLED
+
+      EventPattern:
+
+        source:
+          - cloudmart.orders
+
+        detail-type:
+          - OrderPending
+
+      Targets:
+
+        - Arn:
+            !Ref OrderAlertTopic
+
+          Id:
+            OrderPendingSNSTarget
+
+          InputTransformer:
+
+            InputPathsMap:
+              eventType: "$.detail-type"
+              orderId: "$.detail.order_id"
+              customerId: "$.detail.customer_id"
+              status: "$.detail.status"
+              totalAmount: "$.detail.total_amount"
+
+            InputTemplate: >
+              "CloudMart ORDER PENDING: Order ID: <orderId>,
+              Customer ID: <customerId>, Status: <status>,
+              Total Amount: <totalAmount>. Your order is being processed."
+
+
+  # ==========================================================
+  # ORDER PLACED EVENTS -> ORDER SNS
+  # ==========================================================
+
+  OrderPlacedEventsToSNSRule:
+
+    Type: AWS::Events::Rule
+
+    Properties:
+
+      Name:
+        !Sub cloudmart-${Environment}-order-placed-alert-rule
+
+      Description:
+        Sends order placed notifications to SNS
+
+      EventBusName:
+        !Ref CloudMartEventBus
+
+      State:
+        ENABLED
+
+      EventPattern:
+
+        source:
+          - cloudmart.orders
+
+        detail-type:
+          - OrderPlaced
+
+      Targets:
+
+        - Arn:
+            !Ref OrderAlertTopic
+
+          Id:
+            OrderPlacedSNSTarget
+
+          InputTransformer:
+
+            InputPathsMap:
+              eventType: "$.detail-type"
+              orderId: "$.detail.order_id"
+              customerId: "$.detail.customer_id"
+              status: "$.detail.status"
+              totalAmount: "$.detail.total_amount"
+
+            InputTemplate: >
+              "CloudMart ORDER PLACED: Order ID: <orderId>,
+              Customer ID: <customerId>, Status: <status>,
+              Total Amount: <totalAmount>. Your order has been placed successfully."
+
+
+  # ==========================================================
+  # CONFIRMED ORDER EVENTS -> ORDER SNS
+  # ==========================================================
+
+  OrderConfirmedEventsToSNSRule:
+
+    Type: AWS::Events::Rule
+
+    Properties:
+
+      Name:
+        !Sub cloudmart-${Environment}-order-confirmed-alert-rule
+
+      Description:
+        Sends confirmed CloudMart orders to SNS
+
+      EventBusName:
+        !Ref CloudMartEventBus
+
+      State:
+        ENABLED
+
+      EventPattern:
+
+        source:
+          - cloudmart.orders
+
+        detail-type:
+          - OrderConfirmed
+
+      Targets:
+
+        - Arn:
+            !Ref OrderAlertTopic
+
+          Id:
+            OrderConfirmedSNSTarget
+
+          InputTransformer:
+
+            InputPathsMap:
+              eventType: "$.detail-type"
+              orderId: "$.detail.order_id"
+              customerId: "$.detail.customer_id"
+              status: "$.detail.status"
+              totalAmount: "$.detail.total_amount"
+
+            InputTemplate: >
+              "CloudMart ORDER CONFIRMED ALERT: Event <eventType>.
+              Order ID: <orderId>, Customer ID: <customerId>,
+              Status: <status>, Total Amount: <totalAmount>."
+
+
+  # ==========================================================
+  # CANCELLED ORDER EVENTS -> ORDER SNS
+  # ==========================================================
+
+  OrderCancelledEventsToSNSRule:
+
+    Type: AWS::Events::Rule
+
+    Properties:
+
+      Name:
+        !Sub cloudmart-${Environment}-order-cancelled-alert-rule
+
+      Description:
+        Sends cancelled CloudMart orders to SNS
+
+      EventBusName:
+        !Ref CloudMartEventBus
+
+      State:
+        ENABLED
+
+      EventPattern:
+
+        source:
+          - cloudmart.orders
+
+        detail-type:
+          - OrderCancelled
+
+      Targets:
+
+        - Arn:
+            !Ref OrderAlertTopic
+
+          Id:
+            OrderCancelledSNSTarget
+
+          InputTransformer:
+
+            InputPathsMap:
+              eventType: "$.detail-type"
+              orderId: "$.detail.order_id"
+              customerId: "$.detail.customer_id"
+              status: "$.detail.status"
+              totalAmount: "$.detail.total_amount"
+              reason: "$.detail.reason"
+
+            InputTemplate: >
+              "CloudMart ORDER CANCELLED ALERT: Event <eventType>.
+              Order ID: <orderId>, Customer ID: <customerId>,
+              Status: <status>, Total Amount: <totalAmount>,
+              Reason: <reason>."
+
+
+  # ==========================================================
+  # DELIVERED ORDER EVENTS -> ORDER SNS
+  # ==========================================================
+
+  OrderDeliveredEventsToSNSRule:
+
+    Type: AWS::Events::Rule
+
+    Properties:
+
+      Name:
+        !Sub cloudmart-${Environment}-order-delivered-alert-rule
+
+      Description:
+        Sends delivered CloudMart orders to SNS
+
+      EventBusName:
+        !Ref CloudMartEventBus
+
+      State:
+        ENABLED
+
+      EventPattern:
+
+        source:
+          - cloudmart.orders
+
+        detail-type:
+          - OrderDelivered
+
+      Targets:
+
+        - Arn:
+            !Ref OrderAlertTopic
+
+          Id:
+            OrderDeliveredSNSTarget
+
+          InputTransformer:
+
+            InputPathsMap:
+              eventType: "$.detail-type"
+              orderId: "$.detail.order_id"
+              customerId: "$.detail.customer_id"
+              status: "$.detail.status"
+              totalAmount: "$.detail.total_amount"
+
+            InputTemplate: >
+              "CloudMart ORDER DELIVERED ALERT: Event <eventType>.
+              Order ID: <orderId>, Customer ID: <customerId>,
+              Status: <status>, Total Amount: <totalAmount>."
+
+
 # ============================================================
 # OUTPUTS
 # ============================================================
@@ -1725,6 +1992,32 @@ Outputs:
     Export:
       Name:
         !Sub cloudmart-${Environment}-LowStockEventRuleArn
+
+
+  OrderPendingEventsToSNSRuleArn:
+
+    Description:
+      Pending Order Events SNS EventBridge Rule ARN
+
+    Value:
+      !GetAtt OrderPendingEventsToSNSRule.Arn
+
+    Export:
+      Name:
+        !Sub cloudmart-${Environment}-OrderPendingEventsToSNSRuleArn
+
+
+  OrderPlacedEventsToSNSRuleArn:
+
+    Description:
+      Placed Order Events SNS EventBridge Rule ARN
+
+    Value:
+      !GetAtt OrderPlacedEventsToSNSRule.Arn
+
+    Export:
+      Name:
+        !Sub cloudmart-${Environment}-OrderPlacedEventsToSNSRuleArn
 
 
   OrderFailedEventsToSNSRuleArn:
