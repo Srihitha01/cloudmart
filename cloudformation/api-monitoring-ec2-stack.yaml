@@ -1295,7 +1295,7 @@ Resources:
   # API DEPLOYMENT
   # ==========================================================
 
-  ApiDeploymentV10:
+  ApiDeploymentV9:
 
     Type: AWS::ApiGateway::Deployment
 
@@ -1335,7 +1335,7 @@ Resources:
 
       Description:
         !Sub >
-          CloudMart ${Environment} API deployment V10 with
+          CloudMart ${Environment} API deployment V9 with
           customer-specific order routes and Lambda Authorizer
 
 
@@ -1372,7 +1372,7 @@ Resources:
         !Ref CloudMartApi
 
       DeploymentId:
-        !Ref ApiDeploymentV10
+        !Ref ApiDeploymentV9
 
       StageName:
         !Ref Environment
@@ -1861,125 +1861,53 @@ Resources:
           Fn::Sub:
             - |
               #!/bin/bash
-              set -euxo pipefail
+              set -Eeuo pipefail
 
               exec > >(tee -a /var/log/cloudmart-dashboard-userdata.log | logger -t cloudmart-dashboard -s 2>/dev/console) 2>&1
 
-              dnf install -y python3 python3-pip nginx
+              # AWS CLI is needed only to download the dashboard bootstrap script.
+              if ! command -v aws >/dev/null 2>&1; then
+                dnf install -y awscli
+              fi
+
               install -d -m 0755 /opt/cloudmart/dashboard
               install -d -m 0755 /var/log/cloudmart
 
-              # Wait briefly for instance networking and IAM credentials.
-              for attempt in {1..12}; do
+              # Wait for the EC2 instance profile to become available.
+              for attempt in {1..24}; do
                 if aws sts get-caller-identity --region ${AWS::Region} >/dev/null 2>&1; then
                   break
+                fi
+                if [ "$attempt" -eq 24 ]; then
+                  echo "ERROR: EC2 IAM credentials were not available."
+                  exit 1
                 fi
                 sleep 5
               done
 
-              # Download the immutable dashboard artifact with retries.
+              # The GitHub Actions workflow publishes the complete dashboard/ directory
+              # to this S3 prefix before the EC2 stack is deployed.
               for attempt in {1..5}; do
-                rm -rf /opt/cloudmart/dashboard/*
-                if aws s3 sync "s3://${ArtifactBucketName}/dashboard/" /opt/cloudmart/dashboard/ --region ${AWS::Region}; then
+                if aws s3 sync "s3://${ArtifactBucketName}/dashboard/" /opt/cloudmart/dashboard/ --region ${AWS::Region} --delete; then
                   break
+                fi
+                if [ "$attempt" -eq 5 ]; then
+                  echo "ERROR: Dashboard artifact download failed."
+                  exit 1
                 fi
                 sleep 10
               done
 
-              test -s /opt/cloudmart/dashboard/app.py
-              cd /opt/cloudmart/dashboard
+              test -s /opt/cloudmart/dashboard/bootstrap-dashboard.sh
+              chmod +x /opt/cloudmart/dashboard/bootstrap-dashboard.sh
 
-              # Keep application dependencies isolated and reproducible.
-              python3 -m venv /opt/cloudmart/dashboard/.venv
-              /opt/cloudmart/dashboard/.venv/bin/python -m pip install --upgrade pip setuptools wheel
-              if [ -s requirements.txt ]; then
-                /opt/cloudmart/dashboard/.venv/bin/python -m pip install -r requirements.txt
-              else
-                /opt/cloudmart/dashboard/.venv/bin/python -m pip install flask pymysql boto3 gunicorn
-              fi
-
-              # Create a persistent Flask session secret on this EC2 instance.
-              # It is generated only once and is not related to the admin bearer token.
-              install -d -m 0755 /etc/cloudmart
-              if [ ! -s /etc/cloudmart/dashboard.env ]; then
-                umask 077
-                SECRET=$(python3 -c 'import secrets; print(secrets.token_hex(32))')
-                printf 'FLASK_SECRET_KEY=%s\n' "$SECRET" > /etc/cloudmart/dashboard.env
-                chmod 600 /etc/cloudmart/dashboard.env
-              fi
-
-              # Validate imports before systemd is enabled.
-              /opt/cloudmart/dashboard/.venv/bin/python -c "import app; assert app.app is not None"
-
-              cat > /etc/systemd/system/cloudmart-dashboard.service <<'SERVICE'
-              [Unit]
-              Description=CloudMart Flask Dashboard
-              After=network-online.target
-              Wants=network-online.target
-
-              [Service]
-              Type=simple
-              WorkingDirectory=/opt/cloudmart/dashboard
-              EnvironmentFile=/etc/cloudmart/dashboard.env
-              Environment=PYTHONUNBUFFERED=1
-              Environment=AWS_REGION=${AWS::Region}
-              Environment=DB_ENDPOINT_PARAMETER=/cloudmart/${Environment}/db/endpoint
-              Environment=DB_PORT_PARAMETER=/cloudmart/${Environment}/db/port
-              Environment=DB_NAME_PARAMETER=/cloudmart/${Environment}/db/name
-              Environment=DB_USERNAME_PARAMETER=/cloudmart/${Environment}/db/username
-              Environment=DB_PASSWORD_PARAMETER=/cloudmart/${Environment}/db/password
-              Environment=AUTH_TOKEN_PARAMETER=/cloudmart/${Environment}/auth/token
-              Environment=REPORT_BUCKET=${ReportBucketName}
-              Environment=REPORT_BUCKET_PARAMETER=/cloudmart/${Environment}/s3/report-bucket
-              Environment=ENVIRONMENT=${Environment}
-              ExecStart=/opt/cloudmart/dashboard/.venv/bin/gunicorn --workers 2 --threads 4 --timeout 120 --access-logfile - --error-logfile - --bind 127.0.0.1:${DashboardPort} app:app
-              Restart=always
-              RestartSec=5
-              StartLimitIntervalSec=0
-              User=root
-
-              [Install]
-              WantedBy=multi-user.target
-              SERVICE
-
-              cat > /etc/nginx/conf.d/cloudmart-dashboard.conf <<NGINX
-              server {
-                  listen ${NginxPort};
-                  listen [::]:${NginxPort};
-                  server_name _;
-
-                  client_max_body_size 10m;
-
-                  location / {
-                      proxy_pass http://127.0.0.1:${DashboardPort};
-                      proxy_http_version 1.1;
-                      proxy_set_header Host $host;
-                      proxy_set_header X-Real-IP $remote_addr;
-                      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                      proxy_set_header X-Forwarded-Proto $scheme;
-                      proxy_read_timeout 120s;
-                  }
-              }
-              NGINX
-
-              nginx -t
-              systemctl enable nginx
-              systemctl restart nginx
-
-              systemctl daemon-reload
-              systemctl enable cloudmart-dashboard
-              systemctl restart cloudmart-dashboard
-              sleep 5
-              systemctl is-active --quiet cloudmart-dashboard
-              systemctl is-active --quiet nginx
-              curl --fail --silent --show-error --max-time 10 http://127.0.0.1:${DashboardPort}/health >/dev/null || {
-                journalctl -u cloudmart-dashboard -n 100 --no-pager
-                exit 1
-              }
-              curl --fail --silent --show-error --max-time 10 http://127.0.0.1:${NginxPort}/health >/dev/null || {
-                journalctl -u nginx -n 100 --no-pager
-                exit 1
-              }
+              AWS_REGION=${AWS::Region} \
+              ENVIRONMENT=${Environment} \
+              ARTIFACT_BUCKET=${ArtifactBucketName} \
+              REPORT_BUCKET=${ReportBucketName} \
+              DASHBOARD_PORT=${DashboardPort} \
+              NGINX_PORT=${NginxPort} \
+              /opt/cloudmart/dashboard/bootstrap-dashboard.sh
 
             - ArtifactBucketName:
                 Fn::ImportValue:
