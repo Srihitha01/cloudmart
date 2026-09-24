@@ -6,6 +6,7 @@ import hmac
 
 import boto3
 import pymysql
+from botocore.config import Config
 
 
 # ==========================================================
@@ -27,7 +28,13 @@ DB_USERNAME_PARAMETER = os.environ["DB_USERNAME_PARAMETER"]
 DB_PASSWORD_PARAMETER = os.environ["DB_PASSWORD_PARAMETER"]
 ADMIN_TOKEN_PARAMETER = os.environ["ADMIN_TOKEN_PARAMETER"]
 
-ssm = boto3.client("ssm")
+AWS_CLIENT_CONFIG = Config(
+    connect_timeout=3,
+    read_timeout=5,
+    retries={"max_attempts": 1, "mode": "standard"},
+)
+
+ssm = boto3.client("ssm", config=AWS_CLIENT_CONFIG)
 
 
 # ==========================================================
@@ -53,9 +60,9 @@ def get_connection():
         user=get_parameter(DB_USERNAME_PARAMETER),
         password=get_parameter(DB_PASSWORD_PARAMETER),
         database=get_parameter(DB_NAME_PARAMETER),
-        connect_timeout=10,
-        read_timeout=10,
-        write_timeout=10,
+        connect_timeout=3,
+        read_timeout=5,
+        write_timeout=5,
         autocommit=True,
         cursorclass=pymysql.cursors.DictCursor
     )

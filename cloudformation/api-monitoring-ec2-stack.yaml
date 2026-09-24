@@ -1295,7 +1295,7 @@ Resources:
   # API DEPLOYMENT
   # ==========================================================
 
-  ApiDeploymentV9:
+  ApiDeploymentV10:
 
     Type: AWS::ApiGateway::Deployment
 
@@ -1335,7 +1335,7 @@ Resources:
 
       Description:
         !Sub >
-          CloudMart ${Environment} API deployment V9 with
+          CloudMart ${Environment} API deployment V10 with
           customer-specific order routes and Lambda Authorizer
 
 
@@ -1372,7 +1372,7 @@ Resources:
         !Ref CloudMartApi
 
       DeploymentId:
-        !Ref ApiDeploymentV9
+        !Ref ApiDeploymentV10
 
       StageName:
         !Ref Environment
