@@ -29,7 +29,6 @@ lambda_client = boto3.client(
     "lambda",
     config=ORDER_PROCESSOR_INVOKE_CONFIG
 )
-cloudwatch = boto3.client("cloudwatch", config=AWS_API_CONFIG)
 
 _PARAMETER_CACHE = {}
 _PARAMETER_CACHE_TTL_SECONDS = 300
@@ -625,33 +624,44 @@ def invoke_order_processor(
 # ==========================================================
 
 def publish_custom_metric(metric_name, value=1):
-
+    """
+    Publish a CloudWatch business metric using Embedded Metric Format (EMF).
+    The metric is emitted to the Lambda log stream, avoiding a synchronous
+    CloudWatch API call from the private, no-NAT VPC.
+    """
     try:
+        metric_record = {
+            "_aws": {
+                "Timestamp": int(time.time() * 1000),
+                "CloudWatchMetrics": [
+                    {
+                        "Namespace": "CloudMart/Business",
+                        "Dimensions": [[]],
+                        "Metrics": [
+                            {
+                                "Name": metric_name,
+                                "Unit": "Count"
+                            }
+                        ]
+                    }
+                ]
+            },
+            metric_name: value
+        }
 
-        cloudwatch.put_metric_data(
-            Namespace="CloudMart/Business",
-            MetricData=[
-                {
-                    "MetricName": metric_name,
-                    "Value": value,
-                    "Unit": "Count"
-                }
-            ]
-        )
+        print(json.dumps(metric_record, default=str))
 
         log_event(
             "INFO",
-            "Custom CloudWatch metric published",
+            "Custom CloudWatch EMF metric emitted",
             metric_name=metric_name,
             value=value
         )
 
     except Exception as exc:
-
-        # Metric publication must not change a successful database operation
         log_event(
             "ERROR",
-            "Custom CloudWatch metric publication failed",
+            "Custom CloudWatch EMF metric emission failed",
             metric_name=metric_name,
             value=value,
             error_type=type(exc).__name__,
@@ -787,6 +797,69 @@ def publish_inventory_event(
         )
         return False
 
+
+
+def publish_inventory_events_batch(inventory_events):
+    """
+    Publish inventory changes in EventBridge batches of up to 10 entries.
+    This prevents one network call per product from consuming the API
+    Gateway's ~29 second integration window.
+    """
+    if not inventory_events:
+        return True
+
+    entries = []
+
+    for inventory in inventory_events:
+        detail = {
+            "product_id": inventory["product_id"],
+            "old_stock": inventory["old_stock"],
+            "new_stock": inventory["new_stock"]
+        }
+
+        entries.append(
+            {
+                "EventBusName": EVENT_BUS_NAME,
+                "Source": "cloudmart.inventory",
+                "DetailType": "InventoryChanged",
+                "Detail": json.dumps(detail)
+            }
+        )
+
+    all_succeeded = True
+
+    for start in range(0, len(entries), 10):
+        batch = entries[start:start + 10]
+
+        try:
+            result = events.put_events(Entries=batch)
+
+            if result.get("FailedEntryCount", 0):
+                all_succeeded = False
+                log_event(
+                    "WARN",
+                    "One or more inventory events failed",
+                    failed_entry_count=result.get("FailedEntryCount", 0),
+                    event_result=result
+                )
+            else:
+                log_event(
+                    "INFO",
+                    "Inventory events published",
+                    count=len(batch)
+                )
+
+        except Exception as exc:
+            all_succeeded = False
+            log_event(
+                "WARN",
+                "Inventory event batch publishing failed",
+                count=len(batch),
+                error_type=type(exc).__name__,
+                error=str(exc)
+            )
+
+    return all_succeeded
 
 
 # ==========================================================
@@ -2278,36 +2351,9 @@ def update_order_status(
             requested_status
             == "CANCELLED"
         ):
-
-            for inventory in inventory_events:
-
-                try:
-
-                    publish_inventory_event(
-                        product_id=
-                            inventory[
-                                "product_id"
-                            ],
-
-                        old_stock=
-                            inventory[
-                                "old_stock"
-                            ],
-
-                        new_stock=
-                            inventory[
-                                "new_stock"
-                            ]
-                    )
-
-                except Exception as exc:
-
-                    log_event(
-                        "ERROR",
-                        "Inventory event publishing failed",
-                        order_id=order_id,
-                        error=str(exc)
-                    )
+            publish_inventory_events_batch(
+                inventory_events
+            )
 
         return response(
             200,
