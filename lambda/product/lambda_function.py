@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import time
 from decimal import Decimal
 
 import boto3
@@ -22,6 +23,10 @@ AWS_API_CONFIG = Config(
 ssm = boto3.client("ssm", config=AWS_API_CONFIG)
 events = boto3.client("events", config=AWS_API_CONFIG)
 cloudwatch = boto3.client("cloudwatch", config=AWS_API_CONFIG)
+
+# Warm-Lambda cache for SSM configuration values.
+_PARAMETER_CACHE = {}
+_PARAMETER_CACHE_TTL_SECONDS = 300
 
 
 # ==========================================================
@@ -170,12 +175,36 @@ def response(status_code, body):
 # ==========================================================
 
 def get_parameter(name):
-    parameter = ssm.get_parameter(
-        Name=name,
-        WithDecryption=True
-    )
+    """Read an SSM parameter with a short warm-container cache."""
+    now = time.monotonic()
+    cached = _PARAMETER_CACHE.get(name)
 
-    return parameter["Parameter"]["Value"]
+    if cached is not None:
+        cached_value, cached_at = cached
+        if now - cached_at < _PARAMETER_CACHE_TTL_SECONDS:
+            return cached_value
+
+    try:
+        parameter = ssm.get_parameter(
+            Name=name,
+            WithDecryption=True
+        )
+        value = parameter["Parameter"]["Value"]
+    except Exception as exc:
+        log_event(
+            "ERROR",
+            "Unable to read SSM parameter",
+            parameter_name=name,
+            error_type=type(exc).__name__,
+            error=str(exc)
+        )
+        raise RuntimeError(
+            "CloudMart configuration could not be loaded"
+        ) from exc
+
+    _PARAMETER_CACHE[name] = (value, now)
+    return value
+
 
 
 # ==========================================================
@@ -183,41 +212,44 @@ def get_parameter(name):
 # ==========================================================
 
 def get_db_connection():
+    """Create a bounded-time MySQL connection and limit row-lock waits."""
+    connection = None
 
-    db_name = get_parameter(
-        DB_NAME_PARAMETER
-    )
+    try:
+        db_name = get_parameter(DB_NAME_PARAMETER)
+        db_host = get_parameter(DB_ENDPOINT_PARAMETER)
+        db_port = int(get_parameter(DB_PORT_PARAMETER))
+        db_username = get_parameter(DB_USERNAME_PARAMETER)
+        db_password = get_parameter(DB_PASSWORD_PARAMETER)
 
-    db_host = get_parameter(
-        DB_ENDPOINT_PARAMETER
-    )
-
-    db_port = int(
-        get_parameter(
-            DB_PORT_PARAMETER
+        connection = pymysql.connect(
+            host=db_host,
+            port=db_port,
+            user=db_username,
+            password=db_password,
+            database=db_name,
+            connect_timeout=5,
+            read_timeout=5,
+            write_timeout=5,
+            cursorclass=pymysql.cursors.DictCursor,
+            autocommit=False
         )
-    )
 
-    db_username = get_parameter(
-        DB_USERNAME_PARAMETER
-    )
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SET SESSION innodb_lock_wait_timeout = 5"
+            )
 
-    db_password = get_parameter(
-        DB_PASSWORD_PARAMETER
-    )
+        return connection
 
-    return pymysql.connect(
-        host=db_host,
-        port=db_port,
-        user=db_username,
-        password=db_password,
-        database=db_name,
-        connect_timeout=5,
-        read_timeout=5,
-        write_timeout=5,
-        cursorclass=pymysql.cursors.DictCursor,
-        autocommit=False
-    )
+    except Exception:
+        if connection is not None:
+            try:
+                connection.close()
+            except Exception:
+                pass
+        raise
+
 
 
 # ==========================================================
@@ -347,6 +379,12 @@ def validate_create_payload(data):
 
         raise ValueError(
             "price must be a valid number"
+        )
+
+    if not price.is_finite():
+
+        raise ValueError(
+            "price must be a finite number"
         )
 
     if price < 0:
@@ -806,6 +844,16 @@ def update_product(
                 }
             )
 
+        if not update_fields["price"].is_finite():
+
+            return response(
+                400,
+                {
+                    "message":
+                        "price must be a finite number"
+                }
+            )
+
         if update_fields["price"] < 0:
 
             return response(
@@ -1168,37 +1216,29 @@ def delete_product(
     event,
     context
 ):
-
     permission_error = require_admin(event)
     if permission_error is not None:
         return permission_error
 
-    product_id = get_product_id(
-        event
-    )
+    product_id = get_product_id(event)
 
     if product_id is None:
-
         return response(
             400,
             {
-                "message":
-                    "Product id is required"
+                "message": "Product id is required"
             }
         )
 
     connection = None
 
     try:
-
         connection = get_db_connection()
 
         with connection.cursor() as cursor:
-
             cursor.execute(
                 """
-                SELECT
-                    product_id
+                SELECT product_id
                 FROM products
                 WHERE product_id = %s
                   AND deleted_at IS NULL
@@ -1209,16 +1249,13 @@ def delete_product(
             product = cursor.fetchone()
 
             if product is None:
-
                 return response(
                     404,
                     {
-                        "message":
-                            "Product not found"
+                        "message": "Product not found"
                     }
                 )
 
-            # Soft delete
             cursor.execute(
                 """
                 UPDATE products
@@ -1231,33 +1268,114 @@ def delete_product(
                 (product_id,)
             )
 
-        connection.commit()
+            if cursor.rowcount != 1:
+                connection.rollback()
+                return response(
+                    409,
+                    {
+                        "message": "Product was already deleted or changed"
+                    }
+                )
 
+        connection.commit()
         publish_inventory_count(connection)
 
         log_event(
             "INFO",
             "Product deleted",
-            request_id=
-                context.aws_request_id,
-            product_id=
-                product_id
+            request_id=context.aws_request_id,
+            product_id=product_id
         )
 
         return response(
             200,
             {
-                "message":
-                    "Product deleted successfully",
-                "product_id":
-                    product_id
+                "message": "Product deleted successfully",
+                "product_id": product_id
+            }
+        )
+
+    except pymysql.err.IntegrityError as exc:
+        if connection is not None:
+            connection.rollback()
+
+        log_event(
+            "ERROR",
+            "Product deletion failed",
+            request_id=context.aws_request_id,
+            product_id=product_id,
+            error_type=type(exc).__name__,
+            error=str(exc)
+        )
+
+        return response(
+            400,
+            {
+                "message": "Invalid product deletion"
+            }
+        )
+
+    except pymysql.err.OperationalError as exc:
+        if connection is not None:
+            connection.rollback()
+
+        error_code = exc.args[0] if exc.args else None
+
+        log_event(
+            "ERROR",
+            "Product deletion database operation failed",
+            request_id=context.aws_request_id,
+            product_id=product_id,
+            error_code=error_code,
+            error_type=type(exc).__name__,
+            error=str(exc)
+        )
+
+        if error_code in (1205, 1213):
+            return response(
+                409,
+                {
+                    "message": "Product is currently being modified. Please try again.",
+                    "request_id": context.aws_request_id
+                }
+            )
+
+        return response(
+            500,
+            {
+                "message": "Database operation failed",
+                "request_id": context.aws_request_id
+            }
+        )
+
+    except Exception as exc:
+        if connection is not None:
+            connection.rollback()
+
+        log_event(
+            "ERROR",
+            "Product deletion failed",
+            request_id=context.aws_request_id,
+            product_id=product_id,
+            error_type=type(exc).__name__,
+            error=str(exc)
+        )
+
+        return response(
+            500,
+            {
+                "message": "Product deletion failed",
+                "request_id": context.aws_request_id
             }
         )
 
     finally:
-
         if connection is not None:
-            connection.close()
+            try:
+                connection.close()
+            except Exception:
+                pass
+
 
 
 # ==========================================================
