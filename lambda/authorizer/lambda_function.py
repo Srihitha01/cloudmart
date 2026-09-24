@@ -1,11 +1,9 @@
 import os
 import json
-import hashlib
 import logging
 import hmac
 
 import boto3
-import pymysql
 from botocore.config import Config
 
 
@@ -21,12 +19,13 @@ logger.setLevel(logging.INFO)
 # ENVIRONMENT
 # ==========================================================
 
-DB_ENDPOINT_PARAMETER = os.environ["DB_ENDPOINT_PARAMETER"]
-DB_PORT_PARAMETER = os.environ["DB_PORT_PARAMETER"]
-DB_NAME_PARAMETER = os.environ["DB_NAME_PARAMETER"]
-DB_USERNAME_PARAMETER = os.environ["DB_USERNAME_PARAMETER"]
-DB_PASSWORD_PARAMETER = os.environ["DB_PASSWORD_PARAMETER"]
 ADMIN_TOKEN_PARAMETER = os.environ["ADMIN_TOKEN_PARAMETER"]
+CUSTOMER_TOKENS_PARAMETER = os.environ["CUSTOMER_TOKENS_PARAMETER"]
+
+
+# ==========================================================
+# AWS CLIENT
+# ==========================================================
 
 AWS_CLIENT_CONFIG = Config(
     connect_timeout=3,
@@ -38,49 +37,70 @@ ssm = boto3.client("ssm", config=AWS_CLIENT_CONFIG)
 
 
 # ==========================================================
-# SSM
+# SSM HELPERS
 # ==========================================================
 
 def get_parameter(parameter_name):
     response = ssm.get_parameter(
         Name=parameter_name,
-        WithDecryption=True
+        WithDecryption=True,
     )
     return response["Parameter"]["Value"]
 
 
-# ==========================================================
-# DATABASE
-# ==========================================================
+def get_customer_token_map():
+    """
+    SecureString JSON mapping maintained by Customer Lambda:
 
-def get_connection():
-    return pymysql.connect(
-        host=get_parameter(DB_ENDPOINT_PARAMETER),
-        port=int(get_parameter(DB_PORT_PARAMETER)),
-        user=get_parameter(DB_USERNAME_PARAMETER),
-        password=get_parameter(DB_PASSWORD_PARAMETER),
-        database=get_parameter(DB_NAME_PARAMETER),
-        connect_timeout=3,
-        read_timeout=5,
-        write_timeout=5,
-        autocommit=True,
-        cursorclass=pymysql.cursors.DictCursor
-    )
+        {
+            "ABC123XYZ": 10,
+            "DEF456XYZ": 11
+        }
+
+    RDS continues to store only the SHA-256 token hash.
+    The authorizer stays outside the VPC, so it does not connect
+    directly to the private RDS instance.
+    """
+    raw_value = get_parameter(CUSTOMER_TOKENS_PARAMETER)
+
+    if not raw_value:
+        return {}
+
+    try:
+        mapping = json.loads(raw_value)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            "Customer token SSM parameter contains invalid JSON"
+        ) from exc
+
+    if not isinstance(mapping, dict):
+        raise RuntimeError(
+            "Customer token SSM parameter must contain a JSON object"
+        )
+
+    normalized = {}
+
+    for token, customer_id in mapping.items():
+        try:
+            normalized[str(token)] = int(customer_id)
+        except (TypeError, ValueError):
+            logger.warning(
+                json.dumps(
+                    {
+                        "event": "INVALID_CUSTOMER_TOKEN_MAPPING_ENTRY",
+                        "customer_id": str(customer_id),
+                    }
+                )
+            )
+
+    return normalized
 
 
 # ==========================================================
-# TOKEN HELPERS
+# TOKEN EXTRACTION
 # ==========================================================
 
 def extract_bearer_token(event):
-    """
-    TOKEN authorizer input:
-    {
-        "type": "TOKEN",
-        "authorizationToken": "Bearer <token>",
-        "methodArn": "..."
-    }
-    """
     authorization_header = event.get("authorizationToken", "")
 
     if not isinstance(authorization_header, str):
@@ -99,66 +119,29 @@ def extract_bearer_token(event):
     return token
 
 
-def hash_token(token):
-    return hashlib.sha256(
-        token.encode("utf-8")
-    ).hexdigest()
-
-
 # ==========================================================
 # CUSTOMER AUTHENTICATION
 # ==========================================================
 
 def authenticate_customer(token):
     """
-    Authentication only:
-    - Hash the supplied bearer token.
-    - Find an active customer.
-    - Return identity context.
+    Authorizer-side lookup.
 
-    Route permissions, ownership, order status rules, and
-    business validation must be handled by service Lambdas.
+    Customer Lambda maintains the SecureString mapping when a
+    customer is created and removes it during soft deletion.
+
+    The customers table still stores the SHA-256 token hash.
     """
-    token_hash = hash_token(token)
-    connection = None
+    mapping = get_customer_token_map()
+    customer_id = mapping.get(token)
 
-    try:
-        connection = get_connection()
-
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT customer_id
-                FROM customers
-                WHERE bearer_token = %s
-                  AND deleted_at IS NULL
-                  AND status = 'ACTIVE'
-                LIMIT 1
-                """,
-                (token_hash,)
-            )
-
-            customer = cursor.fetchone()
-
-            if not customer:
-                return None
-
-            return {
-                "customer_id": str(customer["customer_id"]),
-                "role": "CUSTOMER"
-            }
-
-    except Exception:
-        logger.exception(
-            json.dumps({
-                "event": "CUSTOMER_AUTHENTICATION_ERROR"
-            })
-        )
+    if customer_id is None:
         return None
 
-    finally:
-        if connection is not None:
-            connection.close()
+    return {
+        "customer_id": str(customer_id),
+        "role": "CUSTOMER",
+    }
 
 
 # ==========================================================
@@ -166,46 +149,28 @@ def authenticate_customer(token):
 # ==========================================================
 
 def authenticate_admin(token):
-    try:
-        configured_admin_token = get_parameter(
-            ADMIN_TOKEN_PARAMETER
-        )
+    configured_admin_token = get_parameter(ADMIN_TOKEN_PARAMETER)
 
-        if not configured_admin_token:
-            return None
-
-        is_valid = hmac.compare_digest(
-            token.encode("utf-8"),
-            configured_admin_token.encode("utf-8")
-        )
-
-        if not is_valid:
-            return None
-
-        return {
-            "customer_id": "",
-            "role": "ADMIN"
-        }
-
-    except Exception:
-        logger.exception(
-            json.dumps({
-                "event": "ADMIN_AUTHENTICATION_ERROR"
-            })
-        )
+    if not configured_admin_token:
         return None
+
+    if not hmac.compare_digest(
+        token.encode("utf-8"),
+        configured_admin_token.encode("utf-8"),
+    ):
+        return None
+
+    return {
+        "customer_id": "",
+        "role": "ADMIN",
+    }
 
 
 # ==========================================================
 # POLICY GENERATION
 # ==========================================================
 
-def generate_policy(
-    principal_id,
-    effect,
-    method_arn,
-    context=None
-):
+def generate_policy(principal_id, effect, method_arn, context=None):
     policy = {
         "principalId": str(principal_id),
         "policyDocument": {
@@ -214,10 +179,10 @@ def generate_policy(
                 {
                     "Action": "execute-api:Invoke",
                     "Effect": effect,
-                    "Resource": method_arn
+                    "Resource": method_arn,
                 }
-            ]
-        }
+            ],
+        },
     }
 
     if context:
@@ -234,7 +199,7 @@ def allow(principal_id, method_arn, identity):
         principal_id=principal_id,
         effect="Allow",
         method_arn=method_arn,
-        context=identity
+        context=identity,
     )
 
 
@@ -242,89 +207,107 @@ def deny(principal_id, method_arn):
     return generate_policy(
         principal_id=principal_id,
         effect="Deny",
-        method_arn=method_arn
+        method_arn=method_arn,
     )
 
 
 # ==========================================================
-# HANDLER
+# MAIN HANDLER
 # ==========================================================
 
 def lambda_handler(event, context):
-    request_id = getattr(
-        context,
-        "aws_request_id",
-        "unknown"
-    )
-
+    request_id = getattr(context, "aws_request_id", "unknown")
     method_arn = event.get("methodArn", "*")
 
     logger.info(
-        json.dumps({
-            "event": "AUTHENTICATION_REQUEST",
-            "request_id": request_id,
-            "authorizer_type": event.get("type", "UNKNOWN")
-        })
+        json.dumps(
+            {
+                "event": "AUTHENTICATION_REQUEST",
+                "request_id": request_id,
+                "authorizer_type": event.get("type", "UNKNOWN"),
+            }
+        )
     )
 
     token = extract_bearer_token(event)
 
     if token is None:
         logger.warning(
-            json.dumps({
-                "event": "AUTHENTICATION_DENIED",
-                "reason": "INVALID_BEARER_TOKEN_FORMAT",
-                "request_id": request_id
-            })
+            json.dumps(
+                {
+                    "event": "AUTHENTICATION_DENIED",
+                    "reason": "INVALID_BEARER_TOKEN_FORMAT",
+                    "request_id": request_id,
+                }
+            )
+        )
+        return deny("anonymous", method_arn)
+
+    # Admin is checked first.
+    try:
+        admin_identity = authenticate_admin(token)
+
+        if admin_identity is not None:
+            logger.info(
+                json.dumps(
+                    {
+                        "event": "AUTHENTICATION_ALLOWED",
+                        "role": "ADMIN",
+                        "request_id": request_id,
+                    }
+                )
+            )
+            return allow("admin", method_arn, admin_identity)
+
+    except Exception:
+        logger.exception(
+            json.dumps(
+                {
+                    "event": "ADMIN_AUTHENTICATION_ERROR",
+                    "request_id": request_id,
+                }
+            )
         )
 
-        return deny(
-            principal_id="unauthorized",
-            method_arn=method_arn
+    # Customer authentication uses the SSM SecureString mapping.
+    try:
+        customer_identity = authenticate_customer(token)
+
+        if customer_identity is not None:
+            logger.info(
+                json.dumps(
+                    {
+                        "event": "AUTHENTICATION_ALLOWED",
+                        "role": "CUSTOMER",
+                        "customer_id": customer_identity["customer_id"],
+                        "request_id": request_id,
+                    }
+                )
+            )
+            return allow(
+                customer_identity["customer_id"],
+                method_arn,
+                customer_identity,
+            )
+
+    except Exception:
+        logger.exception(
+            json.dumps(
+                {
+                    "event": "CUSTOMER_AUTHENTICATION_ERROR",
+                    "request_id": request_id,
+                }
+            )
         )
 
-    identity = authenticate_admin(token)
-
-    if identity is None:
-        identity = authenticate_customer(token)
-
-    if identity is None:
-        logger.warning(
-            json.dumps({
+    logger.warning(
+        json.dumps(
+            {
                 "event": "AUTHENTICATION_DENIED",
                 "reason": "INVALID_CREDENTIALS",
-                "request_id": request_id
-            })
+                "request_id": request_id,
+            }
         )
-
-        return deny(
-            principal_id="unauthorized",
-            method_arn=method_arn
-        )
-
-    role = identity["role"]
-    customer_id = identity.get("customer_id", "")
-
-    principal_id = (
-        "admin"
-        if role == "ADMIN"
-        else customer_id
     )
 
-    logger.info(
-        json.dumps({
-            "event": "AUTHENTICATION_SUCCESS",
-            "request_id": request_id,
-            "role": role,
-            "customer_id": customer_id
-        })
-    )
-
-    return allow(
-        principal_id=principal_id,
-        method_arn=method_arn,
-        identity={
-            "role": role,
-            "customer_id": customer_id
-        }
-    )
+    return deny("anonymous", method_arn)
