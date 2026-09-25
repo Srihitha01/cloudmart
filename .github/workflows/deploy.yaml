@@ -5,10 +5,12 @@ name: CloudMart Infrastructure Deployment
 # ============================================================
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
+    inputs:
+      db_password:
+        description: "Enter the CloudMart RDS database password (12-41 characters)"
+        required: true
+        type: string
 
 # ============================================================
 # GITHUB ACTIONS PERMISSIONS
@@ -406,10 +408,10 @@ jobs:
 
       - name: Mask DB Password
         env:
-          DB_PASSWORD_INPUT: ${{ secrets.CLOUDMART_DB_PASSWORD }}
+          DB_PASSWORD_INPUT: ${{ inputs.db_password }}
         run: |
           if [ -z "$DB_PASSWORD_INPUT" ]; then
-            echo "ERROR: Database password was not entered."
+            echo "ERROR: Database password input is empty."
             exit 1
           fi
 
@@ -423,7 +425,7 @@ jobs:
 
         env:
 
-          DB_PASSWORD: ${{ secrets.CLOUDMART_DB_PASSWORD }}
+          DB_PASSWORD: ${{ inputs.db_password }}
 
         run: |
 
@@ -443,7 +445,7 @@ jobs:
 
           PASSWORD_LENGTH=${#DB_PASSWORD}
 
-          echo "Database password secret is available."
+          echo "Database password input is available."
 
           if [ "$PASSWORD_LENGTH" -lt 12 ]; then
 
@@ -480,7 +482,7 @@ jobs:
 
         env:
 
-          DB_PASSWORD: ${{ secrets.CLOUDMART_DB_PASSWORD }}
+          DB_PASSWORD: ${{ inputs.db_password }}
 
         run: |
 
