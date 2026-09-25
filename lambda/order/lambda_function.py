@@ -621,40 +621,69 @@ def invoke_order_processor(
     order_data,
     context
 ):
-    """Invoke the Order Processor asynchronously.
+    """Invoke the Order Processor synchronously and return its API response.
 
-    The order architecture uses direct Lambda invocation rather than SQS.
-    Async invocation keeps POST /orders safely below API Gateway's timeout
-    while the processor handles PENDING -> PLACED -> CONFIRMED/FAILED and
-    sends the EventBridge/SNS notifications.
+    Direct Lambda invocation is retained (no SQS). The processor itself
+    publishes the PENDING notification immediately, waits about five seconds,
+    publishes the PLACED notification, then confirms/fails the order.
+
+    Waiting for the processor here lets POST /orders return the final database
+    status (normally CONFIRMED) to Thunder Client instead of returning an
+    intermediate 202/PENDING response. The Order Lambda timeout is 29 seconds
+    and the boto3 read timeout is bounded below that limit.
     """
     payload = json.dumps(order_data, default=str).encode("utf-8")
 
     try:
         result = lambda_client.invoke(
             FunctionName=ORDER_PROCESSOR_FUNCTION_NAME,
-            InvocationType="Event",
+            InvocationType="RequestResponse",
             Payload=payload
         )
 
-        status_code = int(result.get("StatusCode", 0) or 0)
-        if status_code not in (200, 202):
-            raise RuntimeError(
-                f"Order processor async invocation returned status {status_code}"
+        if result.get("FunctionError"):
+            log_event(
+                "ERROR",
+                "Order processor returned a function error",
+                request_id=context.aws_request_id,
+                function_error=result.get("FunctionError")
             )
+            raise RuntimeError("Order processor Lambda execution failed")
+
+        raw_payload = result.get("Payload")
+        if raw_payload is None:
+            raise RuntimeError("Order processor returned no payload")
+
+        raw_payload = raw_payload.read()
+        if isinstance(raw_payload, bytes):
+            raw_payload = raw_payload.decode("utf-8")
+
+        if not raw_payload:
+            raise RuntimeError("Order processor returned an empty response")
+
+        try:
+            processor_response = json.loads(raw_payload)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                "Order processor returned invalid JSON"
+            ) from exc
+
+        if not isinstance(processor_response, dict):
+            raise RuntimeError("Order processor returned an invalid response object")
 
         log_event(
             "INFO",
-            "Order processor invoked asynchronously",
+            "Order processor completed",
             request_id=context.aws_request_id,
-            invocation_status=status_code
+            processor_status_code=processor_response.get("statusCode")
         )
-        return True
+
+        return processor_response
 
     except Exception as exc:
         log_event(
             "ERROR",
-            "Order processor async invocation failed",
+            "Order processor invocation failed",
             request_id=context.aws_request_id,
             error_type=type(exc).__name__,
             error=str(exc)
@@ -886,19 +915,30 @@ def create_order(
                 items
         }
 
-        invoke_order_processor(
+        processor_response = invoke_order_processor(
             order_data,
             context
         )
 
+        processor_status_code = int(
+            processor_response.get("statusCode", 500) or 500
+        )
+
+        processor_body = processor_response.get("body", {})
+        if isinstance(processor_body, str):
+            try:
+                processor_body = json.loads(processor_body)
+            except json.JSONDecodeError:
+                processor_body = {"message": processor_body}
+
+        if not isinstance(processor_body, dict):
+            processor_body = {"message": str(processor_body)}
+
+        # The processor returns CONFIRMED after successful inventory deduction.
+        # Return that final state directly to Thunder Client.
         return response(
-            202,
-            {
-                "success": True,
-                "message": "Order accepted for processing",
-                "customer_id": customer_id,
-                "status": "PENDING"
-            }
+            processor_status_code,
+            processor_body
         )
 
     except PermissionError as exc:
