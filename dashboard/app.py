@@ -3,7 +3,9 @@ import hmac
 import logging
 import boto3
 import pymysql
-from datetime import datetime
+from datetime import datetime, date, timedelta
+import calendar
+import re
 from flask import Flask, render_template, render_template_string, request, redirect, url_for, session
 
 logging.basicConfig(level=logging.INFO)
@@ -151,6 +153,23 @@ def rupees(value):
     return "—" if value is None else f"₹{float(value):,.2f}"
 
 
+REPORT_DATE_RE = re.compile(r"(20\d{2}-\d{2}-\d{2})")
+
+
+def report_date_from_key(key, fallback=None):
+    match = REPORT_DATE_RE.search(key or "")
+    if match:
+        try:
+            return date.fromisoformat(match.group(1))
+        except ValueError:
+            pass
+    if isinstance(fallback, datetime):
+        return fallback.date()
+    if isinstance(fallback, date):
+        return fallback
+    return None
+
+
 def reports():
     bucket = report_bucket()
     if not bucket:
@@ -161,10 +180,12 @@ def reports():
         for obj in result.get("Contents", []):
             if not obj["Key"].lower().endswith(".csv"):
                 continue
+            report_date = report_date_from_key(obj["Key"], obj["LastModified"])
             rows.append({
                 "key": obj["Key"],
                 "size": obj["Size"],
                 "last_modified": obj["LastModified"],
+                "report_date": report_date.isoformat() if report_date else "",
                 "url": s3.generate_presigned_url(
                     "get_object",
                     Params={"Bucket": bucket, "Key": obj["Key"]},
@@ -172,9 +193,135 @@ def reports():
                 ),
             })
         rows.sort(key=lambda x: x["last_modified"], reverse=True)
-        return rows[:20], bucket
+        return rows[:50], bucket
     except Exception:
+        logger.exception("Unable to list daily reports")
         return [], bucket
+
+
+def inventory_budget():
+    raw = os.getenv("INVENTORY_BUDGET", "50000").strip()
+    try:
+        value = float(raw)
+        return value if value > 0 else 50000.0
+    except ValueError:
+        return 50000.0
+
+
+def dashboard_metrics():
+    today = date.today()
+    tomorrow = today + timedelta(days=1)
+    month_start = today.replace(day=1)
+    if today.month == 12:
+        month_end = date(today.year + 1, 1, 1)
+    else:
+        month_end = date(today.year, today.month + 1, 1)
+
+    inventory_value = scalar(
+        "SELECT COALESCE(SUM(price * stock_quantity),0) value "
+        "FROM products WHERE deleted_at IS NULL"
+    )
+    month_sales = scalar(
+        "SELECT COALESCE(SUM(total_amount),0) value FROM orders "
+        "WHERE order_date >= %s AND order_date < %s",
+        (month_start, month_end),
+    )
+    orders_today = scalar(
+        "SELECT COUNT(*) value FROM orders WHERE order_date >= %s AND order_date < %s",
+        (today, tomorrow),
+    )
+    avg_order = scalar("SELECT COALESCE(AVG(total_amount),0) value FROM orders")
+    pending = scalar("SELECT COUNT(*) value FROM orders WHERE status='PENDING'")
+    confirmed = scalar("SELECT COUNT(*) value FROM orders WHERE status='CONFIRMED'")
+    delivered = scalar("SELECT COUNT(*) value FROM orders WHERE status='DELIVERED'")
+    cancelled = scalar("SELECT COUNT(*) value FROM orders WHERE status='CANCELLED'")
+
+    status_rows = all_rows(
+        "SELECT status, COUNT(*) count FROM orders GROUP BY status ORDER BY status"
+    )
+    status_counts = {str(row["status"]): int(row["count"]) for row in status_rows}
+
+    series_start = today - timedelta(days=13)
+    series_end = tomorrow
+    series_rows = all_rows(
+        "SELECT DATE(order_date) order_day, COALESCE(SUM(total_amount),0) amount "
+        "FROM orders WHERE order_date >= %s AND order_date < %s "
+        "GROUP BY DATE(order_date) ORDER BY DATE(order_date)",
+        (series_start, series_end),
+    )
+    by_day = {}
+    for row in series_rows:
+        key = row["order_day"]
+        if hasattr(key, "isoformat"):
+            key = key.isoformat()
+        by_day[str(key)] = float(row["amount"] or 0)
+
+    sales_series = []
+    for offset in range(14):
+        day = series_start + timedelta(days=offset)
+        sales_series.append({
+            "date": day.isoformat(),
+            "label": day.strftime("%d %b"),
+            "amount": by_day.get(day.isoformat(), 0.0),
+        })
+
+    budget = inventory_budget()
+    usage_pct = min(100.0, (float(inventory_value or 0) / budget) * 100) if budget else 0.0
+
+    return {
+        "inventory_value": float(inventory_value or 0),
+        "inventory_budget": budget,
+        "inventory_budget_used_pct": usage_pct,
+        "month_sales": float(month_sales or 0),
+        "orders_today": int(orders_today or 0),
+        "avg_order": float(avg_order or 0),
+        "pending": int(pending or 0),
+        "confirmed": int(confirmed or 0),
+        "delivered": int(delivered or 0),
+        "cancelled": int(cancelled or 0),
+        "status_counts": status_counts,
+        "sales_series": sales_series,
+    }
+
+
+def report_calendar_data(selected_date, available_reports):
+    report_dates = {
+        row["report_date"]
+        for row in available_reports
+        if row.get("report_date")
+    }
+    month_matrix = calendar.monthcalendar(selected_date.year, selected_date.month)
+    weeks = []
+    for week in month_matrix:
+        days = []
+        for day_num in week:
+            if day_num == 0:
+                days.append(None)
+                continue
+            current = date(selected_date.year, selected_date.month, day_num)
+            days.append({
+                "day": day_num,
+                "iso": current.isoformat(),
+                "selected": current == selected_date,
+                "has_report": current.isoformat() in report_dates,
+                "today": current == date.today(),
+            })
+        weeks.append(days)
+
+    return {
+        "year": selected_date.year,
+        "month": selected_date.month,
+        "month_name": selected_date.strftime("%B %Y"),
+        "weeks": weeks,
+        "prev_year": (selected_date.replace(day=1) - timedelta(days=1)).year,
+        "prev_month": (selected_date.replace(day=1) - timedelta(days=1)).month,
+        "next_year": (
+            (selected_date.replace(day=28) + timedelta(days=4)).replace(day=1)
+        ).year,
+        "next_month": (
+            (selected_date.replace(day=28) + timedelta(days=4)).replace(day=1)
+        ).month,
+    }
 
 
 def context(**extra):
@@ -259,15 +406,62 @@ def health():
 @app.route("/")
 def dashboard():
     g = guard()
-    if g: return g
+    if g:
+        return g
     try:
         summary = context()["summary"]
-        products = all_rows("""SELECT p.product_id,p.name,COALESCE(c.name,'Uncategorized') category,p.price,p.stock_quantity,p.reorder_threshold FROM products p LEFT JOIN categories c ON p.category_id=c.category_id WHERE p.deleted_at IS NULL ORDER BY p.product_id LIMIT 12""")
-        orders = all_rows("SELECT order_id,customer_id,status,order_date,total_amount FROM orders ORDER BY order_date DESC LIMIT 12")
-        values = context(summary=summary, products=products, orders=orders)
+        products = all_rows(
+            """SELECT p.product_id,p.name,COALESCE(c.name,'Uncategorized') category,
+                      p.price,p.stock_quantity,p.reorder_threshold
+               FROM products p
+               LEFT JOIN categories c ON p.category_id=c.category_id
+               WHERE p.deleted_at IS NULL
+               ORDER BY p.product_id
+               LIMIT 12"""
+        )
+        orders = all_rows(
+            "SELECT order_id,customer_id,status,order_date,total_amount "
+            "FROM orders ORDER BY order_date DESC LIMIT 12"
+        )
+
+        available_reports = reports()[0]
+        today = date.today()
+        selected_raw = request.args.get("report_date", "").strip()
+        try:
+            selected_date = date.fromisoformat(selected_raw) if selected_raw else today
+        except ValueError:
+            selected_date = today
+
+        selected_report = next(
+            (r for r in available_reports if r.get("report_date") == selected_date.isoformat()),
+            None,
+        )
+
+        selected_month_raw = request.args.get("month", "").strip()
+        calendar_date = selected_date
+        if selected_month_raw:
+            try:
+                calendar_date = date.fromisoformat(f"{selected_month_raw}-01")
+            except ValueError:
+                calendar_date = selected_date
+
+        values = context(
+            summary=summary,
+            products=products,
+            orders=orders,
+            metrics=dashboard_metrics(),
+            selected_date=selected_date,
+            selected_report=selected_report,
+            report_calendar=report_calendar_data(calendar_date, available_reports),
+        )
         return render_template("index.html", title="Overview", **values)
     except Exception as exc:
-        return page("Overview", '<div class="panel"><div class="empty">Database error: {{error}}</div></div>', error=str(exc))
+        logger.exception("Dashboard load failed")
+        return page(
+            "Overview",
+            '<div class="panel"><div class="empty">Database error: {{error}}</div></div>',
+            error=str(exc),
+        )
 
 
 LIST = """
@@ -364,9 +558,123 @@ def events_page():
 @app.route("/reports")
 def reports_page():
     g = guard()
-    if g: return g
-    body = """{% if cloudwatch_url %}<div class="panel"><div class="heading"><h3>Monitoring</h3><span class="muted">CloudWatch</span></div><p>Open the CloudMart operations dashboard in CloudWatch.</p><a class="btn" href="{{cloudwatch_url}}" target="_blank" rel="noopener">Open CloudWatch dashboard</a></div>{% endif %}<div class="panel"><div class="heading"><h3>Daily reports</h3><span class="muted">{{report_bucket or 'Bucket not configured'}}</span></div>{%if reports%}<div class="table"><table><tr><th>Report</th><th>Size</th><th>Generated</th><th>Actions</th></tr>{%for r in reports%}<tr><td>{{r.key}}</td><td>{{r.size}} bytes</td><td>{{shown(r.last_modified)}}</td><td><a class="btn alt" href="{{url_for('report_view', key=r.key)}}">View report</a> <a class="btn alt" href="{{r.url}}" target="_blank" rel="noopener">Download CSV</a></td></tr>{%endfor%}</table></div>{%else%}<div class="empty">No generated reports found. Verify the report Lambda, EventBridge schedule, and S3 bucket parameter.</div>{%endif%}</div>"""
-    return page("Daily reports", body)
+    if g:
+        return g
+
+    available_reports = reports()[0]
+    today = date.today()
+    selected_raw = request.args.get("report_date", "").strip()
+    try:
+        selected_date = date.fromisoformat(selected_raw) if selected_raw else today
+    except ValueError:
+        selected_date = today
+
+    selected_report = next(
+        (r for r in available_reports if r.get("report_date") == selected_date.isoformat()),
+        None,
+    )
+
+    body = """
+    {% if cloudwatch_url %}
+    <div class="panel widget-blue">
+      <div class="heading"><h3>☁️ Monitoring</h3><span class="muted">CloudWatch</span></div>
+      <p>Open the CloudMart operations dashboard in CloudWatch.</p>
+      <a class="btn" href="{{cloudwatch_url}}" target="_blank" rel="noopener">Open CloudWatch dashboard</a>
+    </div>
+    {% endif %}
+
+    <div class="panel">
+      <div class="heading">
+        <div>
+          <h3>🗓️ Select a report date</h3>
+          <div class="muted">Choose a date to open the daily report generated for that day.</div>
+        </div>
+        {% if selected_report %}
+          <span class="badge green">Report available</span>
+        {% else %}
+          <span class="badge amber">No report for this date</span>
+        {% endif %}
+      </div>
+
+      <form class="date-picker-form" method="get">
+        <input type="date" name="report_date" value="{{selected_date.isoformat()}}">
+        <button type="submit">🔎 Show Report</button>
+      </form>
+
+      {% if selected_report %}
+      <div class="selected-report-card">
+        <div class="selected-report-icon">📊</div>
+        <div>
+          <strong>{{selected_report.key}}</strong>
+          <div class="muted">Generated {{shown(selected_report.last_modified)}}</div>
+        </div>
+        <div class="selected-report-actions">
+          <a class="btn" href="{{url_for('report_view', key=selected_report.key)}}">👁️ View Report</a>
+          <a class="btn alt" href="{{selected_report.url}}" target="_blank" rel="noopener">⬇️ Download CSV</a>
+        </div>
+      </div>
+      {% else %}
+      <div class="empty">No generated report was found for {{selected_date.strftime('%d %b %Y')}}.</div>
+      {% endif %}
+    </div>
+
+    <div class="panel">
+      <div class="heading">
+        <h3>📅 Report Calendar</h3>
+        <span class="muted">Dates with a green dot have a report</span>
+      </div>
+
+      <div class="calendar-wrap">
+        <div class="calendar-title">
+          <a class="calendar-nav" href="{{url_for('reports_page', report_date=('%04d-%02d-01'|format(report_calendar.prev_year, report_calendar.prev_month)))}}">‹</a>
+          <strong>{{report_calendar.month_name}}</strong>
+          <a class="calendar-nav" href="{{url_for('reports_page', report_date=('%04d-%02d-01'|format(report_calendar.next_year, report_calendar.next_month)))}}">›</a>
+        </div>
+        <div class="calendar-grid calendar-weekdays">
+          {% for d in ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'] %}<div>{{d}}</div>{% endfor %}
+        </div>
+        {% for week in report_calendar.weeks %}
+        <div class="calendar-grid">
+          {% for day in week %}
+            {% if day %}
+              <a class="calendar-day {% if day.selected %}selected{% endif %} {% if day.today %}today{% endif %}" href="{{url_for('reports_page', report_date=day.iso)}}">
+                <span>{{day.day}}</span>
+                {% if day.has_report %}<i title="Report available"></i>{% endif %}
+              </a>
+            {% else %}
+              <div class="calendar-day empty-day"></div>
+            {% endif %}
+          {% endfor %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="heading"><h3>📁 All Daily Reports</h3><span class="muted">{{report_bucket or 'Bucket not configured'}}</span></div>
+      {% if reports %}
+      <div class="table"><table>
+        <tr><th>Report</th><th>Date</th><th>Size</th><th>Generated</th><th>Actions</th></tr>
+        {% for r in reports %}
+        <tr>
+          <td>{{r.key}}</td>
+          <td>{{r.report_date or '—'}}</td>
+          <td>{{r.size}} bytes</td>
+          <td>{{shown(r.last_modified)}}</td>
+          <td>
+            <a class="btn alt" href="{{url_for('report_view', key=r.key)}}">👁️ View</a>
+            <a class="btn alt" href="{{r.url}}" target="_blank" rel="noopener">⬇️ CSV</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </table></div>
+      {% else %}
+      <div class="empty">No daily reports found. Verify the report Lambda, EventBridge schedule, and S3 bucket parameter.</div>
+      {% endif %}
+    </div>
+    """
+    return page("Daily reports", body, selected_date=selected_date, selected_report=selected_report,
+                report_calendar=report_calendar_data(selected_date, available_reports))
 
 
 @app.route("/reports/view")

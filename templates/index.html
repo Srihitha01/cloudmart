@@ -1,1567 +1,477 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-    <title>CloudMart Dashboard</title>
-
-    <style>
-        :root {
-            --navy: #101d3a;
-            --navy-light: #17284d;
-            --blue: #2563eb;
-            --blue-light: #477bff;
-
-            --bg: #f4f7fc;
-            --surface: #ffffff;
-
-            --text: #17233c;
-            --muted: #718096;
-
-            --line: #e5eaf3;
-
-            --green: #087f5b;
-            --green-bg: #e6f8ef;
-
-            --amber: #b86b08;
-            --amber-bg: #fff4df;
-
-            --red: #c53030;
-            --red-bg: #ffebeb;
-
-            --blue-bg: #eaf1ff;
-
-            --shadow:
-                0 10px 30px rgba(23, 35, 60, 0.07);
-        }
-
-        * {
-            box-sizing: border-box;
-        }
-
-        body {
-            margin: 0;
-            background:
-                linear-gradient(
-                    135deg,
-                    #f7f9fd,
-                    #eef4fc
-                );
-
-            color: var(--text);
-
-            font-family:
-                Inter,
-                ui-sans-serif,
-                system-ui,
-                -apple-system,
-                BlinkMacSystemFont,
-                "Segoe UI",
-                Arial,
-                sans-serif;
-
-            font-size: 14px;
-            line-height: 1.55;
-        }
-
-        a {
-            color: #1d4ed8;
-            text-decoration: none;
-        }
-
-        a:hover {
-            text-decoration: underline;
-        }
-
-        /* =========================
-           MAIN LAYOUT
-        ========================== */
-
-        .layout {
-            display: flex;
-            min-height: 100vh;
-        }
-
-        /* =========================
-           SIDEBAR
-        ========================== */
-
-        .side {
-            width: 252px;
-            flex: 0 0 252px;
-
-            background:
-                linear-gradient(
-                    180deg,
-                    var(--navy),
-                    #0e1931
-                );
-
-            color: white;
-
-            padding: 25px 14px;
-
-            position: sticky;
-            top: 0;
-
-            height: 100vh;
-
-            box-shadow:
-                8px 0 30px rgba(16, 29, 58, 0.08);
-        }
-
-        .brand {
-            padding:
-                5px 14px 26px;
-
-            border-bottom:
-                1px solid rgba(255,255,255,0.13);
-        }
-
-        .brand h1 {
-            margin: 0;
-
-            font-size: 24px;
-            font-weight: 850;
-        }
-
-        .brand p {
-            margin: 5px 0 0;
-
-            color: #b9c7e1;
-
-            font-size: 12px;
-        }
-
-        /* =========================
-           NAVIGATION
-        ========================== */
-
-        .nav {
-            display: grid;
-
-            gap: 7px;
-
-            margin-top: 25px;
-        }
-
-        .nav a {
-            display: flex;
-
-            align-items: center;
-
-            gap: 11px;
-
-            color: #d9e4fa;
-
-            padding:
-                12px 14px;
-
-            border:
-                1px solid transparent;
-
-            border-radius: 12px;
-
-            font-weight: 700;
-
-            text-decoration: none;
-
-            transition:
-                0.2s ease;
-        }
-
-        .nav a:before {
-            content: "";
-
-            width: 7px;
-            height: 7px;
-
-            border:
-                1px solid #8da5d0;
-
-            border-radius: 50%;
-        }
-
-        .nav a:hover {
-            background:
-                rgba(255,255,255,0.08);
-
-            transform:
-                translateX(2px);
-        }
-
-        .nav a.active {
-            background:
-                linear-gradient(
-                    135deg,
-                    var(--blue),
-                    var(--blue-light)
-                );
-
-            color: white;
-        }
-
-        .nav a.active:before {
-            background: white;
-        }
-
-        /* =========================
-           SIDEBAR FOOTER
-        ========================== */
-
-        .side-footer {
-            position: absolute;
-
-            left: 14px;
-            right: 14px;
-            bottom: 20px;
-
-            border-top:
-                1px solid rgba(255,255,255,0.13);
-
-            padding:
-                18px 4px 0;
-        }
-
-        .admin-label {
-            color: #aebedb;
-
-            font-size: 10px;
-
-            letter-spacing: 0.13em;
-
-            text-transform: uppercase;
-
-            margin:
-                0 12px 10px;
-
-            font-weight: 800;
-        }
-
-        .logout-btn {
-            display: flex;
-
-            gap: 10px;
-
-            color: #fecaca !important;
-
-            background:
-                rgba(185,28,28,0.13);
-
-            border:
-                1px solid rgba(252,165,165,0.2);
-
-            padding:
-                11px 13px;
-
-            border-radius: 11px;
-
-            text-decoration: none;
-        }
-
-        .logout-btn:hover {
-            background:
-                rgba(185,28,28,0.25);
-
-            text-decoration: none;
-        }
-
-        /* =========================
-           MAIN CONTENT
-        ========================== */
-
-        .main {
-            flex: 1;
-
-            min-width: 0;
-        }
-
-        /* =========================
-           TOP BAR
-        ========================== */
-
-        .top {
-            background:
-                rgba(255,255,255,0.94);
-
-            border-bottom:
-                1px solid var(--line);
-
-            padding:
-                20px 34px;
-
-            display: flex;
-
-            justify-content: space-between;
-
-            align-items: center;
-
-            position: sticky;
-
-            top: 0;
-
-            z-index: 5;
-        }
-
-        .top h2 {
-            margin: 0;
-
-            font-size: 22px;
-        }
-
-        .top small {
-            display: block;
-
-            color: var(--muted);
-
-            margin-top: 2px;
-        }
-
-        /* =========================
-           BUTTONS
-        ========================== */
-
-        .btn {
-            display: inline-flex;
-
-            align-items: center;
-
-            justify-content: center;
-
-            background:
-                linear-gradient(
-                    135deg,
-                    var(--blue),
-                    var(--blue-light)
-                );
-
-            color: white;
-
-            border-radius: 11px;
-
-            padding:
-                11px 16px;
-
-            font-weight: 800;
-
-            text-decoration: none;
-
-            border: none;
-
-            cursor: pointer;
-        }
-
-        .btn:hover {
-            text-decoration: none;
-
-            transform:
-                translateY(-1px);
-        }
-
-        .btn.alt {
-            background: #edf2fa;
-
-            color: #26344d;
-        }
-
-        /* =========================
-           CONTENT
-        ========================== */
-
-        .content {
-            padding: 32px;
-
-            max-width: 1700px;
-
-            margin: auto;
-        }
-
-        .hero h1 {
-            margin:
-                0 0 7px;
-
-            font-size: 31px;
-        }
-
-        .hero p {
-            margin: 0;
-
-            color: var(--muted);
-        }
-
-        /* =========================
-           SEARCH
-        ========================== */
-
-        .toolbar {
-            display: flex;
-
-            gap: 8px;
-
-            margin:
-                24px 0;
-        }
-
-        .search {
-            display: flex;
-
-            gap: 8px;
-
-            flex: 1;
-        }
-
-        .search input {
-            flex: 1;
-
-            border:
-                1px solid #d7e0ee;
-
-            border-radius: 11px;
-
-            padding:
-                12px 13px;
-
-            font: inherit;
-
-            outline: none;
-
-            background: white;
-        }
-
-        .search input:focus {
-            border-color:
-                var(--blue);
-
-            box-shadow:
-                0 0 0 3px
-                rgba(37,99,235,0.10);
-        }
-
-        .search button {
-            border: none;
-
-            border-radius: 11px;
-
-            padding:
-                11px 18px;
-
-            background:
-                var(--blue);
-
-            color: white;
-
-            font-weight: 800;
-
-            cursor: pointer;
-        }
-
-        .search button:hover {
-            background:
-                #1d4ed8;
-        }
-
-        /* =========================
-           SUMMARY CARDS
-        ========================== */
-
-        .cards {
-            display: grid;
-
-            grid-template-columns:
-                repeat(5, minmax(130px, 1fr));
-
-            gap: 16px;
-
-            margin:
-                24px 0;
-        }
-
-        .card {
-            display: block;
-
-            color: inherit;
-
-            text-decoration: none;
-
-            padding: 20px;
-
-            position: relative;
-
-            transition:
-                0.2s ease;
-
-            background:
-                rgba(255,255,255,0.96);
-
-            border:
-                1px solid var(--line);
-
-            border-radius: 17px;
-
-            box-shadow:
-                var(--shadow);
-        }
-
-        .card:hover {
-            transform:
-                translateY(-4px);
-
-            box-shadow:
-                0 14px 32px
-                rgba(23,35,60,0.13);
-
-            text-decoration: none;
-        }
-
-        .label {
-            color: #6c7b94;
-
-            font-size: 10px;
-
-            text-transform: uppercase;
-
-            font-weight: 850;
-
-            letter-spacing: 0.09em;
-        }
-
-        .number {
-            font-size: 31px;
-
-            font-weight: 900;
-
-            margin-top: 10px;
-        }
-
-        .card small {
-            display: block;
-
-            color: var(--muted);
-
-            margin-top: 6px;
-        }
-
-        /* =========================
-           PANELS
-        ========================== */
-
-        .panel {
-            background:
-                rgba(255,255,255,0.96);
-
-            border:
-                1px solid var(--line);
-
-            border-radius: 17px;
-
-            box-shadow:
-                var(--shadow);
-
-            padding: 24px;
-
-            margin-bottom: 24px;
-
-            overflow: hidden;
-        }
-
-        .heading {
-            display: flex;
-
-            justify-content: space-between;
-
-            gap: 10px;
-
-            align-items: center;
-
-            margin-bottom: 17px;
-        }
-
-        .heading h3 {
-            margin: 0;
-
-            font-size: 18px;
-        }
-
-        .muted {
-            color: var(--muted);
-
-            font-size: 12px;
-        }
-
-        /* =========================
-           TABLES
-        ========================== */
-
-        .table {
-            overflow-x: auto;
-
-            border:
-                1px solid #edf1f7;
-
-            border-radius: 12px;
-        }
-
-        table {
-            width: 100%;
-
-            border-collapse: collapse;
-
-            font-size: 13px;
-
-            background: white;
-        }
-
-        th,
-        td {
-            padding:
-                14px 13px;
-
-            border-bottom:
-                1px solid #edf1f7;
-
-            text-align: left;
-
-            white-space: nowrap;
-        }
-
-        tr:last-child td {
-            border-bottom: 0;
-        }
-
-        tbody tr:hover {
-            background:
-                #f7faff;
-        }
-
-        th {
-            background:
-                #f6f8fc;
-
-            color:
-                #60708b;
-
-            font-size: 10px;
-
-            text-transform: uppercase;
-
-            font-weight: 850;
-        }
-
-        /* =========================
-           STATUS BADGES
-        ========================== */
-
-        .badge {
-            display: inline-flex;
-
-            padding:
-                5px 10px;
-
-            border-radius: 999px;
-
-            font-size: 10px;
-
-            font-weight: 900;
-        }
-
-        .green {
-            background:
-                var(--green-bg);
-
-            color:
-                var(--green);
-        }
-
-        .amber {
-            background:
-                var(--amber-bg);
-
-            color:
-                var(--amber);
-        }
-
-        .red {
-            background:
-                var(--red-bg);
-
-            color:
-                var(--red);
-        }
-
-        .blue {
-            background:
-                var(--blue-bg);
-
-            color:
-                var(--blue);
-        }
-
-        .empty {
-            text-align: center;
-
-            padding: 32px;
-
-            color: var(--muted);
-        }
-
-        /* =========================
-           REPORT DOWNLOAD
-        ========================== */
-
-        .report-note {
-            margin-top: 14px;
-
-            padding:
-                12px 14px;
-
-            background:
-                #f5f8fd;
-
-            border-radius: 10px;
-
-            color:
-                var(--muted);
-
-            font-size: 12px;
-        }
-
-        /* =========================
-           RESPONSIVE
-        ========================== */
-
-        @media (max-width: 1250px) {
-
-            .cards {
-                grid-template-columns:
-                    repeat(3, 1fr);
-            }
-        }
-
-        @media (max-width: 750px) {
-
-            .side {
-                width: 78px;
-
-                flex-basis: 78px;
-
-                padding:
-                    18px 8px;
-            }
-
-            .brand {
-                text-align: center;
-            }
-
-            .brand h1 {
-                font-size: 0;
-            }
-
-            .brand h1:after {
-                content: "CM";
-
-                font-size: 19px;
-            }
-
-            .brand p,
-            .nav span,
-            .admin-label {
-                display: none;
-            }
-
-            .nav a {
-                justify-content: center;
-            }
-
-            .side-footer {
-                left: 8px;
-                right: 8px;
-            }
-
-            .top {
-                padding:
-                    16px 18px;
-            }
-
-            .content {
-                padding: 18px;
-            }
-
-            .cards {
-                grid-template-columns:
-                    repeat(2, 1fr);
-
-                gap: 11px;
-            }
-
-            .toolbar {
-                flex-direction: column;
-            }
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ title }} · CloudMart</title>
+<style>
+:root{
+  --navy:#101d3a;--navy2:#17284d;--blue:#2563eb;--blue2:#4f7cff;
+  --bg:#f4f7fc;--surface:#fff;--line:#e5eaf3;--text:#17233c;--muted:#718096;
+  --green:#087f5b;--amber:#b86b08;--red:#c53030;--purple:#7c3aed;
+  --cyan:#0891b2;--pink:#db2777;--shadow:0 10px 30px rgba(23,35,60,.07);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0;background:linear-gradient(135deg,#f7f9fd 0%,#eef4fc 100%);
+  color:var(--text);font:14px/1.55 Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
+}
+a{color:#1d4ed8;text-decoration:none}a:hover{text-decoration:none}
+.layout{display:flex;min-height:100vh}
+.side{
+  width:252px;flex:0 0 252px;background:linear-gradient(180deg,var(--navy) 0%,#0e1931 100%);
+  color:#fff;padding:25px 14px;position:sticky;top:0;height:100vh;box-shadow:8px 0 30px rgba(16,29,58,.08);
+}
+.brand{padding:5px 14px 26px;border-bottom:1px solid rgba(255,255,255,.13)}
+.brand h1{margin:0;font-size:24px;font-weight:850;letter-spacing:-.6px}
+.brand p{margin:5px 0 0;color:#b9c7e1;font-size:12px}
+.nav{display:grid;gap:7px;margin-top:25px}
+.nav a{
+  display:flex;align-items:center;gap:11px;color:#d9e4fa;padding:12px 14px;border:1px solid transparent;
+  border-radius:12px;font-weight:700;transition:.2s ease;
+}
+.nav a:hover{background:rgba(255,255,255,.08);transform:translateX(2px)}
+.nav a.active{background:linear-gradient(135deg,#2563eb,#477bff);color:#fff;box-shadow:0 8px 20px rgba(37,99,235,.28)}
+.nav .emoji{font-size:18px;width:24px;text-align:center}
+.side-footer{position:absolute;left:14px;right:14px;bottom:20px;border-top:1px solid rgba(255,255,255,.13);padding:18px 4px 0}
+.admin-label{color:#aebedb;font-size:10px;letter-spacing:.13em;text-transform:uppercase;margin:0 12px 10px;font-weight:800}
+.logout-btn{display:flex;align-items:center;gap:10px;color:#fecaca!important;background:rgba(185,28,28,.13);border:1px solid rgba(252,165,165,.2);padding:11px 13px;border-radius:11px}
+.logout-btn:hover{background:#c53030!important;color:#fff!important}
+
+.main{flex:1;min-width:0}
+.top{
+  background:rgba(255,255,255,.92);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);
+  padding:18px 32px;display:flex;justify-content:space-between;align-items:center;gap:18px;
+  position:sticky;top:0;z-index:10;box-shadow:0 2px 14px rgba(16,29,58,.04)
+}
+.top-left{display:flex;align-items:center;gap:12px}.top h2{margin:0;font-size:22px;font-weight:850}.top small{display:block;color:var(--muted);margin-top:2px}
+.top-right{display:flex;align-items:center;gap:10px;min-width:0}
+.search-top{width:min(380px,34vw);position:relative}.search-top input{padding-left:40px}
+.search-top .glass{position:absolute;left:13px;top:10px;font-size:17px;color:#7a879d}
+.user-chip{display:flex;align-items:center;gap:9px;padding:7px 9px;border:1px solid var(--line);background:#fff;border-radius:12px}
+.avatar{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:#e8efff;color:#2563eb;font-weight:900}
+
+.content{padding:28px 32px 40px;max-width:1750px;margin:auto}
+.hero{display:flex;justify-content:space-between;align-items:flex-end;gap:20px;margin-bottom:22px}
+.hero h1{margin:0 0 5px;font-size:32px;letter-spacing:-.9px}.hero p{margin:0;color:var(--muted)}
+.hero-actions{display:flex;gap:9px;flex-wrap:wrap}
+.btn,button{
+  display:inline-flex;align-items:center;justify-content:center;gap:7px;
+  background:linear-gradient(135deg,#2563eb,#477bff);color:#fff;border:0;border-radius:11px;
+  padding:10px 15px;font-weight:800;cursor:pointer;box-shadow:0 5px 14px rgba(37,99,235,.15);transition:.2s ease
+}
+.btn:hover,button:hover{transform:translateY(-1px);filter:brightness(1.03);text-decoration:none}
+.btn.alt{background:#edf2fa;color:#26344d;box-shadow:none}.btn.green-btn{background:linear-gradient(135deg,#10b981,#34d399)}
+.btn.purple-btn{background:linear-gradient(135deg,#7c3aed,#9f67ff)}
+.btn.orange-btn{background:linear-gradient(135deg,#f59e0b,#fbbf24);color:#422006}
+
+.search-row{display:flex;gap:9px;margin-bottom:24px}
+.search-row form{display:flex;gap:8px;flex:1}.search-row input{flex:1}
+
+input,select{
+  border:1px solid #d7e0ee;border-radius:11px;padding:11px 13px;width:100%;background:#fff;color:var(--text);font:inherit;outline:none
+}
+input:focus,select:focus{border-color:#7aa2ff;box-shadow:0 0 0 4px rgba(37,99,235,.09)}
+
+.widget-grid{
+  display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin:22px 0;
+}
+.widget{
+  border-radius:18px;border:1px solid var(--line);box-shadow:var(--shadow);padding:19px;position:relative;overflow:hidden;
+  background:#fff;
+}
+.widget::after{content:"";position:absolute;right:-22px;top:-22px;width:90px;height:90px;border-radius:50%;opacity:.13}
+.widget-icon{font-size:28px;line-height:1}.widget-label{margin-top:12px;font-size:11px;text-transform:uppercase;letter-spacing:.08em;font-weight:850;color:#60708b}
+.widget-value{font-size:28px;font-weight:900;letter-spacing:-.7px;margin-top:3px}.widget-foot{font-size:12px;color:var(--muted);margin-top:5px}
+.widget-blue{background:linear-gradient(135deg,#eef5ff,#fff)}.widget-blue::after{background:#2563eb}
+.widget-green{background:linear-gradient(135deg,#ebfff6,#fff)}.widget-green::after{background:#10b981}
+.widget-pink{background:linear-gradient(135deg,#fff0f7,#fff)}.widget-pink::after{background:#db2777}
+.widget-purple{background:linear-gradient(135deg,#f3edff,#fff)}.widget-purple::after{background:#7c3aed}
+.widget-orange{background:linear-gradient(135deg,#fff8e8,#fff)}.widget-orange::after{background:#f59e0b}
+.widget-red{background:linear-gradient(135deg,#fff0f0,#fff)}.widget-red::after{background:#ef4444}
+.widget-cyan{background:linear-gradient(135deg,#eafaff,#fff)}.widget-cyan::after{background:#0891b2}
+.widget-indigo{background:linear-gradient(135deg,#eef0ff,#fff)}.widget-indigo::after{background:#4f46e5}
+
+.layout-2{display:grid;grid-template-columns:1.55fr 1fr;gap:18px;margin-bottom:18px}
+.panel{background:rgba(255,255,255,.97);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);padding:21px;margin-bottom:18px;overflow:hidden}
+.panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:17px}
+.panel-head h3{margin:0;font-size:18px;letter-spacing:-.2px}.muted{color:var(--muted);font-size:12px}
+
+.chart{height:235px;display:flex;align-items:flex-end;gap:8px;padding:22px 10px 10px;border-radius:14px;background:linear-gradient(180deg,#fbfdff,#f4f8ff)}
+.bar-wrap{height:100%;flex:1;display:flex;align-items:flex-end;justify-content:center;min-width:0;position:relative}
+.bar{
+  width:min(28px,72%);border-radius:8px 8px 3px 3px;
+  background:linear-gradient(180deg,#4f7cff,#2563eb);min-height:4px;box-shadow:0 6px 14px rgba(37,99,235,.17)
+}
+.bar-label{position:absolute;bottom:-20px;font-size:9px;color:#7b8799;white-space:nowrap;transform:rotate(-42deg);transform-origin:left center}
+
+.status-list{display:grid;gap:12px}.status-row{display:grid;grid-template-columns:115px 1fr 44px;gap:10px;align-items:center;font-size:12px}
+.status-track{height:10px;border-radius:99px;background:#edf1f7;overflow:hidden}.status-fill{height:100%;border-radius:99px}
+.status-pending{background:#3b82f6}.status-confirmed{background:#10b981}.status-delivered{background:#22c55e}.status-cancelled{background:#ef4444}.status-failed{background:#f59e0b}
+
+.budget-box{display:grid;grid-template-columns:1fr auto;gap:16px;align-items:center}
+.progress{height:11px;background:#ede9fe;border-radius:99px;overflow:hidden;margin:9px 0 7px}
+.progress-fill{height:100%;background:linear-gradient(90deg,#7c3aed,#a855f7);border-radius:99px}
+.budget-number{font-size:25px;font-weight:900}.budget-note{font-size:12px;color:var(--muted)}
+
+.table{overflow-x:auto;border:1px solid #edf1f7;border-radius:12px}
+table{width:100%;border-collapse:collapse;font-size:13px;background:#fff}th,td{padding:13px;border-bottom:1px solid #edf1f7;text-align:left;white-space:nowrap}
+tr:last-child td{border-bottom:0}tbody tr:hover{background:#f7faff}
+th{background:#f6f8fc;color:#60708b;font-size:10px;text-transform:uppercase;font-weight:850;letter-spacing:.07em}
+.badge{display:inline-flex;align-items:center;padding:5px 10px;border-radius:999px;font-size:10px;font-weight:900}
+.green{background:#e6f8ef;color:var(--green)}.amber{background:#fff4df;color:var(--amber)}.red{background:#ffebeb;color:var(--red)}.blue{background:#eaf1ff;color:var(--blue)}
+
+.calendar-toolbar{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:13px}
+.calendar-month{display:flex;align-items:center;gap:14px;font-size:17px}
+.calendar-nav{width:34px;height:34px;border-radius:10px;background:#eef3fb;color:#26344d;display:grid;place-items:center;font-size:20px;font-weight:900}
+.calendar{border:1px solid #e7ecf3;border-radius:13px;overflow:hidden}
+.weekdays,.week{display:grid;grid-template-columns:repeat(7,1fr)}
+.weekdays div{padding:9px 6px;text-align:center;background:#f7f9fc;color:#718096;font-size:10px;font-weight:850}
+.day{
+  min-height:67px;border-top:1px solid #edf1f7;border-left:1px solid #edf1f7;padding:7px;
+  position:relative;background:#fff;color:#374151
+}
+.day:nth-child(7n+1){border-left:0}.day:hover{background:#f8fbff}
+.day-num{font-weight:800;font-size:12px}.day.today .day-num{display:inline-grid;place-items:center;width:25px;height:25px;border-radius:50%;background:#eaf1ff;color:#2563eb}
+.day.selected{box-shadow:inset 0 0 0 2px #2563eb;background:#f5f8ff}
+.day.has-report .report-dot{position:absolute;right:7px;top:9px;width:8px;height:8px;border-radius:50%;background:#10b981;box-shadow:0 0 0 3px #dcfce7}
+.day-link{display:block;height:100%;color:inherit}.day-link:hover{text-decoration:none}
+.calendar-event{margin-top:8px;font-size:9px;color:#087f5b;background:#e8f9f1;border-radius:7px;padding:3px 5px;font-weight:800}
+
+.report-selected{display:grid;grid-template-columns:auto 1fr auto;gap:13px;align-items:center;padding:14px;border-radius:14px;background:linear-gradient(135deg,#eefaf4,#f8fffb);border:1px solid #cbeedc}
+.report-icon{width:46px;height:46px;border-radius:13px;display:grid;place-items:center;background:#dff8ea;font-size:24px}
+.report-actions{display:flex;gap:8px;flex-wrap:wrap}
+.report-empty{padding:18px;border-radius:13px;background:#fff8e8;color:#8a5a00;border:1px solid #f3ddb0}
+
+.mini-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:13px}
+.mini{padding:15px;border-radius:14px;border:1px solid #edf1f7;background:#fbfcfe}.mini strong{display:block;font-size:20px}.mini span{font-size:11px;color:var(--muted)}
+.quick-actions{display:grid;grid-template-columns:repeat(3,1fr);gap:11px}.quick-action{padding:14px;border-radius:13px;text-align:left;border:1px solid #e8edf6;background:#fff;transition:.2s}.quick-action:hover{transform:translateY(-2px);box-shadow:0 8px 20px rgba(23,35,60,.09)}.quick-action .qa-icon{font-size:22px}.quick-action strong{display:block;margin-top:7px}
+
+.empty{text-align:center;padding:28px;color:var(--muted)}
+.small{font-size:11px;color:var(--muted)}
+.right{text-align:right}
+
+@media(max-width:1250px){
+  .widget-grid{grid-template-columns:repeat(3,1fr)}.layout-2{grid-template-columns:1fr}.search-top{width:30vw}
+}
+@media(max-width:850px){
+  .side{width:78px;flex-basis:78px;padding:18px 8px}.brand{text-align:center;padding-bottom:20px}.brand h1{font-size:0}.brand h1:after{content:"CM";font-size:19px}.brand p,.nav span,.admin-label{display:none}.nav a{justify-content:center;padding:13px 8px}.nav .emoji{font-size:19px}.side-footer{left:8px;right:8px}
+  .top{padding:15px 18px}.top-right .user-chip{display:none}.search-top{width:38vw}.content{padding:20px}.hero{align-items:flex-start;flex-direction:column}.widget-grid{grid-template-columns:repeat(2,1fr)}
+}
+@media(max-width:560px){
+  .top{align-items:flex-start;flex-direction:column}.top-right{width:100%}.search-top{width:100%}.hero h1{font-size:26px}.widget-grid{grid-template-columns:1fr 1fr;gap:10px}.widget{padding:15px}.widget-value{font-size:23px}.mini-grid{grid-template-columns:repeat(2,1fr)}.quick-actions{grid-template-columns:1fr}
+  .day{min-height:54px;padding:5px}.calendar-event{display:none}
+}
+</style>
 </head>
-
 <body>
-
 <div class="layout">
 
-    <!-- =========================================
-         SIDEBAR
-    ========================================== -->
+<aside class="side">
+  <div class="brand">
+    <h1>CloudMart</h1>
+    <p>Operations Console</p>
+  </div>
 
-    <aside class="side">
+  <nav class="nav">
+    <a class="{% if request.endpoint == 'dashboard' %}active{% endif %}" href="{{url_for('dashboard')}}"><span class="emoji">🏠</span><span>Home</span></a>
+    <a class="{% if request.endpoint in ['products_page','product_detail'] %}active{% endif %}" href="{{url_for('products_page')}}"><span class="emoji">📦</span><span>Products</span></a>
+    <a class="{% if request.endpoint in ['orders_page','order_detail'] %}active{% endif %}" href="{{url_for('orders_page')}}"><span class="emoji">🛒</span><span>Orders</span></a>
+    <a class="{% if request.endpoint in ['customers_page','customer_detail'] %}active{% endif %}" href="{{url_for('customers_page')}}"><span class="emoji">👥</span><span>Customers</span></a>
+    <a class="{% if request.endpoint == 'events_page' %}active{% endif %}" href="{{url_for('events_page')}}"><span class="emoji">🧾</span><span>Event History</span></a>
+    <a class="{% if request.endpoint in ['reports_page','report_view'] %}active{% endif %}" href="{{url_for('reports_page')}}"><span class="emoji">📊</span><span>Reports</span></a>
+    {% if cloudwatch_url %}
+    <a href="{{cloudwatch_url}}" target="_blank" rel="noopener"><span class="emoji">☁️</span><span>Monitoring</span></a>
+    {% endif %}
+    <a href="{{url_for('dashboard')}}#inventory-budget"><span class="emoji">🎯</span><span>Inventory Budget</span></a>
+  </nav>
 
-        <div class="brand">
+  <div class="side-footer">
+    <p class="admin-label">Administrator</p>
+    <a class="logout-btn" href="{{url_for('logout')}}"><span>↪</span><span>Log out</span></a>
+  </div>
+</aside>
 
-            <h1>CloudMart</h1>
+<section class="main">
+<header class="top">
+  <div class="top-left">
+    <div>
+      <h2>{{title}}</h2>
+      <small>Operations Console · {{aws_region}}</small>
+    </div>
+  </div>
+  <div class="top-right">
+    <form class="search-top" method="get" action="{{url_for('search')}}">
+      <span class="glass">⌕</span>
+      <input name="q" placeholder="Search products, orders, customers..." autocomplete="off">
+    </form>
+    <div class="user-chip"><div class="avatar">S</div><div><strong>Srihitha</strong><div class="small">Admin</div></div></div>
+    <a class="btn alt" href="{{request.path}}">↻ Refresh</a>
+  </div>
+</header>
 
-            <p>
-                Operations Console
-            </p>
+<main class="content">
+  <div class="hero">
+    <div>
+      <h1>Welcome back, Srihitha! 👋</h1>
+      <p>Here’s your CloudMart operational overview with inventory, orders, customers and dated reports.</p>
+    </div>
+    <div class="hero-actions">
+      <a class="btn" href="{{url_for('products_page')}}">📦 Products</a>
+      <a class="btn green-btn" href="{{url_for('orders_page')}}">🛒 Orders</a>
+      <a class="btn purple-btn" href="{{url_for('reports_page')}}">📊 Reports</a>
+    </div>
+  </div>
 
+  <div class="search-row">
+    <form method="get" action="{{url_for('search')}}">
+      <input name="q" placeholder="🔎 Search products, order IDs, customer IDs, names or email">
+      <button type="submit">Search</button>
+    </form>
+  </div>
+
+  <!-- ================= KPI WIDGETS ================= -->
+  <section class="widget-grid">
+    <a class="widget widget-blue" href="{{url_for('products_page')}}">
+      <div class="widget-icon">📦</div><div class="widget-label">Total Products</div>
+      <div class="widget-value">{{summary['products']}}</div><div class="widget-foot">Active products in inventory</div>
+    </a>
+
+    <a class="widget widget-green" href="{{url_for('orders_page')}}">
+      <div class="widget-icon">🛒</div><div class="widget-label">Total Orders</div>
+      <div class="widget-value">{{summary['orders']}}</div><div class="widget-foot">{{metrics.orders_today}} orders today</div>
+    </a>
+
+    <a class="widget widget-pink" href="{{url_for('customers_page')}}">
+      <div class="widget-icon">👥</div><div class="widget-label">Total Customers</div>
+      <div class="widget-value">{{summary['customers']}}</div><div class="widget-foot">Active customer records</div>
+    </a>
+
+    <div class="widget widget-orange">
+      <div class="widget-icon">💰</div><div class="widget-label">Inventory Value</div>
+      <div class="widget-value">{{rupees(metrics.inventory_value)}}</div><div class="widget-foot">Current stock × unit price</div>
+    </div>
+
+    <div class="widget widget-purple" id="inventory-budget">
+      <div class="widget-icon">🎯</div><div class="widget-label">Inventory Budget</div>
+      <div class="widget-value">{{rupees(metrics.inventory_budget)}}</div>
+      <div class="widget-foot">{{"%.1f"|format(metrics.inventory_budget_used_pct)}}% of budget currently used</div>
+    </div>
+
+    <a class="widget widget-red" href="{{url_for('products_page',filter='low_stock')}}">
+      <div class="widget-icon">⚠️</div><div class="widget-label">Low Stock</div>
+      <div class="widget-value">{{summary['low']}}</div><div class="widget-foot">Needs replenishment</div>
+    </a>
+
+    <a class="widget widget-red" href="{{url_for('orders_page',status='FAILED')}}">
+      <div class="widget-icon">❌</div><div class="widget-label">Failed Orders</div>
+      <div class="widget-value">{{summary['failed']}}</div><div class="widget-foot">Orders requiring attention</div>
+    </a>
+
+    <div class="widget widget-cyan">
+      <div class="widget-icon">💵</div><div class="widget-label">Sales This Month</div>
+      <div class="widget-value">{{rupees(metrics.month_sales)}}</div><div class="widget-foot">Average order {{rupees(metrics.avg_order)}}</div>
+    </div>
+  </section>
+
+  <!-- ================= INVENTORY BUDGET + STATUS ================= -->
+  <div class="layout-2">
+    <section class="panel" id="inventory-budget-panel">
+      <div class="panel-head">
+        <div><h3>🎯 Inventory Budget</h3><div class="muted">Current inventory value compared with the configured budget</div></div>
+        <span class="badge purple" style="background:#f2eafe;color:#6d28d9">{{"%.1f"|format(metrics.inventory_budget_used_pct)}}% used</span>
+      </div>
+      <div class="budget-box">
+        <div>
+          <div class="budget-number">{{rupees(metrics.inventory_value)}} <span class="muted">/ {{rupees(metrics.inventory_budget)}}</span></div>
+          <div class="progress"><div class="progress-fill" style="width:{{metrics.inventory_budget_used_pct}}%"></div></div>
+          <div class="budget-note">Set your actual budget through the <code>INVENTORY_BUDGET</code> environment variable on the dashboard server.</div>
         </div>
-
-
-        <nav class="nav">
-
-            <!-- Overview -->
-            <a
-                class="active"
-                href="{{ url_for('dashboard') }}"
-            >
-                <span>
-                    Overview
-                </span>
-            </a>
-
-
-            <!-- Products -->
-            <a
-                href="{{ url_for('products_page') }}"
-            >
-                <span>
-                    Products
-                </span>
-            </a>
-
-
-            <!-- Orders -->
-            <a
-                href="{{ url_for('orders_page') }}"
-            >
-                <span>
-                    Orders
-                </span>
-            </a>
-
-
-            <!-- Customers -->
-            <a
-                href="{{ url_for('customers_page') }}"
-            >
-                <span>
-                    Customers
-                </span>
-            </a>
-
-
-            <!-- Event History -->
-            <a
-                href="{{ url_for('events_page') }}"
-            >
-                <span>
-                    Event History
-                </span>
-            </a>
-
-
-            <!-- Daily Reports -->
-            <a
-                href="{{ url_for('reports_page') }}"
-            >
-                <span>
-                    Daily Reports
-                </span>
-            </a>
-
-
-            <!-- CloudWatch -->
-            {% if cloudwatch_url %}
-
-            <a
-                href="{{ cloudwatch_url }}"
-                target="_blank"
-                rel="noopener"
-            >
-                <span>
-                    Monitoring
-                </span>
-            </a>
-
-            {% endif %}
-
-        </nav>
-
-
-        <!-- SIDEBAR FOOTER -->
-
-        <div class="side-footer">
-
-            <p class="admin-label">
-                Administrator
-            </p>
-
-            <a
-                class="logout-btn"
-                href="{{ url_for('logout') }}"
-            >
-                ↪
-
-                <span>
-                    Log out
-                </span>
-
-            </a>
-
-        </div>
-
-    </aside>
-
-
-    <!-- =========================================
-         MAIN CONTENT
-    ========================================== -->
-
-    <section class="main">
-
-
-        <!-- TOP BAR -->
-
-        <header class="top">
-
-            <div>
-
-                <h2>
-                    Overview
-                </h2>
-
-                <small>
-                    Operations Console
-                    ·
-                    {{ aws_region }}
-                </small>
-
-            </div>
-
-
-            <a
-                class="btn alt"
-                href="{{ request.path }}"
-            >
-                Refresh
-            </a>
-
-        </header>
-
-
-        <main class="content">
-
-
-            <!-- =================================
-                 HERO
-            ================================== -->
-
-            <div class="hero">
-
-                <h1>
-                    CloudMart Overview
-                </h1>
-
-                <p>
-                    Live operational visibility for
-                    inventory, customers, orders,
-                    events, and private S3 reports.
-                </p>
-
-            </div>
-
-
-            <!-- =================================
-                 SEARCH
-            ================================== -->
-
-            <div class="toolbar">
-
-                <form
-                    class="search"
-                    method="get"
-                    action="{{ url_for('search') }}"
-                >
-
-                    <input
-                        type="text"
-                        name="q"
-                        placeholder="Search products, orders, or customers"
-                        autocomplete="off"
-                    >
-
-                    <button type="submit">
-                        Search
-                    </button>
-
-                </form>
-
-            </div>
-
-
-            <!-- =================================
-                 SUMMARY CARDS
-            ================================== -->
-
-            <div class="cards">
-
-
-                <!-- PRODUCTS -->
-
-                <a
-                    class="card"
-                    href="{{ url_for('products_page') }}"
-                >
-
-                    <div class="label">
-                        Products
-                    </div>
-
-                    <div class="number">
-                        {{ summary['products'] }}
-                    </div>
-
-                    <small>
-                        View inventory
-                    </small>
-
-                </a>
-
-
-                <!-- CUSTOMERS -->
-
-                <a
-                    class="card"
-                    href="{{ url_for('customers_page') }}"
-                >
-
-                    <div class="label">
-                        Customers
-                    </div>
-
-                    <div class="number">
-                        {{ summary['customers'] }}
-                    </div>
-
-                    <small>
-                        View customers
-                    </small>
-
-                </a>
-
-
-                <!-- ORDERS -->
-
-                <a
-                    class="card"
-                    href="{{ url_for('orders_page') }}"
-                >
-
-                    <div class="label">
-                        Orders
-                    </div>
-
-                    <div class="number">
-                        {{ summary['orders'] }}
-                    </div>
-
-                    <small>
-                        View orders
-                    </small>
-
-                </a>
-
-
-                <!-- LOW STOCK -->
-
-                <a
-                    class="card"
-                    href="{{ url_for('products_page', filter='low_stock') }}"
-                >
-
-                    <div class="label">
-                        Low Stock
-                    </div>
-
-                    <div class="number">
-                        {{ summary['low'] }}
-                    </div>
-
-                    <small>
-                        View affected products
-                    </small>
-
-                </a>
-
-
-                <!-- FAILED ORDERS -->
-
-                <a
-                    class="card"
-                    href="{{ url_for('orders_page', status='FAILED') }}"
-                >
-
-                    <div class="label">
-                        Failed Orders
-                    </div>
-
-                    <div class="number">
-                        {{ summary['failed'] }}
-                    </div>
-
-                    <small>
-                        View failed orders
-                    </small>
-
-                </a>
-
-            </div>
-
-
-            <!-- =================================
-                 CURRENT INVENTORY
-            ================================== -->
-
-            <div class="panel">
-
-                <div class="heading">
-
-                    <h3>
-                        Current Inventory
-                    </h3>
-
-                    <a
-                        href="{{ url_for('products_page') }}"
-                    >
-                        View all
-                    </a>
-
-                </div>
-
-
-                <div class="table">
-
-                    <table>
-
-                        <thead>
-
-                            <tr>
-
-                                <th>
-                                    ID
-                                </th>
-
-                                <th>
-                                    Product
-                                </th>
-
-                                <th>
-                                    Category
-                                </th>
-
-                                <th>
-                                    Price
-                                </th>
-
-                                <th>
-                                    Stock
-                                </th>
-
-                                <th>
-                                    Status
-                                </th>
-
-                                <th>
-                                    Action
-                                </th>
-
-                            </tr>
-
-                        </thead>
-
-
-                        <tbody>
-
-                        {% for p in products %}
-
-                            <tr>
-
-                                <td>
-                                    {{ p.product_id }}
-                                </td>
-
-                                <td>
-                                    {{ p.name }}
-                                </td>
-
-                                <td>
-                                    {{ p.category }}
-                                </td>
-
-                                <td>
-                                    {{ rupees(p.price) }}
-                                </td>
-
-                                <td>
-                                    {{ p.stock_quantity }}
-                                </td>
-
-                                <td>
-
-                                    {% if
-                                        p.stock_quantity
-                                        <=
-                                        p.reorder_threshold
-                                    %}
-
-                                        <span class="badge amber">
-                                            Low Stock
-                                        </span>
-
-                                    {% else %}
-
-                                        <span class="badge green">
-                                            Healthy
-                                        </span>
-
-                                    {% endif %}
-
-                                </td>
-
-                                <td>
-
-                                    <a
-                                        href="{{ url_for(
-                                            'product_detail',
-                                            product_id=p.product_id
-                                        ) }}"
-                                    >
-                                        View Details
-                                    </a>
-
-                                </td>
-
-                            </tr>
-
-                        {% else %}
-
-                            <tr>
-
-                                <td
-                                    colspan="7"
-                                    class="empty"
-                                >
-                                    No products found.
-                                </td>
-
-                            </tr>
-
-                        {% endfor %}
-
-                        </tbody>
-
-                    </table>
-
-                </div>
-
-            </div>
-
-
-            <!-- =================================
-                 RECENT ORDERS
-            ================================== -->
-
-            <div class="panel">
-
-                <div class="heading">
-
-                    <h3>
-                        Recent Orders
-                    </h3>
-
-                    <a
-                        href="{{ url_for('orders_page') }}"
-                    >
-                        View all
-                    </a>
-
-                </div>
-
-
-                <div class="table">
-
-                    <table>
-
-                        <thead>
-
-                            <tr>
-
-                                <th>
-                                    Order
-                                </th>
-
-                                <th>
-                                    Customer
-                                </th>
-
-                                <th>
-                                    Date
-                                </th>
-
-                                <th>
-                                    Amount
-                                </th>
-
-                                <th>
-                                    Status
-                                </th>
-
-                                <th>
-                                    Action
-                                </th>
-
-                            </tr>
-
-                        </thead>
-
-
-                        <tbody>
-
-                        {% for o in orders %}
-
-                            <tr>
-
-                                <td>
-
-                                    <a
-                                        href="{{ url_for(
-                                            'order_detail',
-                                            order_id=o.order_id
-                                        ) }}"
-                                    >
-                                        #{{ o.order_id }}
-                                    </a>
-
-                                </td>
-
-                                <td>
-                                    #{{ o.customer_id }}
-                                </td>
-
-                                <td>
-                                    {{ shown(o.order_date) }}
-                                </td>
-
-                                <td>
-                                    {{ rupees(o.total_amount) }}
-                                </td>
-
-                                <td>
-
-                                    {% if
-                                        o.status in
-                                        ['FAILED', 'CANCELLED']
-                                    %}
-
-                                        <span class="badge red">
-                                            {{ o.status }}
-                                        </span>
-
-                                    {% elif
-                                        o.status in
-                                        ['CONFIRMED', 'DELIVERED']
-                                    %}
-
-                                        <span class="badge green">
-                                            {{ o.status }}
-                                        </span>
-
-                                    {% else %}
-
-                                        <span class="badge blue">
-                                            {{ o.status }}
-                                        </span>
-
-                                    {% endif %}
-
-                                </td>
-
-                                <td>
-
-                                    <a
-                                        href="{{ url_for(
-                                            'order_detail',
-                                            order_id=o.order_id
-                                        ) }}"
-                                    >
-                                        View Details
-                                    </a>
-
-                                </td>
-
-                            </tr>
-
-                        {% else %}
-
-                            <tr>
-
-                                <td
-                                    colspan="6"
-                                    class="empty"
-                                >
-                                    No orders found.
-                                </td>
-
-                            </tr>
-
-                        {% endfor %}
-
-                        </tbody>
-
-                    </table>
-
-                </div>
-
-            </div>
-
-
-            <!-- =================================
-                 LATEST S3 REPORTS
-            ================================== -->
-
-            <div class="panel">
-
-                <div class="heading">
-
-                    <h3>
-                        Latest S3 Reports
-                    </h3>
-
-                    <a
-                        href="{{ url_for('reports_page') }}"
-                    >
-                        Open Reports
-                    </a>
-
-                </div>
-
-
-                {% if reports %}
-
-                    <div class="table">
-
-                        <table>
-
-                            <thead>
-
-                                <tr>
-
-                                    <th>
-                                        Report
-                                    </th>
-
-                                    <th>
-                                        Generated
-                                    </th>
-
-                                    <th>
-                                        Download
-                                    </th>
-
-                                </tr>
-
-                            </thead>
-
-
-                            <tbody>
-
-                            {% for r in reports[:5] %}
-
-                                <tr>
-
-                                    <td>
-                                        {{ r.key }}
-                                    </td>
-
-                                    <td>
-                                        {{ shown(r.last_modified) }}
-                                    </td>
-
-                                    <td>
-
-                                        <!--
-                                            IMPORTANT:
-                                            r.url is generated by Flask
-                                            using an S3 presigned URL.
-
-                                            The S3 bucket remains private.
-                                        -->
-
-                                        <a
-                                            class="btn alt"
-                                            href="{{ r.url }}"
-                                            target="_blank"
-                                            rel="noopener"
-                                        >
-                                            Download CSV
-                                        </a>
-
-                                    </td>
-
-                                </tr>
-
-                            {% endfor %}
-
-                            </tbody>
-
-                        </table>
-
-                    </div>
-
-                    <div class="report-note">
-
-                        🔐 Reports are stored in a private
-                        Amazon S3 bucket.
-
-                        Downloads use a temporary
-                        <strong>presigned S3 URL</strong>
-                        and expire after one hour.
-
-                    </div>
-
-                {% else %}
-
-                    <div class="empty">
-
-                        No daily report is available yet.
-
-                    </div>
-
-                {% endif %}
-
-            </div>
-
-
-        </main>
-
+        <div style="font-size:38px">💳</div>
+      </div>
     </section>
 
-</div>
+    <section class="panel">
+      <div class="panel-head"><div><h3>📦 Order Status</h3><div class="muted">Current order distribution</div></div></div>
+      {% set total_status = namespace(value=0) %}
+      {% for value in metrics.status_counts.values() %}{% set total_status.value = total_status.value + value %}{% endfor %}
+      <div class="status-list">
+        {% for status, icon, cls in [('PENDING','⏳','status-pending'),('CONFIRMED','✅','status-confirmed'),('DELIVERED','📦','status-delivered'),('CANCELLED','🚫','status-cancelled'),('FAILED','❌','status-failed')] %}
+          {% set count = metrics.status_counts.get(status, 0) %}
+          {% set pct = ((count / total_status) * 100) if total_status.value else 0 %}
+          <div class="status-row">
+            <div>{{icon}} {{status}}</div>
+            <div class="status-track"><div class="status-fill {{cls}}" style="width:{{pct}}%"></div></div>
+            <strong>{{count}}</strong>
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+  </div>
 
+  <!-- ================= SALES CHART + QUICK WIDGETS ================= -->
+  <div class="layout-2">
+    <section class="panel">
+      <div class="panel-head"><div><h3>📈 Sales Overview</h3><div class="muted">Last 14 days from orders in RDS</div></div><span class="badge blue">Live</span></div>
+      {% set max_sale = namespace(value=1) %}
+      {% for s in metrics.sales_series %}{% if s.amount > max_sale.value %}{% set max_sale.value = s.amount %}{% endif %}{% endfor %}
+      <div class="chart">
+        {% for s in metrics.sales_series %}
+          {% set height = (s.amount / max_sale.value * 88) if max_sale.value else 4 %}
+          <div class="bar-wrap" title="{{s.label}} · {{rupees(s.amount)}}">
+            <div class="bar" style="height:{{height}}%"></div>
+            <span class="bar-label">{{s.label}}</span>
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><div><h3>⚡ Quick Widgets</h3><div class="muted">Jump directly to important areas</div></div></div>
+      <div class="mini-grid">
+        <div class="mini"><strong>⏳ {{metrics.pending}}</strong><span>Pending orders</span></div>
+        <div class="mini"><strong>✅ {{metrics.confirmed}}</strong><span>Confirmed orders</span></div>
+        <div class="mini"><strong>🚚 {{metrics.delivered}}</strong><span>Delivered orders</span></div>
+        <div class="mini"><strong>🚫 {{metrics.cancelled}}</strong><span>Cancelled orders</span></div>
+      </div>
+      <div style="height:13px"></div>
+      <div class="quick-actions">
+        <a class="quick-action" href="{{url_for('products_page',filter='low_stock')}}"><div class="qa-icon">⚠️</div><strong>Low Stock</strong><span class="small">Review {{summary['low']}} products</span></a>
+        <a class="quick-action" href="{{url_for('orders_page',status='FAILED')}}"><div class="qa-icon">❌</div><strong>Failed Orders</strong><span class="small">Review {{summary['failed']}} orders</span></a>
+        <a class="quick-action" href="{{url_for('reports_page')}}"><div class="qa-icon">📊</div><strong>Reports</strong><span class="small">Choose a report date</span></a>
+      </div>
+    </section>
+  </div>
+
+  <!-- ================= REPORT CALENDAR ================= -->
+  <section class="panel" id="reports">
+    <div class="panel-head">
+      <div><h3>📅 Daily Report Calendar</h3><div class="muted">Select any date. If a report exists for that date, it appears below immediately.</div></div>
+      <form method="get" style="display:flex;gap:8px;align-items:center">
+        <input type="date" name="report_date" value="{{selected_date.isoformat()}}">
+        <button type="submit">🔎 Show Report</button>
+      </form>
+    </div>
+
+    <div class="calendar-toolbar">
+      <a class="calendar-nav" href="{{url_for('dashboard', month='%04d-%02d'|format(report_calendar.prev_year, report_calendar.prev_month), report_date=selected_date.isoformat())}}">‹</a>
+      <div class="calendar-month"><strong>{{report_calendar.month_name}}</strong></div>
+      <a class="calendar-nav" href="{{url_for('dashboard', month='%04d-%02d'|format(report_calendar.next_year, report_calendar.next_month), report_date=selected_date.isoformat())}}">›</a>
+    </div>
+
+    <div class="calendar">
+      <div class="weekdays">{% for d in ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'] %}<div>{{d}}</div>{% endfor %}</div>
+      {% for week in report_calendar.weeks %}
+      <div class="week">
+        {% for day in week %}
+          {% if day %}
+            <a class="day day-link {% if day.selected %}selected{% endif %} {% if day.today %}today{% endif %} {% if day.has_report %}has-report{% endif %}"
+               href="{{url_for('dashboard', report_date=day.iso)}}#reports">
+              <span class="day-num">{{day.day}}</span>
+              {% if day.has_report %}<span class="report-dot"></span><div class="calendar-event">📄 Report</div>{% endif %}
+            </a>
+          {% else %}
+            <div class="day"></div>
+          {% endif %}
+        {% endfor %}
+      </div>
+      {% endfor %}
+    </div>
+
+    <div style="height:14px"></div>
+
+    {% if selected_report %}
+      <div class="report-selected">
+        <div class="report-icon">📊</div>
+        <div>
+          <strong>{{selected_date.strftime('%d %b %Y')}} · {{selected_report.key}}</strong>
+          <div class="muted">Generated {{shown(selected_report.last_modified)}} · Private S3 report</div>
+        </div>
+        <div class="report-actions">
+          <a class="btn" href="{{url_for('report_view', key=selected_report.key)}}">👁️ View Report</a>
+          <a class="btn alt" href="{{selected_report.url}}" target="_blank" rel="noopener">⬇️ Download CSV</a>
+        </div>
+      </div>
+    {% else %}
+      <div class="report-empty">📭 No report was found for {{selected_date.strftime('%d %b %Y')}}. Select another date with a green report dot.</div>
+    {% endif %}
+  </section>
+
+  <!-- ================= CURRENT INVENTORY ================= -->
+  <section class="panel">
+    <div class="panel-head"><div><h3>📦 Current Inventory</h3><div class="muted">Live product stock from RDS</div></div><a class="btn alt" href="{{url_for('products_page')}}">View All Products</a></div>
+    <div class="table">
+      <table>
+        <thead><tr><th>ID</th><th>Product</th><th>Category</th><th>Price</th><th>Stock</th><th>Status</th><th>Action</th></tr></thead>
+        <tbody>
+        {% for p in products %}
+          <tr>
+            <td>#{{p.product_id}}</td><td>{{p.name}}</td><td>{{p.category}}</td><td>{{rupees(p.price)}}</td><td>{{p.stock_quantity}}</td>
+            <td>{% if p.stock_quantity <= p.reorder_threshold %}<span class="badge amber">⚠️ Low Stock</span>{% else %}<span class="badge green">✅ Healthy</span>{% endif %}</td>
+            <td><a href="{{url_for('product_detail',product_id=p.product_id)}}">View Details →</a></td>
+          </tr>
+        {% else %}
+          <tr><td colspan="7" class="empty">No products found.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ================= RECENT ORDERS ================= -->
+  <section class="panel">
+    <div class="panel-head"><div><h3>🛒 Recent Orders</h3><div class="muted">Latest orders from RDS</div></div><a class="btn alt" href="{{url_for('orders_page')}}">View All Orders</a></div>
+    <div class="table">
+      <table>
+        <thead><tr><th>Order</th><th>Customer</th><th>Date</th><th>Amount</th><th>Status</th><th>Action</th></tr></thead>
+        <tbody>
+        {% for o in orders %}
+          <tr>
+            <td><a href="{{url_for('order_detail',order_id=o.order_id)}}">#{{o.order_id}}</a></td>
+            <td>#{{o.customer_id}}</td><td>{{shown(o.order_date)}}</td><td>{{rupees(o.total_amount)}}</td>
+            <td>
+              {% if o.status in ['FAILED','CANCELLED'] %}<span class="badge red">❌ {{o.status}}</span>
+              {% elif o.status in ['CONFIRMED','DELIVERED'] %}<span class="badge green">✅ {{o.status}}</span>
+              {% else %}<span class="badge blue">⏳ {{o.status}}</span>{% endif %}
+            </td>
+            <td><a href="{{url_for('order_detail',order_id=o.order_id)}}">View Details →</a></td>
+          </tr>
+        {% else %}
+          <tr><td colspan="6" class="empty">No orders found.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div><h3>🧾 Latest Reports</h3><div class="muted">Newest files from the private S3 daily-reports/ prefix</div></div>
+      <a class="btn purple-btn" href="{{url_for('reports_page')}}">Open Reports</a>
+    </div>
+    {% if reports %}
+    <div class="table">
+      <table>
+        <thead><tr><th>Date</th><th>Report</th><th>Generated</th><th>Action</th></tr></thead>
+        <tbody>
+        {% for r in reports[:5] %}
+          <tr>
+            <td>{{r.report_date or '—'}}</td><td>{{r.key}}</td><td>{{shown(r.last_modified)}}</td>
+            <td><a class="btn alt" href="{{url_for('report_view',key=r.key)}}">👁️ View</a></td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="small" style="margin-top:12px">🔐 Reports remain private in S3 and use temporary presigned URLs for downloads.</div>
+    {% else %}
+      <div class="empty">No daily reports available yet.</div>
+    {% endif %}
+  </section>
+
+</main>
+</section>
+</div>
 </body>
 </html>
