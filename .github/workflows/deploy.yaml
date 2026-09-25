@@ -1659,15 +1659,23 @@ jobs:
           import json
           artifact_bucket = "${ARTIFACT_BUCKET}"
           region = "${AWS_REGION}"
+          dashboard_dir = "/opt/cloudmart/dashboard"
+          release_dir = "/tmp/cloudmart-dashboard-release"
           commands = [
               "set -euo pipefail",
               "systemctl stop cloudmart-dashboard || true",
-              "mkdir -p /opt/cloudmart/dashboard/templates",
-              f"aws s3 sync s3://{artifact_bucket}/dashboard/ /opt/cloudmart/dashboard/ --region {region} --delete --exclude .venv/* --exclude __pycache__/* --exclude *.pyc",
-              "test -s /opt/cloudmart/dashboard/app.py",
-              "test -s /opt/cloudmart/dashboard/templates/index.html",
-              "grep -q 'Daily Report Calendar' /opt/cloudmart/dashboard/templates/index.html",
-              "grep -q 'Inventory Budget' /opt/cloudmart/dashboard/templates/index.html",
+              f"rm -rf {release_dir}",
+              f"mkdir -p {release_dir}/templates",
+              f"aws s3 sync s3://{artifact_bucket}/dashboard/ {release_dir}/ --region {region} --delete --exclude '.venv/*' --exclude '__pycache__/*' --exclude '*.pyc'",
+              f"test -s {release_dir}/app.py",
+              f"test -s {release_dir}/templates/index.html",
+              f"grep -q 'Daily Report Calendar' {release_dir}/templates/index.html",
+              f"grep -q 'Inventory Budget' {release_dir}/templates/index.html",
+              f"find {dashboard_dir} -mindepth 1 -maxdepth 1 ! -name .venv -exec rm -rf {{}} +",
+              f"cp -a {release_dir}/. {dashboard_dir}/",
+              f"rm -rf {release_dir}",
+              f"if [ ! -x {dashboard_dir}/.venv/bin/python ] || [ ! -x {dashboard_dir}/.venv/bin/gunicorn ]; then rm -rf {dashboard_dir}/.venv; python3 -m venv {dashboard_dir}/.venv; {dashboard_dir}/.venv/bin/python -m pip install --upgrade pip setuptools wheel; {dashboard_dir}/.venv/bin/python -m pip install -r {dashboard_dir}/requirements.txt; fi",
+              f"{dashboard_dir}/.venv/bin/python -c 'import app; assert app.app is not None'",
               "systemctl start cloudmart-dashboard",
               "sleep 5",
               "systemctl is-active --quiet cloudmart-dashboard",
