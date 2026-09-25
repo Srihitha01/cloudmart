@@ -23,11 +23,10 @@ Parameters:
     Type: String
 
     AllowedValues:
-      - dev
-      - prod
+    - dev
+    - prod
 
-    Description:
-      Deployment environment supplied by the deployment pipeline
+    Description: Deployment environment supplied by the deployment pipeline
 
 
   # ==========================================================
@@ -37,36 +36,31 @@ Parameters:
   DBName:
     Type: String
 
-    Description:
-      SSM parameter name containing the database name
+    Description: SSM parameter name containing the database name
 
 
   DBEndpoint:
     Type: String
 
-    Description:
-      SSM parameter name containing the RDS endpoint
+    Description: SSM parameter name containing the RDS endpoint
 
 
   DBPort:
     Type: String
 
-    Description:
-      SSM parameter name containing the database port
+    Description: SSM parameter name containing the database port
 
 
   DBUsername:
     Type: String
 
-    Description:
-      SSM parameter name containing the database username
+    Description: SSM parameter name containing the database username
 
 
   DBPassword:
     Type: String
 
-    Description:
-      SSM parameter name containing the database password
+    Description: SSM parameter name containing the database password
 
 
   # ==========================================================
@@ -76,15 +70,13 @@ Parameters:
   AuthTokenParameter:
     Type: String
 
-    Description:
-      SSM parameter name containing the authentication token
+    Description: SSM parameter name containing the authentication token
 
 
   CustomerTokensParameter:
     Type: String
 
-    Description:
-      SSM parameter name containing customer token mappings
+    Description: SSM parameter name containing customer token mappings
 
 
   # ==========================================================
@@ -94,63 +86,54 @@ Parameters:
   LambdaArtifactBucket:
     Type: String
 
-    Description:
-      S3 bucket containing CloudMart Lambda artifacts
+    Description: S3 bucket containing CloudMart Lambda artifacts
 
 
   PyMySQLLayerS3Key:
     Type: String
 
-    Description:
-      S3 key for the PyMySQL Lambda layer
+    Description: S3 key for the PyMySQL Lambda layer
 
   AuthorizerLambdaS3Key:
     Type: String
 
-    Description:
-      S3 key for the Lambda Authorizer artifact
+    Description: S3 key for the Lambda Authorizer artifact
 
 
   ProductLambdaS3Key:
     Type: String
 
-    Description:
-      S3 key for the Product Lambda artifact
+    Description: S3 key for the Product Lambda artifact
 
 
   CustomerLambdaS3Key:
     Type: String
 
-    Description:
-      S3 key for the Customer Lambda artifact
+    Description: S3 key for the Customer Lambda artifact
 
 
   OrderLambdaS3Key:
     Type: String
 
-    Description:
-      S3 key for the Order Lambda artifact
+    Description: S3 key for the Order Lambda artifact
 
 
   OrderProcessorLambdaS3Key:
     Type: String
 
-    Description:
-      S3 key for the Order Processor Lambda artifact
+    Description: S3 key for the Order Processor Lambda artifact
 
 
   DailyReportLambdaS3Key:
     Type: String
 
-    Description:
-      S3 key for the Daily Report Lambda artifact
+    Description: S3 key for the Daily Report Lambda artifact
 
 
   SchemaS3Key:
     Type: String
 
-    Description:
-      S3 key for the database schema SQL file
+    Description: S3 key for the database schema SQL file
 
 
   # ==========================================================
@@ -181,21 +164,18 @@ Resources:
 
     Properties:
 
-      Name:
-        !Sub cloudmart-${Environment}-event-bus
+      Name: !Sub cloudmart-${Environment}-event-bus
 
       Tags:
 
-        - Key: Name
-          Value:
-            !Sub cloudmart-${Environment}-event-bus
+      - Key: Name
+        Value: !Sub cloudmart-${Environment}-event-bus
 
-        - Key: Project
-          Value: CloudMart
+      - Key: Project
+        Value: CloudMart
 
-        - Key: Environment
-          Value:
-            !Ref Environment
+      - Key: Environment
+        Value: !Ref Environment
 
 
   # ==========================================================
@@ -208,25 +188,21 @@ Resources:
 
     Properties:
 
-      LayerName:
-        !Sub cloudmart-${Environment}-pymysql
+      LayerName: !Sub cloudmart-${Environment}-pymysql
 
-      Description:
-        PyMySQL dependency layer for CloudMart Lambda functions
+      Description: PyMySQL dependency layer for CloudMart Lambda functions
 
       CompatibleRuntimes:
-        - python3.12
+      - python3.12
 
       CompatibleArchitectures:
-        - x86_64
+      - x86_64
 
       Content:
 
-        S3Bucket:
-          !Ref LambdaArtifactBucket
+        S3Bucket: !Ref LambdaArtifactBucket
 
-        S3Key:
-          !Ref PyMySQLLayerS3Key
+        S3Key: !Ref PyMySQLLayerS3Key
 
 
   # ==========================================================
@@ -239,14 +215,11 @@ Resources:
 
     Properties:
 
-      FunctionName:
-        !Sub cloudmart-${Environment}-lambda-authorizer
+      FunctionName: !Sub cloudmart-${Environment}-lambda-authorizer
 
-      Runtime:
-        python3.12
+      Runtime: python3.12
 
-      Handler:
-        lambda_function.lambda_handler
+      Handler: lambda_function.lambda_handler
 
       Role:
         Fn::ImportValue:
@@ -255,11 +228,9 @@ Resources:
       # Keep the Lambda below API Gateway REST API's ~29 second integration limit.
       # The product Lambda now uses short AWS SDK timeouts and treats
       # EventBridge/CloudWatch metrics as best-effort operations.
-      Timeout:
-        10
+      Timeout: 10
 
-      MemorySize:
-        512
+      MemorySize: 512
 
       # The authorizer validates customer bearer tokens against the
       # hashed customers.bearer_token value in the private RDS.
@@ -268,66 +239,55 @@ Resources:
 
         SecurityGroupIds:
 
-          - Fn::ImportValue:
-              Fn::Sub: cloudmart-${Environment}-LambdaSecurityGroupId
+        - Fn::ImportValue:
+            Fn::Sub: cloudmart-${Environment}-LambdaSecurityGroupId
 
         SubnetIds:
 
-          - Fn::ImportValue:
-              Fn::Sub: cloudmart-${Environment}-PrivateSubnetId
+        - Fn::ImportValue:
+            Fn::Sub: cloudmart-${Environment}-PrivateSubnetId
 
-          - Fn::ImportValue:
-              Fn::Sub: cloudmart-${Environment}-SecondaryPrivateSubnetId
+        - Fn::ImportValue:
+            Fn::Sub: cloudmart-${Environment}-SecondaryPrivateSubnetId
 
       Layers:
 
-        - !Ref PyMySQLLayer
+      - !Ref PyMySQLLayer
 
       Environment:
 
         Variables:
 
-          ADMIN_TOKEN_PARAMETER:
-            !Ref AuthTokenParameter
+          ADMIN_TOKEN_PARAMETER: !Ref AuthTokenParameter
 
-          CUSTOMER_TOKENS_PARAMETER:
-            !Ref CustomerTokensParameter
+          CUSTOMER_TOKENS_PARAMETER: !Ref CustomerTokensParameter
 
-          DB_NAME_PARAMETER:
-            !Ref DBName
+          DB_NAME_PARAMETER: !Ref DBName
 
-          DB_ENDPOINT_PARAMETER:
-            !Ref DBEndpoint
+          DB_ENDPOINT_PARAMETER: !Ref DBEndpoint
 
-          DB_PORT_PARAMETER:
-            !Ref DBPort
+          DB_PORT_PARAMETER: !Ref DBPort
 
-          DB_USERNAME_PARAMETER:
-            !Ref DBUsername
+          DB_USERNAME_PARAMETER: !Ref DBUsername
 
-          DB_PASSWORD_PARAMETER:
-            !Ref DBPassword
+          DB_PASSWORD_PARAMETER: !Ref DBPassword
 
       Code:
 
-        S3Bucket:
-          !Ref LambdaArtifactBucket
+        S3Bucket: !Ref LambdaArtifactBucket
 
-        S3Key:
-          !Ref AuthorizerLambdaS3Key
+        S3Key: !Ref AuthorizerLambdaS3Key
 
       Tags:
 
-        - Key: Name
-          Value:
-            !Sub cloudmart-${Environment}-lambda-authorizer
+      - Key: Name
+        Value: !Sub cloudmart-${Environment}-lambda-authorizer
 
-        - Key: Project
-          Value: CloudMart
+      - Key: Project
+        Value: CloudMart
 
-        - Key: Environment
-          Value:
-            !Ref Environment
+      - Key: Environment
+        Value: !Ref Environment
 
 
   # ==========================================================
@@ -347,85 +307,71 @@ Resources:
 
     Properties:
 
-      FunctionName:
-        !Sub cloudmart-${Environment}-customer-lambda
+      FunctionName: !Sub cloudmart-${Environment}-customer-lambda
 
-      Runtime:
-        python3.12
+      Runtime: python3.12
 
-      Handler:
-        lambda_function.lambda_handler
+      Handler: lambda_function.lambda_handler
 
       Role:
         Fn::ImportValue:
           Fn::Sub: cloudmart-${Environment}-CustomerLambdaRoleArn
 
-      Timeout:
-        29
+      Timeout: 29
 
-      MemorySize:
-        512
+      MemorySize: 512
 
       Layers:
 
-        - !Ref PyMySQLLayer
+      - !Ref PyMySQLLayer
 
       VpcConfig:
 
         SecurityGroupIds:
 
-          - Fn::ImportValue:
-              Fn::Sub: cloudmart-${Environment}-LambdaSecurityGroupId
+        - Fn::ImportValue:
+            Fn::Sub: cloudmart-${Environment}-LambdaSecurityGroupId
 
         SubnetIds:
 
-          - Fn::ImportValue:
-              Fn::Sub: cloudmart-${Environment}-PrivateSubnetId
+        - Fn::ImportValue:
+            Fn::Sub: cloudmart-${Environment}-PrivateSubnetId
 
-          - Fn::ImportValue:
-              Fn::Sub: cloudmart-${Environment}-SecondaryPrivateSubnetId
+        - Fn::ImportValue:
+            Fn::Sub: cloudmart-${Environment}-SecondaryPrivateSubnetId
 
       Environment:
 
         Variables:
 
-          DB_NAME_PARAMETER:
-            !Ref DBName
+          DB_NAME_PARAMETER: !Ref DBName
 
-          DB_ENDPOINT_PARAMETER:
-            !Ref DBEndpoint
+          DB_ENDPOINT_PARAMETER: !Ref DBEndpoint
 
-          DB_PORT_PARAMETER:
-            !Ref DBPort
+          DB_PORT_PARAMETER: !Ref DBPort
 
-          DB_USERNAME_PARAMETER:
-            !Ref DBUsername
+          DB_USERNAME_PARAMETER: !Ref DBUsername
 
-          DB_PASSWORD_PARAMETER:
-            !Ref DBPassword
+          DB_PASSWORD_PARAMETER: !Ref DBPassword
 
-          EVENT_BUS_NAME:
-            !Ref CloudMartEventBus
+          EVENT_BUS_NAME: !Ref CloudMartEventBus
 
       Code:
 
-        S3Bucket:
-          !Ref LambdaArtifactBucket
+        S3Bucket: !Ref LambdaArtifactBucket
 
-        S3Key:
-          !Ref CustomerLambdaS3Key
+        S3Key: !Ref CustomerLambdaS3Key
 
       Tags:
 
-        - Key: Name
-          Value:
-            !Sub cloudmart-${Environment}-customer-lambda
+      - Key: Name
+        Value: !Sub cloudmart-${Environment}-customer-lambda
 
-        - Key: Project
-          Value: CloudMart
+      - Key: Project
+        Value: CloudMart
 
-        - Key: Environment
-          Value: !Ref Environment
+      - Key: Environment
+        Value: !Ref Environment
 
 
   # ==========================================================
@@ -438,86 +384,71 @@ Resources:
 
     Properties:
 
-      FunctionName:
-        !Sub cloudmart-${Environment}-product-lambda
+      FunctionName: !Sub cloudmart-${Environment}-product-lambda
 
-      Runtime:
-        python3.12
+      Runtime: python3.12
 
-      Handler:
-        lambda_function.lambda_handler
+      Handler: lambda_function.lambda_handler
 
       Role:
         Fn::ImportValue:
           Fn::Sub: cloudmart-${Environment}-ProductLambdaRoleArn
 
-      Timeout:
-        29
+      Timeout: 29
 
-      MemorySize:
-        512
+      MemorySize: 512
 
       Layers:
 
-        - !Ref PyMySQLLayer
+      - !Ref PyMySQLLayer
 
       VpcConfig:
 
         SecurityGroupIds:
 
-          - Fn::ImportValue:
-              Fn::Sub: cloudmart-${Environment}-LambdaSecurityGroupId
+        - Fn::ImportValue:
+            Fn::Sub: cloudmart-${Environment}-LambdaSecurityGroupId
 
         SubnetIds:
 
-          - Fn::ImportValue:
-              Fn::Sub: cloudmart-${Environment}-PrivateSubnetId
+        - Fn::ImportValue:
+            Fn::Sub: cloudmart-${Environment}-PrivateSubnetId
 
-          - Fn::ImportValue:
-              Fn::Sub: cloudmart-${Environment}-SecondaryPrivateSubnetId
+        - Fn::ImportValue:
+            Fn::Sub: cloudmart-${Environment}-SecondaryPrivateSubnetId
 
       Environment:
 
         Variables:
 
-          DB_NAME_PARAMETER:
-            !Ref DBName
+          DB_NAME_PARAMETER: !Ref DBName
 
-          DB_ENDPOINT_PARAMETER:
-            !Ref DBEndpoint
+          DB_ENDPOINT_PARAMETER: !Ref DBEndpoint
 
-          DB_PORT_PARAMETER:
-            !Ref DBPort
+          DB_PORT_PARAMETER: !Ref DBPort
 
-          DB_USERNAME_PARAMETER:
-            !Ref DBUsername
+          DB_USERNAME_PARAMETER: !Ref DBUsername
 
-          DB_PASSWORD_PARAMETER:
-            !Ref DBPassword
+          DB_PASSWORD_PARAMETER: !Ref DBPassword
 
-          EVENT_BUS_NAME:
-            !Ref CloudMartEventBus
+          EVENT_BUS_NAME: !Ref CloudMartEventBus
 
       Code:
 
-        S3Bucket:
-          !Ref LambdaArtifactBucket
+        S3Bucket: !Ref LambdaArtifactBucket
 
-        S3Key:
-          !Ref ProductLambdaS3Key
+        S3Key: !Ref ProductLambdaS3Key
 
       Tags:
 
-        - Key: Name
-          Value:
-            !Sub cloudmart-${Environment}-product-lambda
+      - Key: Name
+        Value: !Sub cloudmart-${Environment}-product-lambda
 
-        - Key: Project
-          Value: CloudMart
+      - Key: Project
+        Value: CloudMart
 
-        - Key: Environment
-          Value:
-            !Ref Environment
+      - Key: Environment
+        Value: !Ref Environment
 
 
   # ==========================================================
@@ -530,89 +461,73 @@ Resources:
 
     Properties:
 
-      FunctionName:
-        !Sub cloudmart-${Environment}-order-lambda
+      FunctionName: !Sub cloudmart-${Environment}-order-lambda
 
-      Runtime:
-        python3.12
+      Runtime: python3.12
 
-      Handler:
-        lambda_function.lambda_handler
+      Handler: lambda_function.lambda_handler
 
       Role:
         Fn::ImportValue:
           Fn::Sub: cloudmart-${Environment}-OrderLambdaRoleArn
 
-      Timeout:
-        29
+      Timeout: 29
 
-      MemorySize:
-        512
+      MemorySize: 512
 
       Layers:
 
-        - !Ref PyMySQLLayer
+      - !Ref PyMySQLLayer
 
       VpcConfig:
 
         SecurityGroupIds:
 
-          - Fn::ImportValue:
-              Fn::Sub: cloudmart-${Environment}-LambdaSecurityGroupId
+        - Fn::ImportValue:
+            Fn::Sub: cloudmart-${Environment}-LambdaSecurityGroupId
 
         SubnetIds:
 
-          - Fn::ImportValue:
-              Fn::Sub: cloudmart-${Environment}-PrivateSubnetId
+        - Fn::ImportValue:
+            Fn::Sub: cloudmart-${Environment}-PrivateSubnetId
 
-          - Fn::ImportValue:
-              Fn::Sub: cloudmart-${Environment}-SecondaryPrivateSubnetId
+        - Fn::ImportValue:
+            Fn::Sub: cloudmart-${Environment}-SecondaryPrivateSubnetId
 
       Environment:
 
         Variables:
 
-          DB_NAME_PARAMETER:
-            !Ref DBName
+          DB_NAME_PARAMETER: !Ref DBName
 
-          DB_ENDPOINT_PARAMETER:
-            !Ref DBEndpoint
+          DB_ENDPOINT_PARAMETER: !Ref DBEndpoint
 
-          DB_PORT_PARAMETER:
-            !Ref DBPort
+          DB_PORT_PARAMETER: !Ref DBPort
 
-          DB_USERNAME_PARAMETER:
-            !Ref DBUsername
+          DB_USERNAME_PARAMETER: !Ref DBUsername
 
-          DB_PASSWORD_PARAMETER:
-            !Ref DBPassword
+          DB_PASSWORD_PARAMETER: !Ref DBPassword
 
-          EVENT_BUS_NAME:
-            !Ref CloudMartEventBus
+          EVENT_BUS_NAME: !Ref CloudMartEventBus
 
-          ORDER_PROCESSOR_FUNCTION_NAME:
-            !Ref OrderProcessorLambda
+          ORDER_PROCESSOR_FUNCTION_NAME: !Ref OrderProcessorLambda
 
       Code:
 
-        S3Bucket:
-          !Ref LambdaArtifactBucket
+        S3Bucket: !Ref LambdaArtifactBucket
 
-        S3Key:
-          !Ref OrderLambdaS3Key
+        S3Key: !Ref OrderLambdaS3Key
 
       Tags:
 
-        - Key: Name
-          Value:
-            !Sub cloudmart-${Environment}-order-lambda
+      - Key: Name
+        Value: !Sub cloudmart-${Environment}-order-lambda
 
-        - Key: Project
-          Value: CloudMart
+      - Key: Project
+        Value: CloudMart
 
-        - Key: Environment
-          Value:
-            !Ref Environment
+      - Key: Environment
+        Value: !Ref Environment
 
 
   # ==========================================================
@@ -625,86 +540,71 @@ Resources:
 
     Properties:
 
-      FunctionName:
-        !Sub cloudmart-${Environment}-order-processor
+      FunctionName: !Sub cloudmart-${Environment}-order-processor
 
-      Runtime:
-        python3.12
+      Runtime: python3.12
 
-      Handler:
-        lambda_function.lambda_handler
+      Handler: lambda_function.lambda_handler
 
       Role:
         Fn::ImportValue:
           Fn::Sub: cloudmart-${Environment}-OrderProcessorLambdaRoleArn
 
-      Timeout:
-        60
+      Timeout: 60
 
-      MemorySize:
-        512
+      MemorySize: 512
 
       Layers:
 
-        - !Ref PyMySQLLayer
+      - !Ref PyMySQLLayer
 
       VpcConfig:
 
         SecurityGroupIds:
 
-          - Fn::ImportValue:
-              Fn::Sub: cloudmart-${Environment}-LambdaSecurityGroupId
+        - Fn::ImportValue:
+            Fn::Sub: cloudmart-${Environment}-LambdaSecurityGroupId
 
         SubnetIds:
 
-          - Fn::ImportValue:
-              Fn::Sub: cloudmart-${Environment}-PrivateSubnetId
+        - Fn::ImportValue:
+            Fn::Sub: cloudmart-${Environment}-PrivateSubnetId
 
-          - Fn::ImportValue:
-              Fn::Sub: cloudmart-${Environment}-SecondaryPrivateSubnetId
+        - Fn::ImportValue:
+            Fn::Sub: cloudmart-${Environment}-SecondaryPrivateSubnetId
 
       Environment:
 
         Variables:
 
-          DB_NAME_PARAMETER:
-            !Ref DBName
+          DB_NAME_PARAMETER: !Ref DBName
 
-          DB_ENDPOINT_PARAMETER:
-            !Ref DBEndpoint
+          DB_ENDPOINT_PARAMETER: !Ref DBEndpoint
 
-          DB_PORT_PARAMETER:
-            !Ref DBPort
+          DB_PORT_PARAMETER: !Ref DBPort
 
-          DB_USERNAME_PARAMETER:
-            !Ref DBUsername
+          DB_USERNAME_PARAMETER: !Ref DBUsername
 
-          DB_PASSWORD_PARAMETER:
-            !Ref DBPassword
+          DB_PASSWORD_PARAMETER: !Ref DBPassword
 
-          EVENT_BUS_NAME:
-            !Ref CloudMartEventBus
+          EVENT_BUS_NAME: !Ref CloudMartEventBus
 
       Code:
 
-        S3Bucket:
-          !Ref LambdaArtifactBucket
+        S3Bucket: !Ref LambdaArtifactBucket
 
-        S3Key:
-          !Ref OrderProcessorLambdaS3Key
+        S3Key: !Ref OrderProcessorLambdaS3Key
 
       Tags:
 
-        - Key: Name
-          Value:
-            !Sub cloudmart-${Environment}-order-processor
+      - Key: Name
+        Value: !Sub cloudmart-${Environment}-order-processor
 
-        - Key: Project
-          Value: CloudMart
+      - Key: Project
+        Value: CloudMart
 
-        - Key: Environment
-          Value:
-            !Ref Environment
+      - Key: Environment
+        Value: !Ref Environment
 
 
   # ==========================================================
@@ -721,17 +621,13 @@ Resources:
 
     Properties:
 
-      FunctionName:
-        !Ref OrderProcessorLambda
+      FunctionName: !Ref OrderProcessorLambda
 
-      Action:
-        lambda:InvokeFunction
+      Action: lambda:InvokeFunction
 
-      Principal:
-        lambda.amazonaws.com
+      Principal: lambda.amazonaws.com
 
-      SourceArn:
-        !GetAtt OrderLambda.Arn
+      SourceArn: !GetAtt OrderLambda.Arn
 
 
   # ==========================================================
@@ -755,69 +651,58 @@ Resources:
 
     Properties:
 
-      FunctionName:
-        !Sub cloudmart-${Environment}-daily-report
+      FunctionName: !Sub cloudmart-${Environment}-daily-report
 
-      Description:
-        CloudMart Daily Inventory and Orders Report
+      Description: CloudMart Daily Inventory and Orders Report
 
-      Runtime:
-        python3.12
+      Runtime: python3.12
 
-      Handler:
-        lambda_function.lambda_handler
+      Handler: lambda_function.lambda_handler
 
       Role:
         Fn::ImportValue:
           Fn::Sub: cloudmart-${Environment}-DailyReportLambdaRoleArn
 
-      Timeout:
-        60
+      Timeout: 60
 
-      MemorySize:
-        256
+      MemorySize: 256
 
       Architectures:
 
-        - x86_64
+      - x86_64
 
       Layers:
 
-        - !Ref PyMySQLLayer
+      - !Ref PyMySQLLayer
 
       VpcConfig:
 
         SecurityGroupIds:
 
-          - Fn::ImportValue:
-              Fn::Sub: cloudmart-${Environment}-LambdaSecurityGroupId
+        - Fn::ImportValue:
+            Fn::Sub: cloudmart-${Environment}-LambdaSecurityGroupId
 
         SubnetIds:
 
-          - Fn::ImportValue:
-              Fn::Sub: cloudmart-${Environment}-PrivateSubnetId
+        - Fn::ImportValue:
+            Fn::Sub: cloudmart-${Environment}-PrivateSubnetId
 
-          - Fn::ImportValue:
-              Fn::Sub: cloudmart-${Environment}-SecondaryPrivateSubnetId
+        - Fn::ImportValue:
+            Fn::Sub: cloudmart-${Environment}-SecondaryPrivateSubnetId
 
       Environment:
 
         Variables:
 
-          DB_NAME_PARAMETER:
-            !Ref DBName
+          DB_NAME_PARAMETER: !Ref DBName
 
-          DB_ENDPOINT_PARAMETER:
-            !Ref DBEndpoint
+          DB_ENDPOINT_PARAMETER: !Ref DBEndpoint
 
-          DB_PORT_PARAMETER:
-            !Ref DBPort
+          DB_PORT_PARAMETER: !Ref DBPort
 
-          DB_USERNAME_PARAMETER:
-            !Ref DBUsername
+          DB_USERNAME_PARAMETER: !Ref DBUsername
 
-          DB_PASSWORD_PARAMETER:
-            !Ref DBPassword
+          DB_PASSWORD_PARAMETER: !Ref DBPassword
 
           REPORT_BUCKET:
             Fn::ImportValue:
@@ -825,24 +710,20 @@ Resources:
 
       Code:
 
-        S3Bucket:
-          !Ref LambdaArtifactBucket
+        S3Bucket: !Ref LambdaArtifactBucket
 
-        S3Key:
-          !Ref DailyReportLambdaS3Key
+        S3Key: !Ref DailyReportLambdaS3Key
 
       Tags:
 
-        - Key: Name
-          Value:
-            !Sub cloudmart-${Environment}-daily-report
+      - Key: Name
+        Value: !Sub cloudmart-${Environment}-daily-report
 
-        - Key: Project
-          Value: CloudMart
+      - Key: Project
+        Value: CloudMart
 
-        - Key: Environment
-          Value:
-            !Ref Environment
+      - Key: Environment
+        Value: !Ref Environment
 
 
   # ==========================================================
@@ -857,25 +738,19 @@ Resources:
 
     Properties:
 
-      Name:
-        !Sub cloudmart-${Environment}-daily-report-schedule
+      Name: !Sub cloudmart-${Environment}-daily-report-schedule
 
-      Description:
-        Runs the CloudMart Daily Report Lambda once every day
+      Description: Runs the CloudMart Daily Report Lambda once every day
 
-      ScheduleExpression:
-        cron(0 0 * * ? *)
+      ScheduleExpression: cron(0 0 * * ? *)
 
-      State:
-        ENABLED
+      State: ENABLED
 
       Targets:
 
-        - Arn:
-            !GetAtt DailyReportLambda.Arn
+      - Arn: !GetAtt DailyReportLambda.Arn
 
-          Id:
-            DailyReportLambdaTarget
+        Id: DailyReportLambdaTarget
 
 
   # ==========================================================
@@ -888,17 +763,13 @@ Resources:
 
     Properties:
 
-      FunctionName:
-        !Ref DailyReportLambda
+      FunctionName: !Ref DailyReportLambda
 
-      Action:
-        lambda:InvokeFunction
+      Action: lambda:InvokeFunction
 
-      Principal:
-        events.amazonaws.com
+      Principal: events.amazonaws.com
 
-      SourceArn:
-        !GetAtt DailyReportSchedule.Arn
+      SourceArn: !GetAtt DailyReportSchedule.Arn
 
 
   # ==========================================================
@@ -911,72 +782,60 @@ Resources:
 
     Properties:
 
-      FunctionName:
-        !Sub cloudmart-${Environment}-schema-initializer
+      FunctionName: !Sub cloudmart-${Environment}-schema-initializer
 
-      Runtime:
-        python3.12
+      Runtime: python3.12
 
-      Handler:
-        index.lambda_handler
+      Handler: index.lambda_handler
 
       Role:
         Fn::ImportValue:
           Fn::Sub: cloudmart-${Environment}-SchemaInitializerLambdaRoleArn
 
-      Timeout:
-        300
+      Timeout: 300
 
-      MemorySize:
-        256
+      MemorySize: 256
 
       Layers:
 
-        - !Ref PyMySQLLayer
+      - !Ref PyMySQLLayer
 
       VpcConfig:
 
         SecurityGroupIds:
 
-          - Fn::ImportValue:
-              Fn::Sub: cloudmart-${Environment}-LambdaSecurityGroupId
+        - Fn::ImportValue:
+            Fn::Sub: cloudmart-${Environment}-LambdaSecurityGroupId
 
         SubnetIds:
 
-          - Fn::ImportValue:
-              Fn::Sub: cloudmart-${Environment}-PrivateSubnetId
+        - Fn::ImportValue:
+            Fn::Sub: cloudmart-${Environment}-PrivateSubnetId
 
-          - Fn::ImportValue:
-              Fn::Sub: cloudmart-${Environment}-SecondaryPrivateSubnetId
+        - Fn::ImportValue:
+            Fn::Sub: cloudmart-${Environment}-SecondaryPrivateSubnetId
 
       Environment:
 
         Variables:
 
-          DB_NAME_PARAMETER:
-            !Ref DBName
+          DB_NAME_PARAMETER: !Ref DBName
 
-          DB_ENDPOINT_PARAMETER:
-            !Ref DBEndpoint
+          DB_ENDPOINT_PARAMETER: !Ref DBEndpoint
 
-          DB_PORT_PARAMETER:
-            !Ref DBPort
+          DB_PORT_PARAMETER: !Ref DBPort
 
-          DB_USERNAME_PARAMETER:
-            !Ref DBUsername
+          DB_USERNAME_PARAMETER: !Ref DBUsername
 
-          DB_PASSWORD_PARAMETER:
-            !Ref DBPassword
+          DB_PASSWORD_PARAMETER: !Ref DBPassword
 
-          SCHEMA_BUCKET:
-            !Ref LambdaArtifactBucket
+          SCHEMA_BUCKET: !Ref LambdaArtifactBucket
 
-          SCHEMA_KEY:
-            !Ref SchemaS3Key
+          SCHEMA_KEY: !Ref SchemaS3Key
 
       Code:
 
-        ZipFile: |
+        ZipFile: |2
 
           import json
           import os
@@ -1122,17 +981,14 @@ Resources:
     Type: Custom::CloudMartDatabaseSchema
 
     DependsOn:
-      - SchemaInitializerLambda
+    - SchemaInitializerLambda
 
     Properties:
-      ServiceToken:
-        !GetAtt SchemaInitializerLambda.Arn
+      ServiceToken: !GetAtt SchemaInitializerLambda.Arn
 
-      SchemaKey:
-        !Ref SchemaS3Key
+      SchemaKey: !Ref SchemaS3Key
 
-      SchemaVersion:
-        !Ref SchemaS3Key
+      SchemaVersion: !Ref SchemaS3Key
 
 
   # ==========================================================
@@ -1144,23 +1000,19 @@ Resources:
     Type: AWS::SNS::Topic
 
     Properties:
-      TopicName:
-        !Sub cloudmart-${Environment}-product-alerts
+      TopicName: !Sub cloudmart-${Environment}-product-alerts
 
-      DisplayName:
-        CloudMart Product Alerts
+      DisplayName: CloudMart Product Alerts
 
       Tags:
-        - Key: Name
-          Value:
-            !Sub cloudmart-${Environment}-product-alerts
+      - Key: Name
+        Value: !Sub cloudmart-${Environment}-product-alerts
 
-        - Key: Project
-          Value: CloudMart
+      - Key: Project
+        Value: CloudMart
 
-        - Key: Environment
-          Value:
-            !Ref Environment
+      - Key: Environment
+        Value: !Ref Environment
 
 
   # ==========================================================
@@ -1174,23 +1026,19 @@ Resources:
     Type: AWS::SNS::Topic
 
     Properties:
-      TopicName:
-        !Sub cloudmart-${Environment}-product-notifications
+      TopicName: !Sub cloudmart-${Environment}-product-notifications
 
-      DisplayName:
-        CloudMart Product Notifications
+      DisplayName: CloudMart Product Notifications
 
       Tags:
-        - Key: Name
-          Value:
-            !Sub cloudmart-${Environment}-product-notifications
+      - Key: Name
+        Value: !Sub cloudmart-${Environment}-product-notifications
 
-        - Key: Project
-          Value: CloudMart
+      - Key: Project
+        Value: CloudMart
 
-        - Key: Environment
-          Value:
-            !Ref Environment
+      - Key: Environment
+        Value: !Ref Environment
 
 
   # ==========================================================
@@ -1202,23 +1050,19 @@ Resources:
     Type: AWS::SNS::Topic
 
     Properties:
-      TopicName:
-        !Sub cloudmart-${Environment}-order-alerts
+      TopicName: !Sub cloudmart-${Environment}-order-alerts
 
-      DisplayName:
-        CloudMart Order Alerts
+      DisplayName: CloudMart Order Alerts
 
       Tags:
-        - Key: Name
-          Value:
-            !Sub cloudmart-${Environment}-order-alerts
+      - Key: Name
+        Value: !Sub cloudmart-${Environment}-order-alerts
 
-        - Key: Project
-          Value: CloudMart
+      - Key: Project
+        Value: CloudMart
 
-        - Key: Environment
-          Value:
-            !Ref Environment
+      - Key: Environment
+        Value: !Ref Environment
 
 
   # ==========================================================
@@ -1231,23 +1075,19 @@ Resources:
     Type: AWS::SNS::Topic
 
     Properties:
-      TopicName:
-        !Sub cloudmart-${Environment}-order-notifications
+      TopicName: !Sub cloudmart-${Environment}-order-notifications
 
-      DisplayName:
-        CloudMart Order Notifications
+      DisplayName: CloudMart Order Notifications
 
       Tags:
-        - Key: Name
-          Value:
-            !Sub cloudmart-${Environment}-order-notifications
+      - Key: Name
+        Value: !Sub cloudmart-${Environment}-order-notifications
 
-        - Key: Project
-          Value: CloudMart
+      - Key: Project
+        Value: CloudMart
 
-        - Key: Environment
-          Value:
-            !Ref Environment
+      - Key: Environment
+        Value: !Ref Environment
 
 
   # ==========================================================
@@ -1259,14 +1099,11 @@ Resources:
     Type: AWS::SNS::Subscription
 
     Properties:
-      TopicArn:
-        !Ref ProductAlertTopic
+      TopicArn: !Ref ProductAlertTopic
 
-      Protocol:
-        email
+      Protocol: email
 
-      Endpoint:
-        !Ref AlertEmail
+      Endpoint: !Ref AlertEmail
 
 
   ProductNotificationEmailSubscription:
@@ -1274,14 +1111,11 @@ Resources:
     Type: AWS::SNS::Subscription
 
     Properties:
-      TopicArn:
-        !Ref ProductNotificationTopic
+      TopicArn: !Ref ProductNotificationTopic
 
-      Protocol:
-        email
+      Protocol: email
 
-      Endpoint:
-        !Ref AlertEmail
+      Endpoint: !Ref AlertEmail
 
 
   OrderAlertEmailSubscription:
@@ -1289,14 +1123,11 @@ Resources:
     Type: AWS::SNS::Subscription
 
     Properties:
-      TopicArn:
-        !Ref OrderAlertTopic
+      TopicArn: !Ref OrderAlertTopic
 
-      Protocol:
-        email
+      Protocol: email
 
-      Endpoint:
-        !Ref AlertEmail
+      Endpoint: !Ref AlertEmail
 
 
 
@@ -1305,14 +1136,11 @@ Resources:
     Type: AWS::SNS::Subscription
 
     Properties:
-      TopicArn:
-        !Ref OrderNotificationTopic
+      TopicArn: !Ref OrderNotificationTopic
 
-      Protocol:
-        email
+      Protocol: email
 
-      Endpoint:
-        !Ref AlertEmail
+      Endpoint: !Ref AlertEmail
 
 
   # ==========================================================
@@ -1325,29 +1153,27 @@ Resources:
 
     Properties:
       Topics:
-        - !Ref ProductAlertTopic
+      - !Ref ProductAlertTopic
 
       PolicyDocument:
         Version: '2012-10-17'
 
         Statement:
-          - Sid: AllowEventBridgeToPublishProductAlerts
-            Effect: Allow
+        - Sid: AllowEventBridgeToPublishProductAlerts
+          Effect: Allow
 
-            Principal:
-              Service:
-                - events.amazonaws.com
+          Principal:
+            Service:
+            - events.amazonaws.com
 
-            Action:
-              - sns:Publish
+          Action:
+          - sns:Publish
 
-            Resource:
-              !Ref ProductAlertTopic
+          Resource: !Ref ProductAlertTopic
 
-            Condition:
-              StringEquals:
-                AWS:SourceAccount:
-                  !Ref AWS::AccountId
+          Condition:
+            StringEquals:
+              AWS:SourceAccount: !Ref AWS::AccountId
 
 
   ProductNotificationTopicPolicy:
@@ -1356,29 +1182,27 @@ Resources:
 
     Properties:
       Topics:
-        - !Ref ProductNotificationTopic
+      - !Ref ProductNotificationTopic
 
       PolicyDocument:
         Version: '2012-10-17'
 
         Statement:
-          - Sid: AllowEventBridgeToPublishProductNotifications
-            Effect: Allow
+        - Sid: AllowEventBridgeToPublishProductNotifications
+          Effect: Allow
 
-            Principal:
-              Service:
-                - events.amazonaws.com
+          Principal:
+            Service:
+            - events.amazonaws.com
 
-            Action:
-              - sns:Publish
+          Action:
+          - sns:Publish
 
-            Resource:
-              !Ref ProductNotificationTopic
+          Resource: !Ref ProductNotificationTopic
 
-            Condition:
-              StringEquals:
-                AWS:SourceAccount:
-                  !Ref AWS::AccountId
+          Condition:
+            StringEquals:
+              AWS:SourceAccount: !Ref AWS::AccountId
 
 
   OrderAlertTopicPolicy:
@@ -1387,29 +1211,27 @@ Resources:
 
     Properties:
       Topics:
-        - !Ref OrderAlertTopic
+      - !Ref OrderAlertTopic
 
       PolicyDocument:
         Version: '2012-10-17'
 
         Statement:
-          - Sid: AllowEventBridgeToPublishOrderAlerts
-            Effect: Allow
+        - Sid: AllowEventBridgeToPublishOrderAlerts
+          Effect: Allow
 
-            Principal:
-              Service:
-                - events.amazonaws.com
+          Principal:
+            Service:
+            - events.amazonaws.com
 
-            Action:
-              - sns:Publish
+          Action:
+          - sns:Publish
 
-            Resource:
-              !Ref OrderAlertTopic
+          Resource: !Ref OrderAlertTopic
 
-            Condition:
-              StringEquals:
-                AWS:SourceAccount:
-                  !Ref AWS::AccountId
+          Condition:
+            StringEquals:
+              AWS:SourceAccount: !Ref AWS::AccountId
 
 
 
@@ -1419,29 +1241,27 @@ Resources:
 
     Properties:
       Topics:
-        - !Ref OrderNotificationTopic
+      - !Ref OrderNotificationTopic
 
       PolicyDocument:
         Version: '2012-10-17'
 
         Statement:
-          - Sid: AllowEventBridgeToPublishOrderNotifications
-            Effect: Allow
+        - Sid: AllowEventBridgeToPublishOrderNotifications
+          Effect: Allow
 
-            Principal:
-              Service:
-                - events.amazonaws.com
+          Principal:
+            Service:
+            - events.amazonaws.com
 
-            Action:
-              - sns:Publish
+          Action:
+          - sns:Publish
 
-            Resource:
-              !Ref OrderNotificationTopic
+          Resource: !Ref OrderNotificationTopic
 
-            Condition:
-              StringEquals:
-                AWS:SourceAccount:
-                  !Ref AWS::AccountId
+          Condition:
+            StringEquals:
+              AWS:SourceAccount: !Ref AWS::AccountId
 
 
   # ==========================================================
@@ -1454,71 +1274,63 @@ Resources:
 
     Properties:
 
-      Name:
-        !Sub cloudmart-${Environment}-low-stock-rule
+      Name: !Sub cloudmart-${Environment}-low-stock-rule
 
-      Description:
-        Sends low-stock inventory events to both Product Alert and Product Notification SNS topics
+      Description: Sends low-stock inventory events to both Product Alert and Product Notification SNS topics
 
-      EventBusName:
-        !Ref CloudMartEventBus
+      EventBusName: !Ref CloudMartEventBus
 
-      State:
-        ENABLED
+      State: ENABLED
 
       EventPattern:
 
         source:
-          - cloudmart.inventory
+        - cloudmart.inventory
 
         detail-type:
-          - LowStock
+        - LowStock
 
         detail:
           low_stock:
-            - true
+          - true
 
       Targets:
 
-        - Arn:
-            !Ref ProductAlertTopic
+      - Arn: !Ref ProductAlertTopic
 
-          Id:
-            ProductLowStockAlertSNSTarget
+        Id: ProductLowStockAlertSNSTarget
 
-          InputTransformer:
+        InputTransformer:
 
-            InputPathsMap:
-              productId: "$.detail.product_id"
-              productName: "$.detail.product_name"
-              oldStock: "$.detail.old_stock"
-              newStock: "$.detail.new_stock"
-              threshold: "$.detail.low_stock_threshold"
+          InputPathsMap:
+            productId: "$.detail.product_id"
+            productName: "$.detail.product_name"
+            oldStock: "$.detail.old_stock"
+            newStock: "$.detail.new_stock"
+            threshold: "$.detail.low_stock_threshold"
 
-            InputTemplate: >
-              "CloudMart LOW STOCK ALERT: Product <productName>
-              (ID: <productId>) stock changed from <oldStock> to
-              <newStock>. Reorder threshold: <threshold>."
+          InputTemplate: >
+            "CloudMart LOW STOCK ALERT: Product <productName>
+            (ID: <productId>) stock changed from <oldStock> to
+            <newStock>. Reorder threshold: <threshold>."
 
-        - Arn:
-            !Ref ProductNotificationTopic
+      - Arn: !Ref ProductNotificationTopic
 
-          Id:
-            ProductLowStockNotificationSNSTarget
+        Id: ProductLowStockNotificationSNSTarget
 
-          InputTransformer:
+        InputTransformer:
 
-            InputPathsMap:
-              productId: "$.detail.product_id"
-              productName: "$.detail.product_name"
-              oldStock: "$.detail.old_stock"
-              newStock: "$.detail.new_stock"
-              threshold: "$.detail.low_stock_threshold"
+          InputPathsMap:
+            productId: "$.detail.product_id"
+            productName: "$.detail.product_name"
+            oldStock: "$.detail.old_stock"
+            newStock: "$.detail.new_stock"
+            threshold: "$.detail.low_stock_threshold"
 
-            InputTemplate: >
-              "CloudMart LOW STOCK: Product <productName>
-              (ID: <productId>) stock changed from <oldStock> to
-              <newStock>. Reorder threshold: <threshold>."
+          InputTemplate: >
+            "CloudMart LOW STOCK: Product <productName>
+            (ID: <productId>) stock changed from <oldStock> to
+            <newStock>. Reorder threshold: <threshold>."
 
 
   # ==========================================================
@@ -1540,51 +1352,45 @@ Resources:
 
     Properties:
 
-      Name:
-        !Sub cloudmart-${Environment}-product-low-stock-rule
+      Name: !Sub cloudmart-${Environment}-product-low-stock-rule
 
-      Description:
-        Sends the Product Lambda Inventory Changed low-stock event to the Product Notification SNS topic
+      Description: Sends the Product Lambda Inventory Changed low-stock event to the Product Notification SNS topic
 
-      EventBusName:
-        !Ref CloudMartEventBus
+      EventBusName: !Ref CloudMartEventBus
 
-      State:
-        ENABLED
+      State: ENABLED
 
       EventPattern:
 
         source:
-          - cloudmart.product
+        - cloudmart.product
 
         detail-type:
-          - Inventory Changed
+        - Inventory Changed
 
         detail:
           low_stock:
-            - true
+          - true
 
       Targets:
 
-        - Arn:
-            !Ref ProductNotificationTopic
+      - Arn: !Ref ProductNotificationTopic
 
-          Id:
-            ProductInventoryLowStockNotificationSNSTarget
+        Id: ProductInventoryLowStockNotificationSNSTarget
 
-          InputTransformer:
+        InputTransformer:
 
-            InputPathsMap:
-              productId: "$.detail.product_id"
-              productName: "$.detail.product_name"
-              oldStock: "$.detail.old_stock"
-              newStock: "$.detail.new_stock"
-              threshold: "$.detail.low_stock_threshold"
+          InputPathsMap:
+            productId: "$.detail.product_id"
+            productName: "$.detail.product_name"
+            oldStock: "$.detail.old_stock"
+            newStock: "$.detail.new_stock"
+            threshold: "$.detail.low_stock_threshold"
 
-            InputTemplate: >
-              "CloudMart LOW STOCK: Product <productName>
-              (ID: <productId>) stock changed from <oldStock> to
-              <newStock>. Reorder threshold: <threshold>."
+          InputTemplate: >
+            "CloudMart LOW STOCK: Product <productName>
+            (ID: <productId>) stock changed from <oldStock> to
+            <newStock>. Reorder threshold: <threshold>."
 
 
   # ==========================================================
@@ -1599,51 +1405,45 @@ Resources:
 
     Properties:
 
-      Name:
-        !Sub cloudmart-${Environment}-product-low-stock-alert-rule
+      Name: !Sub cloudmart-${Environment}-product-low-stock-alert-rule
 
-      Description:
-        Sends Product Lambda LowStockAlert events to Product Alert SNS
+      Description: Sends Product Lambda LowStockAlert events to Product Alert SNS
 
-      EventBusName:
-        !Ref CloudMartEventBus
+      EventBusName: !Ref CloudMartEventBus
 
-      State:
-        ENABLED
+      State: ENABLED
 
       EventPattern:
 
         source:
-          - cloudmart.product
+        - cloudmart.product
 
         detail-type:
-          - LowStockAlert
+        - LowStockAlert
 
         detail:
           low_stock:
-            - true
+          - true
 
       Targets:
 
-        - Arn:
-            !Ref ProductAlertTopic
+      - Arn: !Ref ProductAlertTopic
 
-          Id:
-            ProductLowStockAlertEventSNSTarget
+        Id: ProductLowStockAlertEventSNSTarget
 
-          InputTransformer:
+        InputTransformer:
 
-            InputPathsMap:
-              productId: "$.detail.product_id"
-              productName: "$.detail.product_name"
-              oldStock: "$.detail.old_stock"
-              newStock: "$.detail.new_stock"
-              threshold: "$.detail.low_stock_threshold"
+          InputPathsMap:
+            productId: "$.detail.product_id"
+            productName: "$.detail.product_name"
+            oldStock: "$.detail.old_stock"
+            newStock: "$.detail.new_stock"
+            threshold: "$.detail.low_stock_threshold"
 
-            InputTemplate: >
-              "CloudMart LOW STOCK ALERT: Product <productName>
-              (ID: <productId>) stock changed from <oldStock> to
-              <newStock>. Reorder threshold: <threshold>."
+          InputTemplate: >
+            "CloudMart LOW STOCK ALERT: Product <productName>
+            (ID: <productId>) stock changed from <oldStock> to
+            <newStock>. Reorder threshold: <threshold>."
 
 
   # ==========================================================
@@ -1656,70 +1456,62 @@ Resources:
 
     Properties:
 
-      Name:
-        !Sub cloudmart-${Environment}-order-failed-alert-rule
+      Name: !Sub cloudmart-${Environment}-order-failed-alert-rule
 
-      Description:
-        Sends failed CloudMart orders with the failure reason to SNS
+      Description: Sends failed CloudMart orders with the failure reason to SNS
 
-      EventBusName:
-        !Ref CloudMartEventBus
+      EventBusName: !Ref CloudMartEventBus
 
-      State:
-        ENABLED
+      State: ENABLED
 
       EventPattern:
 
         source:
-          - cloudmart.orders
+        - cloudmart.orders
 
         detail-type:
-          - OrderFailed
+        - OrderFailed
 
       Targets:
 
-        - Arn:
-            !Ref OrderNotificationTopic
+      - Arn: !Ref OrderNotificationTopic
 
-          Id:
-            OrderFailedSNSTarget
+        Id: OrderFailedSNSTarget
 
-          InputTransformer:
+        InputTransformer:
 
-            InputPathsMap:
-              eventType: "$.detail-type"
-              orderId: "$.detail.order_id"
-              customerId: "$.detail.customer_id"
-              status: "$.detail.status"
-              totalAmount: "$.detail.total_amount"
-              failureReason: "$.detail.failure_reason"
+          InputPathsMap:
+            eventType: "$.detail-type"
+            orderId: "$.detail.order_id"
+            customerId: "$.detail.customer_id"
+            status: "$.detail.status"
+            totalAmount: "$.detail.total_amount"
+            failureReason: "$.detail.failure_reason"
 
-            InputTemplate: >
-              "CloudMart ORDER FAILED: Order ID: <orderId>,
-              Customer ID: <customerId>, Status: <status>,
-              Total Amount: <totalAmount>, Failure Reason: <failureReason>."
+          InputTemplate: >
+            "CloudMart ORDER FAILED: Order ID: <orderId>,
+            Customer ID: <customerId>, Status: <status>,
+            Total Amount: <totalAmount>, Failure Reason: <failureReason>."
 
-        - Arn:
-            !Ref OrderAlertTopic
+      - Arn: !Ref OrderAlertTopic
 
-          Id:
-            OrderFailedOperationalAlertSNSTarget
+        Id: OrderFailedOperationalAlertSNSTarget
 
-          InputTransformer:
+        InputTransformer:
 
-            InputPathsMap:
-              eventType: "$.detail-type"
-              orderId: "$.detail.order_id"
-              customerId: "$.detail.customer_id"
-              status: "$.detail.status"
-              totalAmount: "$.detail.total_amount"
-              failureReason: "$.detail.failure_reason"
+          InputPathsMap:
+            eventType: "$.detail-type"
+            orderId: "$.detail.order_id"
+            customerId: "$.detail.customer_id"
+            status: "$.detail.status"
+            totalAmount: "$.detail.total_amount"
+            failureReason: "$.detail.failure_reason"
 
-            InputTemplate: >
-              "CloudMart ORDER FAILED ALERT: Event <eventType>.
-              Order ID: <orderId>, Customer ID: <customerId>,
-              Status: <status>, Total Amount: <totalAmount>,
-              Failure Reason: <failureReason>."
+          InputTemplate: >
+            "CloudMart ORDER FAILED ALERT: Event <eventType>.
+            Order ID: <orderId>, Customer ID: <customerId>,
+            Status: <status>, Total Amount: <totalAmount>,
+            Failure Reason: <failureReason>."
 
 
   # ==========================================================
@@ -1732,47 +1524,41 @@ Resources:
 
     Properties:
 
-      Name:
-        !Sub cloudmart-${Environment}-order-pending-alert-rule
+      Name: !Sub cloudmart-${Environment}-order-pending-alert-rule
 
-      Description:
-        Sends order pending notifications to SNS
+      Description: Sends order pending notifications to SNS
 
-      EventBusName:
-        !Ref CloudMartEventBus
+      EventBusName: !Ref CloudMartEventBus
 
-      State:
-        ENABLED
+      State: ENABLED
 
       EventPattern:
 
         source:
-          - cloudmart.orders
+        - cloudmart.orders
 
         detail-type:
-          - OrderPending
+        - OrderPending
 
       Targets:
 
-        - Arn:
-            !Ref OrderNotificationTopic
+      - Arn: !Ref OrderNotificationTopic
 
-          Id:
-            OrderPendingSNSTarget
+        Id: OrderPendingSNSTarget
 
-          InputTransformer:
+        InputTransformer:
 
-            InputPathsMap:
-              eventType: "$.detail-type"
-              orderId: "$.detail.order_id"
-              customerId: "$.detail.customer_id"
-              status: "$.detail.status"
-              totalAmount: "$.detail.total_amount"
+          InputPathsMap:
+            eventType: "$.detail-type"
+            orderId: "$.detail.order_id"
+            customerId: "$.detail.customer_id"
+            status: "$.detail.status"
+            totalAmount: "$.detail.total_amount"
 
-            InputTemplate: >
-              "CloudMart ORDER PENDING: Order ID: <orderId>,
-              Customer ID: <customerId>, Status: <status>,
-              Total Amount: <totalAmount>. Your order is being processed."
+          InputTemplate: >
+            "CloudMart ORDER PENDING: Order ID: <orderId>,
+            Customer ID: <customerId>, Status: <status>,
+            Total Amount: <totalAmount>. Your order is being processed."
 
 
   # ==========================================================
@@ -1785,67 +1571,59 @@ Resources:
 
     Properties:
 
-      Name:
-        !Sub cloudmart-${Environment}-order-placed-alert-rule
+      Name: !Sub cloudmart-${Environment}-order-placed-alert-rule
 
-      Description:
-        Sends order placed notifications to SNS
+      Description: Sends order placed notifications to SNS
 
-      EventBusName:
-        !Ref CloudMartEventBus
+      EventBusName: !Ref CloudMartEventBus
 
-      State:
-        ENABLED
+      State: ENABLED
 
       EventPattern:
 
         source:
-          - cloudmart.orders
+        - cloudmart.orders
 
         detail-type:
-          - OrderPlaced
+        - OrderPlaced
 
       Targets:
 
-        - Arn:
-            !Ref OrderNotificationTopic
+      - Arn: !Ref OrderNotificationTopic
 
-          Id:
-            OrderPlacedSNSTarget
+        Id: OrderPlacedSNSTarget
 
-          InputTransformer:
+        InputTransformer:
 
-            InputPathsMap:
-              eventType: "$.detail-type"
-              orderId: "$.detail.order_id"
-              customerId: "$.detail.customer_id"
-              status: "$.detail.status"
-              totalAmount: "$.detail.total_amount"
+          InputPathsMap:
+            eventType: "$.detail-type"
+            orderId: "$.detail.order_id"
+            customerId: "$.detail.customer_id"
+            status: "$.detail.status"
+            totalAmount: "$.detail.total_amount"
 
-            InputTemplate: >
-              "CloudMart ORDER PLACED: Order ID: <orderId>,
-              Customer ID: <customerId>, Status: <status>,
-              Total Amount: <totalAmount>. Your order has been placed successfully."
+          InputTemplate: >
+            "CloudMart ORDER PLACED: Order ID: <orderId>,
+            Customer ID: <customerId>, Status: <status>,
+            Total Amount: <totalAmount>. Your order has been placed successfully."
 
-        - Arn:
-            !Ref OrderAlertTopic
+      - Arn: !Ref OrderAlertTopic
 
-          Id:
-            OrderPlacedOperationalAlertSNSTarget
+        Id: OrderPlacedOperationalAlertSNSTarget
 
-          InputTransformer:
+        InputTransformer:
 
-            InputPathsMap:
-              eventType: "$.detail-type"
-              orderId: "$.detail.order_id"
-              customerId: "$.detail.customer_id"
-              status: "$.detail.status"
-              totalAmount: "$.detail.total_amount"
+          InputPathsMap:
+            eventType: "$.detail-type"
+            orderId: "$.detail.order_id"
+            customerId: "$.detail.customer_id"
+            status: "$.detail.status"
+            totalAmount: "$.detail.total_amount"
 
-            InputTemplate: >
-              "CloudMart ORDER PLACED: Order ID: <orderId>,
-              Customer ID: <customerId>, Status: <status>,
-              Total Amount: <totalAmount>. Your order has been placed successfully."
+          InputTemplate: >
+            "CloudMart ORDER PLACED: Order ID: <orderId>,
+            Customer ID: <customerId>, Status: <status>,
+            Total Amount: <totalAmount>. Your order has been placed successfully."
 
 
   # ==========================================================
@@ -1858,67 +1636,59 @@ Resources:
 
     Properties:
 
-      Name:
-        !Sub cloudmart-${Environment}-order-confirmed-alert-rule
+      Name: !Sub cloudmart-${Environment}-order-confirmed-alert-rule
 
-      Description:
-        Sends confirmed CloudMart orders to SNS
+      Description: Sends confirmed CloudMart orders to SNS
 
-      EventBusName:
-        !Ref CloudMartEventBus
+      EventBusName: !Ref CloudMartEventBus
 
-      State:
-        ENABLED
+      State: ENABLED
 
       EventPattern:
 
         source:
-          - cloudmart.orders
+        - cloudmart.orders
 
         detail-type:
-          - OrderConfirmed
+        - OrderConfirmed
 
       Targets:
 
-        - Arn:
-            !Ref OrderNotificationTopic
+      - Arn: !Ref OrderNotificationTopic
 
-          Id:
-            OrderConfirmedSNSTarget
+        Id: OrderConfirmedSNSTarget
 
-          InputTransformer:
+        InputTransformer:
 
-            InputPathsMap:
-              eventType: "$.detail-type"
-              orderId: "$.detail.order_id"
-              customerId: "$.detail.customer_id"
-              status: "$.detail.status"
-              totalAmount: "$.detail.total_amount"
+          InputPathsMap:
+            eventType: "$.detail-type"
+            orderId: "$.detail.order_id"
+            customerId: "$.detail.customer_id"
+            status: "$.detail.status"
+            totalAmount: "$.detail.total_amount"
 
-            InputTemplate: >
-              "CloudMart ORDER CONFIRMED: Order ID: <orderId>,
-              Customer ID: <customerId>, Status: <status>,
-              Total Amount: <totalAmount>. Your order has been confirmed successfully."
+          InputTemplate: >
+            "CloudMart ORDER CONFIRMED: Order ID: <orderId>,
+            Customer ID: <customerId>, Status: <status>,
+            Total Amount: <totalAmount>. Your order has been confirmed successfully."
 
-        - Arn:
-            !Ref OrderAlertTopic
+      - Arn: !Ref OrderAlertTopic
 
-          Id:
-            OrderConfirmedOperationalAlertSNSTarget
+        Id: OrderConfirmedOperationalAlertSNSTarget
 
-          InputTransformer:
+        InputTransformer:
 
-            InputPathsMap:
-              eventType: "$.detail-type"
-              orderId: "$.detail.order_id"
-              customerId: "$.detail.customer_id"
-              status: "$.detail.status"
-              totalAmount: "$.detail.total_amount"
+          InputPathsMap:
+            eventType: "$.detail-type"
+            orderId: "$.detail.order_id"
+            customerId: "$.detail.customer_id"
+            status: "$.detail.status"
+            totalAmount: "$.detail.total_amount"
 
-            InputTemplate: >
-              "CloudMart ORDER CONFIRMED ALERT: Event <eventType>.
-              Order ID: <orderId>, Customer ID: <customerId>,
-              Status: <status>, Total Amount: <totalAmount>."
+          InputTemplate: >
+            "CloudMart ORDER CONFIRMED ALERT: Event <eventType>.
+            Order ID: <orderId>, Customer ID: <customerId>,
+            Status: <status>, Total Amount: <totalAmount>."
 
 
   # ==========================================================
@@ -1931,70 +1701,62 @@ Resources:
 
     Properties:
 
-      Name:
-        !Sub cloudmart-${Environment}-order-cancelled-alert-rule
+      Name: !Sub cloudmart-${Environment}-order-cancelled-alert-rule
 
-      Description:
-        Sends cancelled CloudMart orders to SNS
+      Description: Sends cancelled CloudMart orders to SNS
 
-      EventBusName:
-        !Ref CloudMartEventBus
+      EventBusName: !Ref CloudMartEventBus
 
-      State:
-        ENABLED
+      State: ENABLED
 
       EventPattern:
 
         source:
-          - cloudmart.orders
+        - cloudmart.orders
 
         detail-type:
-          - OrderCancelled
+        - OrderCancelled
 
       Targets:
 
-        - Arn:
-            !Ref OrderNotificationTopic
+      - Arn: !Ref OrderNotificationTopic
 
-          Id:
-            OrderCancelledSNSTarget
+        Id: OrderCancelledSNSTarget
 
-          InputTransformer:
+        InputTransformer:
 
-            InputPathsMap:
-              eventType: "$.detail-type"
-              orderId: "$.detail.order_id"
-              customerId: "$.detail.customer_id"
-              status: "$.detail.status"
-              totalAmount: "$.detail.total_amount"
-              reason: "$.detail.reason"
+          InputPathsMap:
+            eventType: "$.detail-type"
+            orderId: "$.detail.order_id"
+            customerId: "$.detail.customer_id"
+            status: "$.detail.status"
+            totalAmount: "$.detail.total_amount"
+            reason: "$.detail.reason"
 
-            InputTemplate: >
-              "CloudMart ORDER CANCELLED: Order ID: <orderId>,
-              Customer ID: <customerId>, Status: <status>,
-              Total Amount: <totalAmount>, Reason: <reason>."
+          InputTemplate: >
+            "CloudMart ORDER CANCELLED: Order ID: <orderId>,
+            Customer ID: <customerId>, Status: <status>,
+            Total Amount: <totalAmount>, Reason: <reason>."
 
-        - Arn:
-            !Ref OrderAlertTopic
+      - Arn: !Ref OrderAlertTopic
 
-          Id:
-            OrderCancelledOperationalAlertSNSTarget
+        Id: OrderCancelledOperationalAlertSNSTarget
 
-          InputTransformer:
+        InputTransformer:
 
-            InputPathsMap:
-              eventType: "$.detail-type"
-              orderId: "$.detail.order_id"
-              customerId: "$.detail.customer_id"
-              status: "$.detail.status"
-              totalAmount: "$.detail.total_amount"
-              reason: "$.detail.reason"
+          InputPathsMap:
+            eventType: "$.detail-type"
+            orderId: "$.detail.order_id"
+            customerId: "$.detail.customer_id"
+            status: "$.detail.status"
+            totalAmount: "$.detail.total_amount"
+            reason: "$.detail.reason"
 
-            InputTemplate: >
-              "CloudMart ORDER CANCELLED ALERT: Event <eventType>.
-              Order ID: <orderId>, Customer ID: <customerId>,
-              Status: <status>, Total Amount: <totalAmount>,
-              Reason: <reason>."
+          InputTemplate: >
+            "CloudMart ORDER CANCELLED ALERT: Event <eventType>.
+            Order ID: <orderId>, Customer ID: <customerId>,
+            Status: <status>, Total Amount: <totalAmount>,
+            Reason: <reason>."
 
 
   # ==========================================================
@@ -2007,47 +1769,41 @@ Resources:
 
     Properties:
 
-      Name:
-        !Sub cloudmart-${Environment}-order-delivered-alert-rule
+      Name: !Sub cloudmart-${Environment}-order-delivered-alert-rule
 
-      Description:
-        Sends delivered CloudMart orders to SNS
+      Description: Sends delivered CloudMart orders to SNS
 
-      EventBusName:
-        !Ref CloudMartEventBus
+      EventBusName: !Ref CloudMartEventBus
 
-      State:
-        ENABLED
+      State: ENABLED
 
       EventPattern:
 
         source:
-          - cloudmart.orders
+        - cloudmart.orders
 
         detail-type:
-          - OrderDelivered
+        - OrderDelivered
 
       Targets:
 
-        - Arn:
-            !Ref OrderNotificationTopic
+      - Arn: !Ref OrderNotificationTopic
 
-          Id:
-            OrderDeliveredSNSTarget
+        Id: OrderDeliveredSNSTarget
 
-          InputTransformer:
+        InputTransformer:
 
-            InputPathsMap:
-              eventType: "$.detail-type"
-              orderId: "$.detail.order_id"
-              customerId: "$.detail.customer_id"
-              status: "$.detail.status"
-              totalAmount: "$.detail.total_amount"
+          InputPathsMap:
+            eventType: "$.detail-type"
+            orderId: "$.detail.order_id"
+            customerId: "$.detail.customer_id"
+            status: "$.detail.status"
+            totalAmount: "$.detail.total_amount"
 
-            InputTemplate: >
-              "CloudMart ORDER DELIVERED ALERT: Event <eventType>.
-              Order ID: <orderId>, Customer ID: <customerId>,
-              Status: <status>, Total Amount: <totalAmount>."
+          InputTemplate: >
+            "CloudMart ORDER DELIVERED ALERT: Event <eventType>.
+            Order ID: <orderId>, Customer ID: <customerId>,
+            Status: <status>, Total Amount: <totalAmount>."
 
 
 # ============================================================
@@ -2063,28 +1819,22 @@ Outputs:
 
   EventBusName:
 
-    Description:
-      CloudMart EventBridge Event Bus name
+    Description: CloudMart EventBridge Event Bus name
 
-    Value:
-      !Ref CloudMartEventBus
+    Value: !Ref CloudMartEventBus
 
     Export:
-      Name:
-        !Sub cloudmart-${Environment}-EventBusName
+      Name: !Sub cloudmart-${Environment}-EventBusName
 
 
   EventBusArn:
 
-    Description:
-      CloudMart EventBridge Event Bus ARN
+    Description: CloudMart EventBridge Event Bus ARN
 
-    Value:
-      !GetAtt CloudMartEventBus.Arn
+    Value: !GetAtt CloudMartEventBus.Arn
 
     Export:
-      Name:
-        !Sub cloudmart-${Environment}-EventBusArn
+      Name: !Sub cloudmart-${Environment}-EventBusArn
 
 
   # ==========================================================
@@ -2093,28 +1843,22 @@ Outputs:
 
   LambdaAuthorizerArn:
 
-    Description:
-      Lambda Authorizer ARN
+    Description: Lambda Authorizer ARN
 
-    Value:
-      !GetAtt LambdaAuthorizer.Arn
+    Value: !GetAtt LambdaAuthorizer.Arn
 
     Export:
-      Name:
-        !Sub cloudmart-${Environment}-LambdaAuthorizerArn
+      Name: !Sub cloudmart-${Environment}-LambdaAuthorizerArn
 
 
   LambdaAuthorizerName:
 
-    Description:
-      Lambda Authorizer name
+    Description: Lambda Authorizer name
 
-    Value:
-      !Ref LambdaAuthorizer
+    Value: !Ref LambdaAuthorizer
 
     Export:
-      Name:
-        !Sub cloudmart-${Environment}-LambdaAuthorizerName
+      Name: !Sub cloudmart-${Environment}-LambdaAuthorizerName
 
 
   # ==========================================================
@@ -2123,28 +1867,22 @@ Outputs:
 
   CustomerLambdaArn:
 
-    Description:
-      Customer Lambda ARN
+    Description: Customer Lambda ARN
 
-    Value:
-      !GetAtt CustomerLambda.Arn
+    Value: !GetAtt CustomerLambda.Arn
 
     Export:
-      Name:
-        !Sub cloudmart-${Environment}-CustomerLambdaArn
+      Name: !Sub cloudmart-${Environment}-CustomerLambdaArn
 
 
   CustomerLambdaName:
 
-    Description:
-      Customer Lambda name
+    Description: Customer Lambda name
 
-    Value:
-      !Ref CustomerLambda
+    Value: !Ref CustomerLambda
 
     Export:
-      Name:
-        !Sub cloudmart-${Environment}-CustomerLambdaName
+      Name: !Sub cloudmart-${Environment}-CustomerLambdaName
 
 
   # ==========================================================
@@ -2153,28 +1891,22 @@ Outputs:
 
   ProductLambdaArn:
 
-    Description:
-      Product Lambda ARN
+    Description: Product Lambda ARN
 
-    Value:
-      !GetAtt ProductLambda.Arn
+    Value: !GetAtt ProductLambda.Arn
 
     Export:
-      Name:
-        !Sub cloudmart-${Environment}-ProductLambdaArn
+      Name: !Sub cloudmart-${Environment}-ProductLambdaArn
 
 
   ProductLambdaName:
 
-    Description:
-      Product Lambda name
+    Description: Product Lambda name
 
-    Value:
-      !Ref ProductLambda
+    Value: !Ref ProductLambda
 
     Export:
-      Name:
-        !Sub cloudmart-${Environment}-ProductLambdaName
+      Name: !Sub cloudmart-${Environment}-ProductLambdaName
 
 
   # ==========================================================
@@ -2183,28 +1915,22 @@ Outputs:
 
   OrderLambdaArn:
 
-    Description:
-      Order Lambda ARN
+    Description: Order Lambda ARN
 
-    Value:
-      !GetAtt OrderLambda.Arn
+    Value: !GetAtt OrderLambda.Arn
 
     Export:
-      Name:
-        !Sub cloudmart-${Environment}-OrderLambdaArn
+      Name: !Sub cloudmart-${Environment}-OrderLambdaArn
 
 
   OrderLambdaName:
 
-    Description:
-      Order Lambda name
+    Description: Order Lambda name
 
-    Value:
-      !Ref OrderLambda
+    Value: !Ref OrderLambda
 
     Export:
-      Name:
-        !Sub cloudmart-${Environment}-OrderLambdaName
+      Name: !Sub cloudmart-${Environment}-OrderLambdaName
 
 
   # ==========================================================
@@ -2213,28 +1939,22 @@ Outputs:
 
   OrderProcessorLambdaArn:
 
-    Description:
-      Order Processor Lambda ARN
+    Description: Order Processor Lambda ARN
 
-    Value:
-      !GetAtt OrderProcessorLambda.Arn
+    Value: !GetAtt OrderProcessorLambda.Arn
 
     Export:
-      Name:
-        !Sub cloudmart-${Environment}-OrderProcessorLambdaArn
+      Name: !Sub cloudmart-${Environment}-OrderProcessorLambdaArn
 
 
   OrderProcessorLambdaName:
 
-    Description:
-      Order Processor Lambda name
+    Description: Order Processor Lambda name
 
-    Value:
-      !Ref OrderProcessorLambda
+    Value: !Ref OrderProcessorLambda
 
     Export:
-      Name:
-        !Sub cloudmart-${Environment}-OrderProcessorLambdaName
+      Name: !Sub cloudmart-${Environment}-OrderProcessorLambdaName
 
 
   # ==========================================================
@@ -2243,41 +1963,32 @@ Outputs:
 
   DailyReportLambdaArn:
 
-    Description:
-      Daily Report Lambda ARN
+    Description: Daily Report Lambda ARN
 
-    Value:
-      !GetAtt DailyReportLambda.Arn
+    Value: !GetAtt DailyReportLambda.Arn
 
     Export:
-      Name:
-        !Sub cloudmart-${Environment}-DailyReportLambdaArn
+      Name: !Sub cloudmart-${Environment}-DailyReportLambdaArn
 
 
   DailyReportLambdaName:
 
-    Description:
-      Daily Report Lambda name
+    Description: Daily Report Lambda name
 
-    Value:
-      !Ref DailyReportLambda
+    Value: !Ref DailyReportLambda
 
     Export:
-      Name:
-        !Sub cloudmart-${Environment}-DailyReportLambdaName
+      Name: !Sub cloudmart-${Environment}-DailyReportLambdaName
 
 
   DailyReportScheduleArn:
 
-    Description:
-      Daily Report EventBridge schedule ARN
+    Description: Daily Report EventBridge schedule ARN
 
-    Value:
-      !GetAtt DailyReportSchedule.Arn
+    Value: !GetAtt DailyReportSchedule.Arn
 
     Export:
-      Name:
-        !Sub cloudmart-${Environment}-DailyReportScheduleArn
+      Name: !Sub cloudmart-${Environment}-DailyReportScheduleArn
 
 
   # ==========================================================
@@ -2286,28 +1997,22 @@ Outputs:
 
   SchemaInitializerLambdaArn:
 
-    Description:
-      Schema Initializer Lambda ARN
+    Description: Schema Initializer Lambda ARN
 
-    Value:
-      !GetAtt SchemaInitializerLambda.Arn
+    Value: !GetAtt SchemaInitializerLambda.Arn
 
     Export:
-      Name:
-        !Sub cloudmart-${Environment}-SchemaInitializerLambdaArn
+      Name: !Sub cloudmart-${Environment}-SchemaInitializerLambdaArn
 
 
   SchemaInitializerLambdaName:
 
-    Description:
-      Schema Initializer Lambda name
+    Description: Schema Initializer Lambda name
 
-    Value:
-      !Ref SchemaInitializerLambda
+    Value: !Ref SchemaInitializerLambda
 
     Export:
-      Name:
-        !Sub cloudmart-${Environment}-SchemaInitializerLambdaName
+      Name: !Sub cloudmart-${Environment}-SchemaInitializerLambdaName
 
 
   # ==========================================================
@@ -2316,15 +2021,12 @@ Outputs:
 
   PyMySQLLayerArn:
 
-    Description:
-      PyMySQL Lambda Layer ARN
+    Description: PyMySQL Lambda Layer ARN
 
-    Value:
-      !Ref PyMySQLLayer
+    Value: !Ref PyMySQLLayer
 
     Export:
-      Name:
-        !Sub cloudmart-${Environment}-PyMySQLLayerArn
+      Name: !Sub cloudmart-${Environment}-PyMySQLLayerArn
 
 
   # ==========================================================
@@ -2333,54 +2035,42 @@ Outputs:
 
   ProductAlertTopicArn:
 
-    Description:
-      Product Alert SNS Topic ARN
+    Description: Product Alert SNS Topic ARN
 
-    Value:
-      !Ref ProductAlertTopic
+    Value: !Ref ProductAlertTopic
 
     Export:
-      Name:
-        !Sub cloudmart-${Environment}-ProductAlertTopicArn
+      Name: !Sub cloudmart-${Environment}-ProductAlertTopicArn
 
 
   ProductNotificationTopicArn:
 
-    Description:
-      Product Notification SNS Topic ARN
+    Description: Product Notification SNS Topic ARN
 
-    Value:
-      !Ref ProductNotificationTopic
+    Value: !Ref ProductNotificationTopic
 
     Export:
-      Name:
-        !Sub cloudmart-${Environment}-ProductNotificationTopicArn
+      Name: !Sub cloudmart-${Environment}-ProductNotificationTopicArn
 
 
   OrderAlertTopicArn:
 
-    Description:
-      Order Alert SNS Topic ARN
+    Description: Order Alert SNS Topic ARN
 
-    Value:
-      !Ref OrderAlertTopic
+    Value: !Ref OrderAlertTopic
 
     Export:
-      Name:
-        !Sub cloudmart-${Environment}-OrderAlertTopicArn
+      Name: !Sub cloudmart-${Environment}-OrderAlertTopicArn
 
 
   OrderNotificationTopicArn:
 
-    Description:
-      Customer Order Notification SNS Topic ARN
+    Description: Customer Order Notification SNS Topic ARN
 
-    Value:
-      !Ref OrderNotificationTopic
+    Value: !Ref OrderNotificationTopic
 
     Export:
-      Name:
-        !Sub cloudmart-${Environment}-OrderNotificationTopicArn
+      Name: !Sub cloudmart-${Environment}-OrderNotificationTopicArn
 
 
   # ==========================================================
@@ -2389,51 +2079,39 @@ Outputs:
 
   LowStockEventRuleArn:
 
-    Description:
-      Low Stock EventBridge Rule ARN
+    Description: Low Stock EventBridge Rule ARN
 
-    Value:
-      !GetAtt LowStockEventRule.Arn
+    Value: !GetAtt LowStockEventRule.Arn
 
     Export:
-      Name:
-        !Sub cloudmart-${Environment}-LowStockEventRuleArn
+      Name: !Sub cloudmart-${Environment}-LowStockEventRuleArn
 
 
   OrderPendingEventsToSNSRuleArn:
 
-    Description:
-      Pending Order Events SNS EventBridge Rule ARN
+    Description: Pending Order Events SNS EventBridge Rule ARN
 
-    Value:
-      !GetAtt OrderPendingEventsToSNSRule.Arn
+    Value: !GetAtt OrderPendingEventsToSNSRule.Arn
 
     Export:
-      Name:
-        !Sub cloudmart-${Environment}-OrderPendingEventsToSNSRuleArn
+      Name: !Sub cloudmart-${Environment}-OrderPendingEventsToSNSRuleArn
 
 
   OrderPlacedEventsToSNSRuleArn:
 
-    Description:
-      Placed Order Events SNS EventBridge Rule ARN
+    Description: Placed Order Events SNS EventBridge Rule ARN
 
-    Value:
-      !GetAtt OrderPlacedEventsToSNSRule.Arn
+    Value: !GetAtt OrderPlacedEventsToSNSRule.Arn
 
     Export:
-      Name:
-        !Sub cloudmart-${Environment}-OrderPlacedEventsToSNSRuleArn
+      Name: !Sub cloudmart-${Environment}-OrderPlacedEventsToSNSRuleArn
 
 
   OrderFailedEventsToSNSRuleArn:
 
-    Description:
-      Failed Order Events SNS EventBridge Rule ARN
+    Description: Failed Order Events SNS EventBridge Rule ARN
 
-    Value:
-      !GetAtt OrderFailedEventsToSNSRule.Arn
+    Value: !GetAtt OrderFailedEventsToSNSRule.Arn
 
     Export:
-      Name:
-        !Sub cloudmart-${Environment}-OrderFailedEventsToSNSRuleArn
+      Name: !Sub cloudmart-${Environment}-OrderFailedEventsToSNSRuleArn
