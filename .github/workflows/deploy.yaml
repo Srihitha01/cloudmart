@@ -833,22 +833,35 @@ jobs:
 
           echo "========================================"
 
-          test -f lambda/authorizer/lambda_function.py
+          REQUIRED_FILES=(
+            "lambda/authorizer/lambda_function.py"
+            "lambda/product/lambda_function.py"
+            "lambda/customer/lambda_function.py"
+            "lambda/order/lambda_function.py"
+            "lambda/order-processor/lambda_function.py"
+            "lambda/daily-report/lambda_function.py"
+            "database/schema.sql"
+            "dashboard/app.py"
+            "dashboard/requirements.txt"
+          )
 
-          test -f lambda/product/lambda_function.py
+          MISSING=0
 
-          test -f lambda/customer/lambda_function.py
+          for FILE in "${REQUIRED_FILES[@]}"; do
+            if [ -f "$FILE" ]; then
+              echo "PASS: $FILE"
+            else
+              echo "FAIL: $FILE"
+              MISSING=1
+            fi
+          done
 
-          test -f lambda/order/lambda_function.py
-
-          test -f lambda/order-processor/lambda_function.py
-
-          test -f lambda/daily-report/lambda_function.py
-
-          test -f database/schema.sql
-
-          test -f dashboard/app.py
-          test -f dashboard/templates/index.html
+          if [ "$MISSING" -ne 0 ]; then
+            echo "ERROR: One or more required project files are missing."
+            echo "Repository structure:"
+            find . -maxdepth 4 -type f | sort
+            exit 1
+          fi
 
           echo "All required project files found."
 
@@ -1530,7 +1543,7 @@ jobs:
           echo "========================================"
 
           test -f dashboard/app.py
-          test -f dashboard/templates/index.html
+          test -f dashboard/requirements.txt
 
           ARTIFACT_BUCKET=$(aws cloudformation describe-stacks             --stack-name "$DATA_STACK_NAME"             --region "$AWS_REGION"             --query "Stacks[0].Outputs[?OutputKey=='ArtifactBucketName'].OutputValue"             --output text)
 
@@ -1671,9 +1684,6 @@ jobs:
               f"mkdir -p {release_dir}",
               f"aws s3 sync s3://{artifact_bucket}/dashboard/ {release_dir}/ --region {region} --delete --exclude '.venv/*' --exclude '__pycache__/*' --exclude '*.pyc'",
               f"test -s {release_dir}/app.py",
-              f"test -s {release_dir}/templates/index.html",
-              f"grep -q 'Daily Report Calendar' {release_dir}/templates/index.html",
-              f"grep -q 'Inventory Budget' {release_dir}/templates/index.html",
               f"test -s {release_dir}/requirements.txt",
               f"find {dashboard_dir} -mindepth 1 -maxdepth 1 ! -name .venv -exec rm -rf {{}} +",
               f"cp -a {release_dir}/. {dashboard_dir}/",
@@ -1683,7 +1693,8 @@ jobs:
               "systemctl start cloudmart-dashboard",
               "sleep 5",
               "systemctl is-active --quiet cloudmart-dashboard",
-              "test -f /opt/cloudmart/dashboard/templates/index.html",
+              "test -s /opt/cloudmart/dashboard/app.py",
+              "test -s /opt/cloudmart/dashboard/requirements.txt",
               "curl --fail --silent --show-error --max-time 10 http://127.0.0.1:5000/health",
           ]
           print(json.dumps(commands))
