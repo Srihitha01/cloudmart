@@ -1540,7 +1540,11 @@ jobs:
 
           echo "Artifact bucket: $ARTIFACT_BUCKET"
 
-          aws s3 sync dashboard/             "s3://${ARTIFACT_BUCKET}/dashboard/"             --region "$AWS_REGION"             --delete
+          # Never upload the local Python virtual environment or Python caches.
+          # They are not dashboard source files and must not be copied to EC2.
+          aws s3 rm             "s3://${ARTIFACT_BUCKET}/dashboard/.venv/"             --recursive             --region "$AWS_REGION" || true
+
+          aws s3 sync dashboard/             "s3://${ARTIFACT_BUCKET}/dashboard/"             --region "$AWS_REGION"             --delete             --exclude ".venv/*"             --exclude "__pycache__/*"             --exclude "*.pyc"
 
           echo "Dashboard files published successfully."
 
@@ -1652,13 +1656,14 @@ jobs:
             --arg region "$AWS_REGION" \
             '{commands: [
               "set -euo pipefail",
+              "systemctl stop cloudmart-dashboard || true",
               "mkdir -p /opt/cloudmart/dashboard/templates",
-              ("aws s3 sync s3://" + $bucket + "/dashboard/ /opt/cloudmart/dashboard/ --region " + $region + " --delete"),
+              ("aws s3 sync s3://" + $bucket + "/dashboard/ /opt/cloudmart/dashboard/ --region " + $region + " --delete --exclude .venv/* --exclude __pycache__/* --exclude *.pyc"),
               "test -s /opt/cloudmart/dashboard/app.py",
               "test -s /opt/cloudmart/dashboard/templates/index.html",
               "grep -q \"Daily Report Calendar\" /opt/cloudmart/dashboard/templates/index.html",
               "grep -q \"Inventory Budget\" /opt/cloudmart/dashboard/templates/index.html",
-              "systemctl restart cloudmart-dashboard",
+              "systemctl start cloudmart-dashboard",
               "sleep 5",
               "systemctl is-active --quiet cloudmart-dashboard",
               "curl --fail --silent --show-error --max-time 10 http://127.0.0.1:5000/health"
