@@ -1798,12 +1798,6 @@ Resources:
           Id:
             OrderPlacedSNSTarget
 
-        - Arn:
-            !Ref OrderAlertTopic
-
-          Id:
-            OrderPlacedOperationalAlertSNSTarget
-
           InputTransformer:
 
             InputPathsMap:
@@ -1856,6 +1850,12 @@ Resources:
 
           Id:
             OrderConfirmedSNSTarget
+
+        - Arn:
+            !Ref OrderAlertTopic
+
+          Id:
+            OrderConfirmedOperationalAlertSNSTarget
 
           InputTransformer:
 
