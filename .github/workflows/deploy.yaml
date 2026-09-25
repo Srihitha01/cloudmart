@@ -5,12 +5,10 @@ name: CloudMart Infrastructure Deployment
 # ============================================================
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
-    inputs:
-      db_password:
-        description: "Enter the CloudMart RDS database password (12-41 characters)"
-        required: true
-        type: string
 
 # ============================================================
 # GITHUB ACTIONS PERMISSIONS
@@ -408,10 +406,10 @@ jobs:
 
       - name: Mask DB Password
         env:
-          DB_PASSWORD_INPUT: ${{ inputs.db_password }}
+          DB_PASSWORD_INPUT: ${{ secrets.CLOUDMART_DB_PASSWORD }}
         run: |
           if [ -z "$DB_PASSWORD_INPUT" ]; then
-            echo "ERROR: Database password input is empty."
+            echo "ERROR: Database password was not entered."
             exit 1
           fi
 
@@ -425,7 +423,7 @@ jobs:
 
         env:
 
-          DB_PASSWORD: ${{ inputs.db_password }}
+          DB_PASSWORD: ${{ secrets.CLOUDMART_DB_PASSWORD }}
 
         run: |
 
@@ -445,7 +443,7 @@ jobs:
 
           PASSWORD_LENGTH=${#DB_PASSWORD}
 
-          echo "Database password input is available."
+          echo "Database password secret is available."
 
           if [ "$PASSWORD_LENGTH" -lt 12 ]; then
 
@@ -482,7 +480,7 @@ jobs:
 
         env:
 
-          DB_PASSWORD: ${{ inputs.db_password }}
+          DB_PASSWORD: ${{ secrets.CLOUDMART_DB_PASSWORD }}
 
         run: |
 
@@ -1602,11 +1600,93 @@ jobs:
             --no-fail-on-empty-changeset
 
       # ------------------------------------------------------
-      # EC2 DASHBOARD DEPLOYMENT
-      # The API stack UserData automatically installs Nginx,
-      # Gunicorn and the dashboard from the artifact bucket.
-      # No manual/SSM dashboard deployment is required.
+      # UPDATE EXISTING EC2 DASHBOARD
+      # CloudFormation UserData runs only when the EC2 instance is
+      # created/replaced. This SSM step makes every deployment copy
+      # the newest dashboard files to the existing EC2 instance and
+      # restart Flask/Gunicorn.
       # ------------------------------------------------------
+
+      - name: Update Dashboard on Existing EC2
+
+        run: |
+
+          echo "========================================"
+          echo "UPDATING DASHBOARD ON EXISTING EC2"
+          echo "========================================"
+
+          ARTIFACT_BUCKET=$(aws cloudformation describe-stacks \
+            --stack-name "$DATA_STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query "Stacks[0].Outputs[?OutputKey=='ArtifactBucketName'].OutputValue" \
+            --output text)
+
+          INSTANCE_ID=$(aws cloudformation describe-stacks \
+            --stack-name "$API_MONITORING_EC2_STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query "Stacks[0].Outputs[?OutputKey=='DashboardInstanceId'].OutputValue" \
+            --output text)
+
+          if [ -z "$ARTIFACT_BUCKET" ] || [ "$ARTIFACT_BUCKET" = "None" ]; then
+            echo "ERROR: Artifact bucket not found."
+            exit 1
+          fi
+
+          if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ]; then
+            echo "ERROR: Dashboard instance ID not found."
+            exit 1
+          fi
+
+          COMMANDS=$(jq -n \
+            --arg bucket "$ARTIFACT_BUCKET" \
+            --arg region "$AWS_REGION" \
+            '{commands: [
+              "set -e",
+              "mkdir -p /opt/cloudmart/dashboard",
+              ("aws s3 sync s3://" + $bucket + "/dashboard/ /opt/cloudmart/dashboard/ --region " + $region + " --delete"),
+              "systemctl daemon-reload",
+              "systemctl restart cloudmart-dashboard",
+              "sleep 5",
+              "systemctl is-active --quiet cloudmart-dashboard",
+              "curl --fail --silent --show-error --max-time 15 http://127.0.0.1:5000/health"
+            ]}')
+
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --comment "Update CloudMart dashboard files" \
+            --parameters "$COMMANDS" \
+            --region "$AWS_REGION" \
+            --query "Command.CommandId" \
+            --output text)
+
+          echo "SSM command: $COMMAND_ID"
+
+          aws ssm wait command-executed \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$INSTANCE_ID" \
+            --region "$AWS_REGION"
+
+          STATUS=$(aws ssm get-command-invocation \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$INSTANCE_ID" \
+            --region "$AWS_REGION" \
+            --query "Status" \
+            --output text)
+
+          aws ssm get-command-invocation \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$INSTANCE_ID" \
+            --region "$AWS_REGION" \
+            --query "[StandardOutputContent,StandardErrorContent]" \
+            --output text
+
+          if [ "$STATUS" != "Success" ]; then
+            echo "ERROR: Dashboard update failed: $STATUS"
+            exit 1
+          fi
+
+          echo "Dashboard updated successfully on EC2."
 
       # ------------------------------------------------------
       # VERIFY API STACK
