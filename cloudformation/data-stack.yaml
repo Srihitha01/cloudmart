@@ -7,6 +7,26 @@ Description: >
   manually supplied database credentials stored in SSM SecureString,
   and SSM configuration parameters.
 
+# Manual-password deployment note:
+# DBPassword intentionally has NO default value.
+# The value must be supplied by the deployment workflow.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: CloudMart Database Configuration
+        Parameters:
+          - Environment
+          - DBName
+          - DBUsername
+          - DBPassword
+          - DBInstanceClass
+          - AllocatedStorage
+    ParameterLabels:
+      DBPassword:
+        default: RDS Master Database Password (manual input)
+
 # ============================================================
 # PARAMETERS
 # ============================================================
@@ -47,9 +67,11 @@ Parameters:
     NoEcho: true
     MinLength: 12
     MaxLength: 41
+    ConstraintDescription: >
+      Enter the RDS master password manually. It must contain 12 to 41 characters.
     Description: >
       RDS master password entered manually during deployment.
-      Must contain at least 12 characters.
+      No default value is set, and the password is stored in SSM as a SecureString.
 
 # ============================================================
 # RESOURCES
