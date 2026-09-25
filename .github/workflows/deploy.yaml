@@ -848,6 +848,7 @@ jobs:
           test -f database/schema.sql
 
           test -f dashboard/app.py
+          test -f dashboard/templates/index.html
 
           echo "All required project files found."
 
@@ -1529,6 +1530,7 @@ jobs:
           echo "========================================"
 
           test -f dashboard/app.py
+          test -f dashboard/templates/index.html
 
           ARTIFACT_BUCKET=$(aws cloudformation describe-stacks             --stack-name "$DATA_STACK_NAME"             --region "$AWS_REGION"             --query "Stacks[0].Outputs[?OutputKey=='ArtifactBucketName'].OutputValue"             --output text)
 
@@ -1628,9 +1630,7 @@ jobs:
         run: |
 
           echo "========================================"
-
           echo "REFRESHING EXISTING EC2 DASHBOARD"
-
           echo "========================================"
 
           INSTANCE_ID=$(aws cloudformation describe-stacks \
@@ -1655,6 +1655,9 @@ jobs:
             exit 1
           fi
 
+          echo "Dashboard instance: $INSTANCE_ID"
+          echo "Artifact bucket: $ARTIFACT_BUCKET"
+
           COMMANDS_JSON=$(python - <<PY
           import json
           artifact_bucket = "${ARTIFACT_BUCKET}"
@@ -1665,20 +1668,22 @@ jobs:
               "set -euo pipefail",
               "systemctl stop cloudmart-dashboard || true",
               f"rm -rf {release_dir}",
-              f"mkdir -p {release_dir}/templates",
+              f"mkdir -p {release_dir}",
               f"aws s3 sync s3://{artifact_bucket}/dashboard/ {release_dir}/ --region {region} --delete --exclude '.venv/*' --exclude '__pycache__/*' --exclude '*.pyc'",
               f"test -s {release_dir}/app.py",
               f"test -s {release_dir}/templates/index.html",
               f"grep -q 'Daily Report Calendar' {release_dir}/templates/index.html",
               f"grep -q 'Inventory Budget' {release_dir}/templates/index.html",
+              f"test -s {release_dir}/requirements.txt",
               f"find {dashboard_dir} -mindepth 1 -maxdepth 1 ! -name .venv -exec rm -rf {{}} +",
               f"cp -a {release_dir}/. {dashboard_dir}/",
               f"rm -rf {release_dir}",
               f"if [ ! -x {dashboard_dir}/.venv/bin/python ] || [ ! -x {dashboard_dir}/.venv/bin/gunicorn ]; then rm -rf {dashboard_dir}/.venv; python3 -m venv {dashboard_dir}/.venv; {dashboard_dir}/.venv/bin/python -m pip install --upgrade pip setuptools wheel; {dashboard_dir}/.venv/bin/python -m pip install -r {dashboard_dir}/requirements.txt; fi",
-              f"{dashboard_dir}/.venv/bin/python -c 'import app; assert app.app is not None'",
+              f"cd {dashboard_dir} && {dashboard_dir}/.venv/bin/python -c 'import app; assert app.app is not None'",
               "systemctl start cloudmart-dashboard",
               "sleep 5",
               "systemctl is-active --quiet cloudmart-dashboard",
+              "test -f /opt/cloudmart/dashboard/templates/index.html",
               "curl --fail --silent --show-error --max-time 10 http://127.0.0.1:5000/health",
           ]
           print(json.dumps(commands))
@@ -1695,7 +1700,7 @@ jobs:
 
           echo "SSM command: $COMMAND_ID"
 
-          for attempt in {1..18}; do
+          for attempt in {1..24}; do
             STATUS=$(aws ssm get-command-invocation \
               --command-id "$COMMAND_ID" \
               --instance-id "$INSTANCE_ID" \

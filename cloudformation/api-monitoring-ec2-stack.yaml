@@ -1884,21 +1884,12 @@ Resources:
                 sleep 5
               done
 
-              # The GitHub Actions workflow publishes the complete dashboard/ directory
-              # to this S3 prefix before the EC2 stack is deployed.
-              for attempt in {1..5}; do
-                if aws s3 sync "s3://${ArtifactBucketName}/dashboard/" /opt/cloudmart/dashboard/ --region ${AWS::Region} --delete --exclude ".venv/*" --exclude "__pycache__/*" --exclude "*.pyc"; then
-                  break
-                fi
-                if [ "$attempt" -eq 5 ]; then
-                  echo "ERROR: Dashboard artifact download failed."
-                  exit 1
-                fi
-                sleep 10
-              done
-
-              test -s /opt/cloudmart/dashboard/bootstrap-dashboard.sh
-              chmod +x /opt/cloudmart/dashboard/bootstrap-dashboard.sh
+              # Fetch only the bootstrap script. The bootstrap performs a safe
+              # staged dashboard deployment and preserves any existing .venv.
+              BOOTSTRAP=/tmp/cloudmart-bootstrap-dashboard.sh
+              aws s3 cp "s3://${ArtifactBucketName}/dashboard/bootstrap-dashboard.sh" "$BOOTSTRAP" --region ${AWS::Region}
+              test -s "$BOOTSTRAP"
+              chmod +x "$BOOTSTRAP"
 
               AWS_REGION=${AWS::Region} \
               ENVIRONMENT=${Environment} \
@@ -1906,7 +1897,7 @@ Resources:
               REPORT_BUCKET=${ReportBucketName} \
               DASHBOARD_PORT=${DashboardPort} \
               NGINX_PORT=${NginxPort} \
-              /opt/cloudmart/dashboard/bootstrap-dashboard.sh
+              "$BOOTSTRAP"
 
             - ArtifactBucketName:
                 Fn::ImportValue:
