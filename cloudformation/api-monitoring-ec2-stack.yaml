@@ -55,11 +55,6 @@ Parameters:
     MaxValue: 65535
     Description: Public HTTP port for the Nginx reverse proxy
 
-  RdsDbInstanceIdentifier:
-    Type: String
-    Default: cloudmart-dev-mysql
-    Description: RDS DB instance identifier used by CloudWatch RDS metrics
-
 
 # ============================================================
 # RESOURCES
@@ -1467,7 +1462,7 @@ Resources:
                   "view": "timeSeries",
                   "region": "${AWS::Region}",
                   "metrics": [
-                    [ "AWS/RDS", "ReadIOPS", "DBInstanceIdentifier", "${RdsDbInstanceIdentifier}" ],
+                    [ "AWS/RDS", "ReadIOPS", "DBInstanceIdentifier", "cloudmart-${Environment}-mysql" ],
                     [ ".", "WriteIOPS", ".", "." ],
                     [ ".", "NetworkReceiveThroughput", ".", "." ],
                     [ ".", "NetworkTransmitThroughput", ".", "." ]
@@ -1563,7 +1558,7 @@ Resources:
                   "view": "timeSeries",
                   "region": "${AWS::Region}",
                   "metrics": [
-                    [ "AWS/RDS", "CPUUtilization", "DBInstanceIdentifier", "${RdsDbInstanceIdentifier}" ],
+                    [ "AWS/RDS", "CPUUtilization", "DBInstanceIdentifier", "cloudmart-${Environment}-mysql" ],
                     [ ".", "DatabaseConnections", ".", "." ],
                     [ ".", "FreeStorageSpace", ".", "." ]
                   ],
@@ -1809,7 +1804,11 @@ Resources:
               - ssm:GetParameter
               - ssm:GetParameters
             Resource:
-              - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/db/*
+              - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/db/name
+              - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/db/endpoint
+              - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/db/port
+              - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/db/username
+              - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/db/password
               - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/s3/report-bucket
               - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/auth/token
 
@@ -1888,7 +1887,7 @@ Resources:
               # The GitHub Actions workflow publishes the complete dashboard/ directory
               # to this S3 prefix before the EC2 stack is deployed.
               for attempt in {1..5}; do
-                if aws s3 sync "s3://${ArtifactBucketName}/dashboard/" /opt/cloudmart/dashboard/ --region ${AWS::Region} --delete; then
+                if aws s3 sync "s3://${ArtifactBucketName}/dashboard/" /opt/cloudmart/dashboard/ --region ${AWS::Region} --delete --exclude ".venv/*" --exclude "__pycache__/*" --exclude "*.pyc"; then
                   break
                 fi
                 if [ "$attempt" -eq 5 ]; then
@@ -2130,7 +2129,7 @@ Resources:
       MetricName: CPUUtilization
       Dimensions:
         - Name: DBInstanceIdentifier
-          Value: !Ref RdsDbInstanceIdentifier
+          Value: !Sub cloudmart-${Environment}-mysql
       Statistic: Average
       Period: 300
       EvaluationPeriods: 2
@@ -2150,7 +2149,7 @@ Resources:
       MetricName: FreeStorageSpace
       Dimensions:
         - Name: DBInstanceIdentifier
-          Value: !Ref RdsDbInstanceIdentifier
+          Value: !Sub cloudmart-${Environment}-mysql
       Statistic: Minimum
       Period: 300
       EvaluationPeriods: 2
@@ -2170,7 +2169,7 @@ Resources:
       MetricName: DatabaseConnections
       Dimensions:
         - Name: DBInstanceIdentifier
-          Value: !Ref RdsDbInstanceIdentifier
+          Value: !Sub cloudmart-${Environment}-mysql
       Statistic: Maximum
       Period: 300
       EvaluationPeriods: 2
