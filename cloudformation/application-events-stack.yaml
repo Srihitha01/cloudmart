@@ -1684,6 +1684,21 @@ Resources:
           Id:
             OrderFailedSNSTarget
 
+          InputTransformer:
+
+            InputPathsMap:
+              eventType: "$.detail-type"
+              orderId: "$.detail.order_id"
+              customerId: "$.detail.customer_id"
+              status: "$.detail.status"
+              totalAmount: "$.detail.total_amount"
+              failureReason: "$.detail.failure_reason"
+
+            InputTemplate: >
+              "CloudMart ORDER FAILED: Order ID: <orderId>,
+              Customer ID: <customerId>, Status: <status>,
+              Total Amount: <totalAmount>, Failure Reason: <failureReason>."
+
         - Arn:
             !Ref OrderAlertTopic
 
@@ -1812,6 +1827,26 @@ Resources:
               Customer ID: <customerId>, Status: <status>,
               Total Amount: <totalAmount>. Your order has been placed successfully."
 
+        - Arn:
+            !Ref OrderAlertTopic
+
+          Id:
+            OrderPlacedOperationalAlertSNSTarget
+
+          InputTransformer:
+
+            InputPathsMap:
+              eventType: "$.detail-type"
+              orderId: "$.detail.order_id"
+              customerId: "$.detail.customer_id"
+              status: "$.detail.status"
+              totalAmount: "$.detail.total_amount"
+
+            InputTemplate: >
+              "CloudMart ORDER PLACED: Order ID: <orderId>,
+              Customer ID: <customerId>, Status: <status>,
+              Total Amount: <totalAmount>. Your order has been placed successfully."
+
 
   # ==========================================================
   # CONFIRMED ORDER EVENTS -> ORDER NOTIFICATION SNS
@@ -1850,6 +1885,20 @@ Resources:
 
           Id:
             OrderConfirmedSNSTarget
+
+          InputTransformer:
+
+            InputPathsMap:
+              eventType: "$.detail-type"
+              orderId: "$.detail.order_id"
+              customerId: "$.detail.customer_id"
+              status: "$.detail.status"
+              totalAmount: "$.detail.total_amount"
+
+            InputTemplate: >
+              "CloudMart ORDER CONFIRMED: Order ID: <orderId>,
+              Customer ID: <customerId>, Status: <status>,
+              Total Amount: <totalAmount>. Your order has been confirmed successfully."
 
         - Arn:
             !Ref OrderAlertTopic
@@ -1909,6 +1958,21 @@ Resources:
 
           Id:
             OrderCancelledSNSTarget
+
+          InputTransformer:
+
+            InputPathsMap:
+              eventType: "$.detail-type"
+              orderId: "$.detail.order_id"
+              customerId: "$.detail.customer_id"
+              status: "$.detail.status"
+              totalAmount: "$.detail.total_amount"
+              reason: "$.detail.reason"
+
+            InputTemplate: >
+              "CloudMart ORDER CANCELLED: Order ID: <orderId>,
+              Customer ID: <customerId>, Status: <status>,
+              Total Amount: <totalAmount>, Reason: <reason>."
 
         - Arn:
             !Ref OrderAlertTopic
