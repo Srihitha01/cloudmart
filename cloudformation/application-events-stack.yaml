@@ -80,13 +80,6 @@ Parameters:
       SSM parameter name containing the authentication token
 
 
-  CustomerTokensParameter:
-    Type: String
-
-    Description:
-      SSM parameter name containing customer token mappings
-
-
   # ==========================================================
   # LAMBDA ARTIFACTS
   # ==========================================================
@@ -271,10 +264,6 @@ Resources:
 
           ADMIN_TOKEN_PARAMETER:
             !Ref AuthTokenParameter
-
-          CUSTOMER_TOKENS_PARAMETER:
-            !Ref CustomerTokensParameter
-
           DB_NAME_PARAMETER:
             !Ref DBName
 
