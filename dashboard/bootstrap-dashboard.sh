@@ -96,13 +96,24 @@ if ! command -v python3 >/dev/null 2>&1 \
 
   dnf clean all
   dnf makecache
+
+  # IMPORTANT: Amazon Linux 2023 normally ships with curl-minimal.
+  # Installing the full curl package conflicts with curl-minimal.
+  # Do NOT ask DNF to install curl. Only install curl-minimal if
+  # the curl command is genuinely missing.
   dnf install -y \
     python3 \
     python3-pip \
     python3-devel \
     gcc \
-    nginx \
-    curl
+    nginx
+
+  if ! command -v curl >/dev/null 2>&1; then
+    log "curl command is missing; installing curl-minimal"
+    dnf install -y curl-minimal
+  else
+    log "curl command is already available; keeping existing curl-minimal package"
+  fi
 else
   log "Required system packages are already installed"
 fi
