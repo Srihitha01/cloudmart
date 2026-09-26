@@ -18,8 +18,8 @@ AWS_API_CONFIG = Config(
 )
 
 ORDER_PROCESSOR_INVOKE_CONFIG = Config(
-    connect_timeout=1,
-    read_timeout=12,
+    connect_timeout=2,
+    read_timeout=5,
     retries={"max_attempts": 0, "mode": "standard"}
 )
 
@@ -618,75 +618,67 @@ def validate_order_items(items):
 # ==========================================================
 
 def invoke_order_processor(order_data, context):
-    """Process the order synchronously so the API returns the final status."""
-    payload = json.dumps(order_data, default=str).encode("utf-8")
+    """
+    Submit the order to the Order Processor asynchronously.
+
+    The Order Processor intentionally performs the required 5-second
+    OrderPending -> OrderPlaced notification delay, so it must not be
+    synchronously awaited from the API Gateway request path.
+    """
+
+    payload = json.dumps(
+        order_data,
+        default=str
+    ).encode("utf-8")
+
     try:
+
         result = lambda_client.invoke(
             FunctionName=ORDER_PROCESSOR_FUNCTION_NAME,
-            InvocationType="RequestResponse",
+            InvocationType="Event",
             Payload=payload,
         )
 
-        invoke_status = int(result.get("StatusCode", 0) or 0)
-        if invoke_status != 200:
-            raise RuntimeError(
-                f"Order processor invocation returned status {invoke_status}"
-            )
-
-        if result.get("FunctionError"):
-            raise RuntimeError(
-                f"Order processor Lambda returned {result.get('FunctionError')}"
-            )
-
-        raw_payload = result.get("Payload")
-        if raw_payload is None:
-            raise RuntimeError("Order processor returned no response payload")
-
-        processor_payload = raw_payload.read()
-        if isinstance(processor_payload, bytes):
-            processor_payload = processor_payload.decode("utf-8")
-
-        processor_result = json.loads(processor_payload or "{}")
-        processor_status_code = int(
-            processor_result.get("statusCode", 500) or 500
+        invoke_status = int(
+            result.get("StatusCode", 0) or 0
         )
 
-        processor_body = processor_result.get("body", {})
-        if isinstance(processor_body, str):
-            processor_body = json.loads(processor_body or "{}")
-
-        if processor_status_code >= 400:
+        # Lambda returns 202 when the asynchronous invocation has been
+        # accepted for execution. No processor response payload is
+        # available for InvocationType=Event.
+        if invoke_status != 202:
             raise RuntimeError(
-                processor_body.get("message", "Order processing failed")
-            )
-
-        final_status = processor_body.get("status")
-        if final_status != "CONFIRMED":
-            raise RuntimeError(
-                f"Order processor did not confirm the order. Status: {final_status}"
+                "Order processor asynchronous invocation was not accepted. "
+                f"StatusCode: {invoke_status}"
             )
 
         log_event(
             "INFO",
-            "Order confirmed by processor",
+            "Order accepted by processor",
             request_id=context.aws_request_id,
             invoke_status_code=invoke_status,
-            order_id=processor_body.get("order_id"),
-            customer_id=processor_body.get("customer_id"),
-            status=final_status,
+            invocation_type="Event",
+            customer_id=order_data.get("customer_id"),
         )
 
-        return processor_body
+        return {
+            "status": "PENDING",
+            "customer_id": order_data.get("customer_id")
+        }
 
     except Exception as exc:
+
         log_event(
             "ERROR",
-            "Synchronous order processing failed",
+            "Asynchronous order submission failed",
             request_id=context.aws_request_id,
             error_type=type(exc).__name__,
             error=str(exc),
         )
-        raise RuntimeError("Order processing failed") from exc
+
+        raise RuntimeError(
+            "Order processor could not be invoked"
+        ) from exc
 
 
 # ==========================================================
@@ -912,17 +904,22 @@ def create_order(
                 items
         }
 
-        processor_result = invoke_order_processor(order_data, context)
+        processor_result = invoke_order_processor(
+            order_data,
+            context
+        )
 
         return response(
-            200,
+            202,
             {
-                "message": "Order placed successfully",
-                "status": "CONFIRMED",
-                "order_id": processor_result.get("order_id"),
+                "message": "Order accepted for processing",
+                "status": processor_result.get("status", "PENDING"),
                 "customer_id": customer_id,
-                "total_amount": processor_result.get("total_amount"),
-                "request_id": context.aws_request_id
+                "request_id": context.aws_request_id,
+                "note": (
+                    "The order is being processed asynchronously. "
+                    "Use GET /customers/{customer_id}/orders to check the final status."
+                )
             }
         )
 
@@ -946,14 +943,33 @@ def create_order(
             }
         )
 
+    except RuntimeError as exc:
+
+        log_event(
+            "ERROR",
+            "Order processor invocation failed",
+            request_id=context.aws_request_id,
+            error_type=type(exc).__name__,
+            error=str(exc)
+        )
+
+        return response(
+            502,
+            {
+                "message":
+                    str(exc),
+                "request_id":
+                    context.aws_request_id
+            }
+        )
+
     except Exception as exc:
 
         log_event(
             "ERROR",
             "Order creation failed",
             request_id=context.aws_request_id,
-            error_type=
-                type(exc).__name__,
+            error_type=type(exc).__name__,
             error=str(exc)
         )
 
@@ -961,7 +977,7 @@ def create_order(
             500,
             {
                 "message":
-                    "Internal server error",
+                    "Order creation failed",
                 "request_id":
                     context.aws_request_id
             }

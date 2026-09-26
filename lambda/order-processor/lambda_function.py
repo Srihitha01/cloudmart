@@ -35,6 +35,9 @@ DB_USERNAME_PARAMETER = os.environ["DB_USERNAME_PARAMETER"]
 DB_PASSWORD_PARAMETER = os.environ["DB_PASSWORD_PARAMETER"]
 EVENT_BUS_NAME = os.environ["EVENT_BUS_NAME"]
 
+# Required notification delay between OrderPending and OrderPlaced.
+ORDER_PLACED_DELAY_SECONDS = 5
+
 
 # ==========================================================
 # STRUCTURED LOGGING
@@ -679,7 +682,7 @@ def create_pending_order(
         # notification approximately 5 seconds later.
         # --------------------------------------------------
 
-        time.sleep(5)
+        time.sleep(ORDER_PLACED_DELAY_SECONDS)
 
         placed_event_published = publish_order_event(
             detail_type="OrderPlaced",
@@ -697,7 +700,7 @@ def create_pending_order(
             request_id=context.aws_request_id,
             order_id=order_id,
             event_published=placed_event_published,
-            delay_seconds=5
+            delay_seconds=ORDER_PLACED_DELAY_SECONDS
         )
 
         return {
