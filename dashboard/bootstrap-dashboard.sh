@@ -54,7 +54,7 @@ log "Downloading dashboard release into a temporary directory"
 rm -rf "$RELEASE_DIR"
 mkdir -p "$RELEASE_DIR"
 for attempt in {1..5}; do
-  if aws s3 sync "s3://${ARTIFACT_BUCKET}/dashboard/" "$RELEASE_DIR/" --region "$AWS_REGION" --delete \\
+  if aws s3 sync "s3://${ARTIFACT_BUCKET}/dashboard/" "$RELEASE_DIR/" --region "$AWS_REGION" --delete \
       --exclude '.venv/*' --exclude '__pycache__/*' --exclude '*.pyc'; then
     break
   fi
@@ -73,15 +73,18 @@ find "$DASHBOARD_DIR" -mindepth 1 -maxdepth 1 ! -name .venv -exec rm -rf {} +
 cp -a "$RELEASE_DIR/." "$DASHBOARD_DIR/"
 rm -rf "$RELEASE_DIR"
 
-if [ ! -x "$DASHBOARD_DIR/.venv/bin/python" ] || [ ! -x "$DASHBOARD_DIR/.venv/bin/gunicorn" ]; then
+# Always ensure the virtual environment exists. On a fresh EC2 it is created;
+# on an existing EC2 it is reused and dependencies are refreshed safely.
+if [ ! -x "$DASHBOARD_DIR/.venv/bin/python" ]; then
   rm -rf "$DASHBOARD_DIR/.venv"
   python3 -m venv "$DASHBOARD_DIR/.venv"
-  "$DASHBOARD_DIR/.venv/bin/python" -m pip install --upgrade pip setuptools wheel
-  if [ -s "$DASHBOARD_DIR/requirements.txt" ]; then
-    "$DASHBOARD_DIR/.venv/bin/python" -m pip install -r "$DASHBOARD_DIR/requirements.txt"
-  else
-    "$DASHBOARD_DIR/.venv/bin/python" -m pip install flask pymysql boto3 gunicorn
-  fi
+fi
+
+"$DASHBOARD_DIR/.venv/bin/python" -m pip install --upgrade pip setuptools wheel
+if [ -s "$DASHBOARD_DIR/requirements.txt" ]; then
+  "$DASHBOARD_DIR/.venv/bin/python" -m pip install --upgrade -r "$DASHBOARD_DIR/requirements.txt"
+else
+  "$DASHBOARD_DIR/.venv/bin/python" -m pip install --upgrade flask pymysql boto3 gunicorn
 fi
 
 cd "$DASHBOARD_DIR"
@@ -146,12 +149,12 @@ NGINX
 nginx -t
 systemctl daemon-reload
 systemctl enable nginx
-systemctl enable cloudmart-dashboard
+systemctl enable cloudmart-dashboard.service
 systemctl restart nginx
-systemctl restart cloudmart-dashboard
+systemctl restart cloudmart-dashboard.service
 sleep 5
 systemctl is-active --quiet nginx
-systemctl is-active --quiet cloudmart-dashboard
+systemctl is-active --quiet cloudmart-dashboard.service
 curl --fail --silent --show-error --max-time 10 "http://127.0.0.1:${DASHBOARD_PORT}/health" >/dev/null
 curl --fail --silent --show-error --max-time 10 "http://127.0.0.1:${NGINX_PORT}/health" >/dev/null
 log "CloudMart dashboard bootstrap completed successfully"
