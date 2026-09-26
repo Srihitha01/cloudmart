@@ -750,10 +750,13 @@ def delete_customer(event):
     if customer_id is None:
         return error(400, "Valid customer_id is required")
 
-    if not can_access_customer(event, customer_id):
+    # Customer deletion is ADMIN ONLY.
+    # A customer may read/update their own record, but must never
+    # be able to deactivate/delete an account through this endpoint.
+    if not is_admin(event):
         return error(
             403,
-            "You are not allowed to delete this customer"
+            "Only administrators can delete customers"
         )
 
     connection = None

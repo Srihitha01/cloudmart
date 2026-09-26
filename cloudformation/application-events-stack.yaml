@@ -80,6 +80,8 @@ Parameters:
       SSM parameter name containing the authentication token
 
 
+
+
   # ==========================================================
   # LAMBDA ARTIFACTS
   # ==========================================================
@@ -249,10 +251,28 @@ Resources:
       # The product Lambda now uses short AWS SDK timeouts and treats
       # EventBridge/CloudWatch metrics as best-effort operations.
       Timeout:
-        29
+        10
 
       MemorySize:
         512
+
+      # The authorizer validates customer bearer tokens against the
+      # hashed customers.bearer_token value in the private RDS.
+      # It therefore MUST run inside the CloudMart VPC.
+      VpcConfig:
+
+        SecurityGroupIds:
+
+          - Fn::ImportValue:
+              Fn::Sub: cloudmart-${Environment}-LambdaSecurityGroupId
+
+        SubnetIds:
+
+          - Fn::ImportValue:
+              Fn::Sub: cloudmart-${Environment}-PrivateSubnetId
+
+          - Fn::ImportValue:
+              Fn::Sub: cloudmart-${Environment}-SecondaryPrivateSubnetId
 
       Layers:
 
@@ -264,6 +284,8 @@ Resources:
 
           ADMIN_TOKEN_PARAMETER:
             !Ref AuthTokenParameter
+
+
           DB_NAME_PARAMETER:
             !Ref DBName
 
@@ -332,10 +354,10 @@ Resources:
           Fn::Sub: cloudmart-${Environment}-CustomerLambdaRoleArn
 
       Timeout:
-        30
+        29
 
       MemorySize:
-        256
+        512
 
       Layers:
 
@@ -423,10 +445,10 @@ Resources:
           Fn::Sub: cloudmart-${Environment}-ProductLambdaRoleArn
 
       Timeout:
-        30
+        29
 
       MemorySize:
-        256
+        512
 
       Layers:
 
@@ -515,10 +537,10 @@ Resources:
           Fn::Sub: cloudmart-${Environment}-OrderLambdaRoleArn
 
       Timeout:
-        30
+        29
 
       MemorySize:
-        256
+        512
 
       Layers:
 
@@ -613,7 +635,7 @@ Resources:
         60
 
       MemorySize:
-        256
+        512
 
       Layers:
 
@@ -1135,6 +1157,36 @@ Resources:
 
 
   # ==========================================================
+  # PRODUCT NOTIFICATION SNS TOPIC
+  # Separate from the operational Product Alert SNS topic.
+  # The same AlertEmail receives both streams as two distinct emails.
+  # ==========================================================
+
+  ProductNotificationTopic:
+
+    Type: AWS::SNS::Topic
+
+    Properties:
+      TopicName:
+        !Sub cloudmart-${Environment}-product-notifications
+
+      DisplayName:
+        CloudMart Product Notifications
+
+      Tags:
+        - Key: Name
+          Value:
+            !Sub cloudmart-${Environment}-product-notifications
+
+        - Key: Project
+          Value: CloudMart
+
+        - Key: Environment
+          Value:
+            !Ref Environment
+
+
+  # ==========================================================
   # ORDER ALERT SNS TOPIC
   # ==========================================================
 
@@ -1163,6 +1215,35 @@ Resources:
 
 
   # ==========================================================
+  # CUSTOMER ORDER NOTIFICATION SNS TOPIC
+  # Separate from operational/CloudWatch alert notifications.
+  # ==========================================================
+
+  OrderNotificationTopic:
+
+    Type: AWS::SNS::Topic
+
+    Properties:
+      TopicName:
+        !Sub cloudmart-${Environment}-order-notifications
+
+      DisplayName:
+        CloudMart Order Notifications
+
+      Tags:
+        - Key: Name
+          Value:
+            !Sub cloudmart-${Environment}-order-notifications
+
+        - Key: Project
+          Value: CloudMart
+
+        - Key: Environment
+          Value:
+            !Ref Environment
+
+
+  # ==========================================================
   # SNS EMAIL SUBSCRIPTIONS
   # ==========================================================
 
@@ -1181,6 +1262,21 @@ Resources:
         !Ref AlertEmail
 
 
+  ProductNotificationEmailSubscription:
+
+    Type: AWS::SNS::Subscription
+
+    Properties:
+      TopicArn:
+        !Ref ProductNotificationTopic
+
+      Protocol:
+        email
+
+      Endpoint:
+        !Ref AlertEmail
+
+
   OrderAlertEmailSubscription:
 
     Type: AWS::SNS::Subscription
@@ -1188,6 +1284,22 @@ Resources:
     Properties:
       TopicArn:
         !Ref OrderAlertTopic
+
+      Protocol:
+        email
+
+      Endpoint:
+        !Ref AlertEmail
+
+
+
+  OrderNotificationEmailSubscription:
+
+    Type: AWS::SNS::Subscription
+
+    Properties:
+      TopicArn:
+        !Ref OrderNotificationTopic
 
       Protocol:
         email
@@ -1231,6 +1343,37 @@ Resources:
                   !Ref AWS::AccountId
 
 
+  ProductNotificationTopicPolicy:
+
+    Type: AWS::SNS::TopicPolicy
+
+    Properties:
+      Topics:
+        - !Ref ProductNotificationTopic
+
+      PolicyDocument:
+        Version: '2012-10-17'
+
+        Statement:
+          - Sid: AllowEventBridgeToPublishProductNotifications
+            Effect: Allow
+
+            Principal:
+              Service:
+                - events.amazonaws.com
+
+            Action:
+              - sns:Publish
+
+            Resource:
+              !Ref ProductNotificationTopic
+
+            Condition:
+              StringEquals:
+                AWS:SourceAccount:
+                  !Ref AWS::AccountId
+
+
   OrderAlertTopicPolicy:
 
     Type: AWS::SNS::TopicPolicy
@@ -1262,6 +1405,38 @@ Resources:
                   !Ref AWS::AccountId
 
 
+
+  OrderNotificationTopicPolicy:
+
+    Type: AWS::SNS::TopicPolicy
+
+    Properties:
+      Topics:
+        - !Ref OrderNotificationTopic
+
+      PolicyDocument:
+        Version: '2012-10-17'
+
+        Statement:
+          - Sid: AllowEventBridgeToPublishOrderNotifications
+            Effect: Allow
+
+            Principal:
+              Service:
+                - events.amazonaws.com
+
+            Action:
+              - sns:Publish
+
+            Resource:
+              !Ref OrderNotificationTopic
+
+            Condition:
+              StringEquals:
+                AWS:SourceAccount:
+                  !Ref AWS::AccountId
+
+
   # ==========================================================
   # LOW STOCK EVENT -> PRODUCT SNS
   # ==========================================================
@@ -1276,7 +1451,7 @@ Resources:
         !Sub cloudmart-${Environment}-low-stock-rule
 
       Description:
-        Sends low-stock inventory events to Product SNS alerts
+        Sends low-stock inventory events to both Product Alert and Product Notification SNS topics
 
       EventBusName:
         !Ref CloudMartEventBus
@@ -1302,7 +1477,152 @@ Resources:
             !Ref ProductAlertTopic
 
           Id:
-            ProductLowStockSNSTarget
+            ProductLowStockAlertSNSTarget
+
+          InputTransformer:
+
+            InputPathsMap:
+              productId: "$.detail.product_id"
+              productName: "$.detail.product_name"
+              oldStock: "$.detail.old_stock"
+              newStock: "$.detail.new_stock"
+              threshold: "$.detail.low_stock_threshold"
+
+            InputTemplate: >
+              "CloudMart LOW STOCK ALERT: Product <productName>
+              (ID: <productId>) stock changed from <oldStock> to
+              <newStock>. Reorder threshold: <threshold>."
+
+        - Arn:
+            !Ref ProductNotificationTopic
+
+          Id:
+            ProductLowStockNotificationSNSTarget
+
+          InputTransformer:
+
+            InputPathsMap:
+              productId: "$.detail.product_id"
+              productName: "$.detail.product_name"
+              oldStock: "$.detail.old_stock"
+              newStock: "$.detail.new_stock"
+              threshold: "$.detail.low_stock_threshold"
+
+            InputTemplate: >
+              "CloudMart LOW STOCK: Product <productName>
+              (ID: <productId>) stock changed from <oldStock> to
+              <newStock>. Reorder threshold: <threshold>."
+
+
+  # ==========================================================
+  # PRODUCT LAMBDA LOW STOCK -> PRODUCT SNS
+  #
+  # The Product Lambda publishes stock updates as:
+  #   source     = cloudmart.product
+  #   detail-type = Inventory Changed
+  #   detail.low_stock = true
+  #
+  # This rule catches that event and sends it to the Product Alert SNS topic.
+  # The existing LowStockEventRule below remains in place for the
+  # Order Processor's cloudmart.inventory / LowStock events.
+  # ==========================================================
+
+  ProductInventoryLowStockEventRule:
+
+    Type: AWS::Events::Rule
+
+    Properties:
+
+      Name:
+        !Sub cloudmart-${Environment}-product-low-stock-rule
+
+      Description:
+        Sends the Product Lambda Inventory Changed low-stock event to the Product Notification SNS topic
+
+      EventBusName:
+        !Ref CloudMartEventBus
+
+      State:
+        ENABLED
+
+      EventPattern:
+
+        source:
+          - cloudmart.product
+
+        detail-type:
+          - Inventory Changed
+
+        detail:
+          low_stock:
+            - true
+
+      Targets:
+
+        - Arn:
+            !Ref ProductNotificationTopic
+
+          Id:
+            ProductInventoryLowStockNotificationSNSTarget
+
+          InputTransformer:
+
+            InputPathsMap:
+              productId: "$.detail.product_id"
+              productName: "$.detail.product_name"
+              oldStock: "$.detail.old_stock"
+              newStock: "$.detail.new_stock"
+              threshold: "$.detail.low_stock_threshold"
+
+            InputTemplate: >
+              "CloudMart LOW STOCK: Product <productName>
+              (ID: <productId>) stock changed from <oldStock> to
+              <newStock>. Reorder threshold: <threshold>."
+
+
+  # ==========================================================
+  # PRODUCT LAMBDA LOW STOCK ALERT EVENT
+  # Product Lambda publishes LowStockAlert when inventory crosses
+  # the configured reorder threshold.
+  # ==========================================================
+
+  ProductLowStockAlertEventRule:
+
+    Type: AWS::Events::Rule
+
+    Properties:
+
+      Name:
+        !Sub cloudmart-${Environment}-product-low-stock-alert-rule
+
+      Description:
+        Sends Product Lambda LowStockAlert events to Product Alert SNS
+
+      EventBusName:
+        !Ref CloudMartEventBus
+
+      State:
+        ENABLED
+
+      EventPattern:
+
+        source:
+          - cloudmart.product
+
+        detail-type:
+          - LowStockAlert
+
+        detail:
+          low_stock:
+            - true
+
+      Targets:
+
+        - Arn:
+            !Ref ProductAlertTopic
+
+          Id:
+            ProductLowStockAlertEventSNSTarget
 
           InputTransformer:
 
@@ -1320,7 +1640,7 @@ Resources:
 
 
   # ==========================================================
-  # FAILED ORDER EVENTS -> ORDER SNS
+  # FAILED ORDER EVENTS -> ORDER NOTIFICATION SNS + OPERATIONS ALERT SNS
   # ==========================================================
 
   OrderFailedEventsToSNSRule:
@@ -1352,10 +1672,31 @@ Resources:
       Targets:
 
         - Arn:
-            !Ref OrderAlertTopic
+            !Ref OrderNotificationTopic
 
           Id:
             OrderFailedSNSTarget
+
+          InputTransformer:
+
+            InputPathsMap:
+              eventType: "$.detail-type"
+              orderId: "$.detail.order_id"
+              customerId: "$.detail.customer_id"
+              status: "$.detail.status"
+              totalAmount: "$.detail.total_amount"
+              failureReason: "$.detail.failure_reason"
+
+            InputTemplate: >
+              "CloudMart ORDER FAILED: Order ID: <orderId>,
+              Customer ID: <customerId>, Status: <status>,
+              Total Amount: <totalAmount>, Failure Reason: <failureReason>."
+
+        - Arn:
+            !Ref OrderAlertTopic
+
+          Id:
+            OrderFailedOperationalAlertSNSTarget
 
           InputTransformer:
 
@@ -1372,6 +1713,334 @@ Resources:
               Order ID: <orderId>, Customer ID: <customerId>,
               Status: <status>, Total Amount: <totalAmount>,
               Failure Reason: <failureReason>."
+
+
+  # ==========================================================
+  # PENDING ORDER EVENTS -> ORDER NOTIFICATION SNS
+  # ==========================================================
+
+  OrderPendingEventsToSNSRule:
+
+    Type: AWS::Events::Rule
+
+    Properties:
+
+      Name:
+        !Sub cloudmart-${Environment}-order-pending-alert-rule
+
+      Description:
+        Sends order pending notifications to SNS
+
+      EventBusName:
+        !Ref CloudMartEventBus
+
+      State:
+        ENABLED
+
+      EventPattern:
+
+        source:
+          - cloudmart.orders
+
+        detail-type:
+          - OrderPending
+
+      Targets:
+
+        - Arn:
+            !Ref OrderNotificationTopic
+
+          Id:
+            OrderPendingSNSTarget
+
+          InputTransformer:
+
+            InputPathsMap:
+              eventType: "$.detail-type"
+              orderId: "$.detail.order_id"
+              customerId: "$.detail.customer_id"
+              status: "$.detail.status"
+              totalAmount: "$.detail.total_amount"
+
+            InputTemplate: >
+              "CloudMart ORDER PENDING: Order ID: <orderId>,
+              Customer ID: <customerId>, Status: <status>,
+              Total Amount: <totalAmount>. Your order is being processed."
+
+
+  # ==========================================================
+  # ORDER PLACED EVENTS -> ORDER NOTIFICATION SNS + OPERATIONS ALERT SNS
+  # ==========================================================
+
+  OrderPlacedEventsToSNSRule:
+
+    Type: AWS::Events::Rule
+
+    Properties:
+
+      Name:
+        !Sub cloudmart-${Environment}-order-placed-alert-rule
+
+      Description:
+        Sends order placed notifications to SNS
+
+      EventBusName:
+        !Ref CloudMartEventBus
+
+      State:
+        ENABLED
+
+      EventPattern:
+
+        source:
+          - cloudmart.orders
+
+        detail-type:
+          - OrderPlaced
+
+      Targets:
+
+        - Arn:
+            !Ref OrderNotificationTopic
+
+          Id:
+            OrderPlacedSNSTarget
+
+          InputTransformer:
+
+            InputPathsMap:
+              eventType: "$.detail-type"
+              orderId: "$.detail.order_id"
+              customerId: "$.detail.customer_id"
+              status: "$.detail.status"
+              totalAmount: "$.detail.total_amount"
+
+            InputTemplate: >
+              "CloudMart ORDER PLACED: Order ID: <orderId>,
+              Customer ID: <customerId>, Status: <status>,
+              Total Amount: <totalAmount>. Your order has been placed successfully."
+
+        - Arn:
+            !Ref OrderAlertTopic
+
+          Id:
+            OrderPlacedOperationalAlertSNSTarget
+
+          InputTransformer:
+
+            InputPathsMap:
+              eventType: "$.detail-type"
+              orderId: "$.detail.order_id"
+              customerId: "$.detail.customer_id"
+              status: "$.detail.status"
+              totalAmount: "$.detail.total_amount"
+
+            InputTemplate: >
+              "CloudMart ORDER PLACED: Order ID: <orderId>,
+              Customer ID: <customerId>, Status: <status>,
+              Total Amount: <totalAmount>. Your order has been placed successfully."
+
+
+  # ==========================================================
+  # CONFIRMED ORDER EVENTS -> ORDER NOTIFICATION SNS
+  # ==========================================================
+
+  OrderConfirmedEventsToSNSRule:
+
+    Type: AWS::Events::Rule
+
+    Properties:
+
+      Name:
+        !Sub cloudmart-${Environment}-order-confirmed-alert-rule
+
+      Description:
+        Sends confirmed CloudMart orders to SNS
+
+      EventBusName:
+        !Ref CloudMartEventBus
+
+      State:
+        ENABLED
+
+      EventPattern:
+
+        source:
+          - cloudmart.orders
+
+        detail-type:
+          - OrderConfirmed
+
+      Targets:
+
+        - Arn:
+            !Ref OrderNotificationTopic
+
+          Id:
+            OrderConfirmedSNSTarget
+
+          InputTransformer:
+
+            InputPathsMap:
+              eventType: "$.detail-type"
+              orderId: "$.detail.order_id"
+              customerId: "$.detail.customer_id"
+              status: "$.detail.status"
+              totalAmount: "$.detail.total_amount"
+
+            InputTemplate: >
+              "CloudMart ORDER CONFIRMED: Order ID: <orderId>,
+              Customer ID: <customerId>, Status: <status>,
+              Total Amount: <totalAmount>. Your order has been confirmed successfully."
+
+        - Arn:
+            !Ref OrderAlertTopic
+
+          Id:
+            OrderConfirmedOperationalAlertSNSTarget
+
+          InputTransformer:
+
+            InputPathsMap:
+              eventType: "$.detail-type"
+              orderId: "$.detail.order_id"
+              customerId: "$.detail.customer_id"
+              status: "$.detail.status"
+              totalAmount: "$.detail.total_amount"
+
+            InputTemplate: >
+              "CloudMart ORDER CONFIRMED ALERT: Event <eventType>.
+              Order ID: <orderId>, Customer ID: <customerId>,
+              Status: <status>, Total Amount: <totalAmount>."
+
+
+  # ==========================================================
+  # CANCELLED ORDER EVENTS -> ORDER NOTIFICATION SNS + OPERATIONS ALERT SNS
+  # ==========================================================
+
+  OrderCancelledEventsToSNSRule:
+
+    Type: AWS::Events::Rule
+
+    Properties:
+
+      Name:
+        !Sub cloudmart-${Environment}-order-cancelled-alert-rule
+
+      Description:
+        Sends cancelled CloudMart orders to SNS
+
+      EventBusName:
+        !Ref CloudMartEventBus
+
+      State:
+        ENABLED
+
+      EventPattern:
+
+        source:
+          - cloudmart.orders
+
+        detail-type:
+          - OrderCancelled
+
+      Targets:
+
+        - Arn:
+            !Ref OrderNotificationTopic
+
+          Id:
+            OrderCancelledSNSTarget
+
+          InputTransformer:
+
+            InputPathsMap:
+              eventType: "$.detail-type"
+              orderId: "$.detail.order_id"
+              customerId: "$.detail.customer_id"
+              status: "$.detail.status"
+              totalAmount: "$.detail.total_amount"
+              reason: "$.detail.reason"
+
+            InputTemplate: >
+              "CloudMart ORDER CANCELLED: Order ID: <orderId>,
+              Customer ID: <customerId>, Status: <status>,
+              Total Amount: <totalAmount>, Reason: <reason>."
+
+        - Arn:
+            !Ref OrderAlertTopic
+
+          Id:
+            OrderCancelledOperationalAlertSNSTarget
+
+          InputTransformer:
+
+            InputPathsMap:
+              eventType: "$.detail-type"
+              orderId: "$.detail.order_id"
+              customerId: "$.detail.customer_id"
+              status: "$.detail.status"
+              totalAmount: "$.detail.total_amount"
+              reason: "$.detail.reason"
+
+            InputTemplate: >
+              "CloudMart ORDER CANCELLED ALERT: Event <eventType>.
+              Order ID: <orderId>, Customer ID: <customerId>,
+              Status: <status>, Total Amount: <totalAmount>,
+              Reason: <reason>."
+
+
+  # ==========================================================
+  # DELIVERED ORDER EVENTS -> ORDER NOTIFICATION SNS
+  # ==========================================================
+
+  OrderDeliveredEventsToSNSRule:
+
+    Type: AWS::Events::Rule
+
+    Properties:
+
+      Name:
+        !Sub cloudmart-${Environment}-order-delivered-alert-rule
+
+      Description:
+        Sends delivered CloudMart orders to SNS
+
+      EventBusName:
+        !Ref CloudMartEventBus
+
+      State:
+        ENABLED
+
+      EventPattern:
+
+        source:
+          - cloudmart.orders
+
+        detail-type:
+          - OrderDelivered
+
+      Targets:
+
+        - Arn:
+            !Ref OrderNotificationTopic
+
+          Id:
+            OrderDeliveredSNSTarget
+
+          InputTransformer:
+
+            InputPathsMap:
+              eventType: "$.detail-type"
+              orderId: "$.detail.order_id"
+              customerId: "$.detail.customer_id"
+              status: "$.detail.status"
+              totalAmount: "$.detail.total_amount"
+
+            InputTemplate: >
+              "CloudMart ORDER DELIVERED ALERT: Event <eventType>.
+              Order ID: <orderId>, Customer ID: <customerId>,
+              Status: <status>, Total Amount: <totalAmount>."
 
 
 # ============================================================
@@ -1668,6 +2337,19 @@ Outputs:
         !Sub cloudmart-${Environment}-ProductAlertTopicArn
 
 
+  ProductNotificationTopicArn:
+
+    Description:
+      Product Notification SNS Topic ARN
+
+    Value:
+      !Ref ProductNotificationTopic
+
+    Export:
+      Name:
+        !Sub cloudmart-${Environment}-ProductNotificationTopicArn
+
+
   OrderAlertTopicArn:
 
     Description:
@@ -1679,6 +2361,19 @@ Outputs:
     Export:
       Name:
         !Sub cloudmart-${Environment}-OrderAlertTopicArn
+
+
+  OrderNotificationTopicArn:
+
+    Description:
+      Customer Order Notification SNS Topic ARN
+
+    Value:
+      !Ref OrderNotificationTopic
+
+    Export:
+      Name:
+        !Sub cloudmart-${Environment}-OrderNotificationTopicArn
 
 
   # ==========================================================
@@ -1696,6 +2391,32 @@ Outputs:
     Export:
       Name:
         !Sub cloudmart-${Environment}-LowStockEventRuleArn
+
+
+  OrderPendingEventsToSNSRuleArn:
+
+    Description:
+      Pending Order Events SNS EventBridge Rule ARN
+
+    Value:
+      !GetAtt OrderPendingEventsToSNSRule.Arn
+
+    Export:
+      Name:
+        !Sub cloudmart-${Environment}-OrderPendingEventsToSNSRuleArn
+
+
+  OrderPlacedEventsToSNSRuleArn:
+
+    Description:
+      Placed Order Events SNS EventBridge Rule ARN
+
+    Value:
+      !GetAtt OrderPlacedEventsToSNSRule.Arn
+
+    Export:
+      Name:
+        !Sub cloudmart-${Environment}-OrderPlacedEventsToSNSRuleArn
 
 
   OrderFailedEventsToSNSRuleArn:
