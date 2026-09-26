@@ -6,6 +6,7 @@ import logging
 import time
 import boto3
 import pymysql
+from botocore.config import Config
 
 
 # ==========================================================
@@ -26,7 +27,8 @@ DB_NAME_PARAMETER = os.environ["DB_NAME_PARAMETER"]
 DB_USERNAME_PARAMETER = os.environ["DB_USERNAME_PARAMETER"]
 DB_PASSWORD_PARAMETER = os.environ["DB_PASSWORD_PARAMETER"]
 
-ssm = boto3.client("ssm")
+AWS_API_CONFIG = Config(connect_timeout=2, read_timeout=3, retries={"max_attempts": 1, "mode": "standard"})
+ssm = boto3.client("ssm", config=AWS_API_CONFIG)
 
 _PARAMETER_CACHE = {}
 _PARAMETER_CACHE_AT = 0.0
@@ -793,10 +795,7 @@ def delete_customer(event):
                   AND deleted_at IS NULL
                 """,
                 (
-                    str(
-                        get_authenticated_customer_id(event)
-                        or "ADMIN"
-                    ),
+                    "ADMIN",
                     "Customer soft deleted",
                     customer_id
                 )

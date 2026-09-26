@@ -13,15 +13,13 @@ from botocore.config import Config
 # ==========================================================
 
 AWS_API_CONFIG = Config(
-    connect_timeout=2,
-    read_timeout=3,
-    retries={"max_attempts": 1, "mode": "standard"}
+    connect_timeout=1,
+    read_timeout=2,
+    retries={"max_attempts": 0, "mode": "standard"}
 )
 
 ssm = boto3.client("ssm", config=AWS_API_CONFIG)
 events = boto3.client("events", config=AWS_API_CONFIG)
-cloudwatch = boto3.client("cloudwatch", config=AWS_API_CONFIG)
-
 _PARAMETER_CACHE = {}
 _PARAMETER_CACHE_TTL_SECONDS = 300
 
@@ -124,37 +122,48 @@ def response(status_code, body):
 # SSM PARAMETER
 # ==========================================================
 
-def get_parameter(name):
-    """Read an SSM parameter with a short warm-container cache."""
+def load_database_parameters():
+    global _PARAMETER_CACHE, _PARAMETER_CACHE_AT
     now = time.monotonic()
-    cached = _PARAMETER_CACHE.get(name)
+    if _PARAMETER_CACHE and (now - _PARAMETER_CACHE_AT) < _PARAMETER_CACHE_TTL_SECONDS:
+        return _PARAMETER_CACHE
 
-    if cached is not None:
-        cached_value, cached_at = cached
-        if now - cached_at < _PARAMETER_CACHE_TTL_SECONDS:
-            return cached_value
-
+    names = [
+        DB_NAME_PARAMETER, DB_ENDPOINT_PARAMETER, DB_PORT_PARAMETER,
+        DB_USERNAME_PARAMETER, DB_PASSWORD_PARAMETER,
+    ]
     try:
-        parameter = ssm.get_parameter(
-            Name=name,
-            WithDecryption=True
-        )
-        value = parameter["Parameter"]["Value"]
+        result = ssm.get_parameters(Names=names, WithDecryption=True)
+        returned = {item["Name"]: item["Value"] for item in result.get("Parameters", [])}
+        missing = [name for name in names if name not in returned]
+        if missing:
+            raise RuntimeError("Missing CloudMart database parameters: " + ", ".join(missing))
+        _PARAMETER_CACHE = {
+            "database": returned[DB_NAME_PARAMETER],
+            "host": returned[DB_ENDPOINT_PARAMETER],
+            "port": int(returned[DB_PORT_PARAMETER]),
+            "username": returned[DB_USERNAME_PARAMETER],
+            "password": returned[DB_PASSWORD_PARAMETER],
+        }
+        _PARAMETER_CACHE_AT = now
+        return _PARAMETER_CACHE
     except Exception as exc:
-        log_event(
-            "ERROR",
-            "Unable to read SSM parameter",
-            parameter_name=name,
-            error_type=type(exc).__name__,
-            error=str(exc)
-        )
-        raise RuntimeError(
-            "CloudMart configuration could not be loaded"
-        ) from exc
+        log_event("ERROR", "Unable to load database parameters", error_type=type(exc).__name__, error=str(exc))
+        raise RuntimeError("CloudMart configuration could not be loaded") from exc
 
-    _PARAMETER_CACHE[name] = (value, now)
-    return value
 
+def get_parameter(name):
+    db = load_database_parameters()
+    mapping = {
+        DB_NAME_PARAMETER: db["database"],
+        DB_ENDPOINT_PARAMETER: db["host"],
+        DB_PORT_PARAMETER: str(db["port"]),
+        DB_USERNAME_PARAMETER: db["username"],
+        DB_PASSWORD_PARAMETER: db["password"],
+    }
+    if name not in mapping:
+        raise RuntimeError(f"Unsupported SSM parameter requested: {name}")
+    return mapping[name]
 
 
 # ==========================================================
@@ -171,9 +180,9 @@ def get_db_connection():
             user=get_parameter(DB_USERNAME_PARAMETER),
             password=get_parameter(DB_PASSWORD_PARAMETER),
             database=get_parameter(DB_NAME_PARAMETER),
-            connect_timeout=5,
-            read_timeout=5,
-            write_timeout=5,
+            connect_timeout=3,
+            read_timeout=4,
+            write_timeout=4,
             cursorclass=pymysql.cursors.DictCursor,
             autocommit=False
         )

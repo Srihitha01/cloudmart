@@ -18,9 +18,9 @@ AWS_API_CONFIG = Config(
 )
 
 ORDER_PROCESSOR_INVOKE_CONFIG = Config(
-    connect_timeout=2,
-    read_timeout=22,
-    retries={"max_attempts": 1, "mode": "standard"}
+    connect_timeout=1,
+    read_timeout=12,
+    retries={"max_attempts": 0, "mode": "standard"}
 )
 
 ssm = boto3.client("ssm", config=AWS_API_CONFIG)
@@ -617,79 +617,76 @@ def validate_order_items(items):
 # INVOKE ORDER PROCESSOR
 # ==========================================================
 
-def invoke_order_processor(
-    order_data,
-    context
-):
-    """Invoke the Order Processor synchronously and return its API response.
-
-    Direct Lambda invocation is retained (no SQS). The processor itself
-    publishes the PENDING notification immediately, waits about five seconds,
-    publishes the PLACED notification, then confirms/fails the order.
-
-    Waiting for the processor here lets POST /orders return the final database
-    status (normally CONFIRMED) to Thunder Client instead of returning an
-    intermediate 202/PENDING response. The Order Lambda timeout is 29 seconds
-    and the boto3 read timeout is bounded below that limit.
-    """
+def invoke_order_processor(order_data, context):
+    """Process the order synchronously so the API returns the final status."""
     payload = json.dumps(order_data, default=str).encode("utf-8")
-
     try:
         result = lambda_client.invoke(
             FunctionName=ORDER_PROCESSOR_FUNCTION_NAME,
             InvocationType="RequestResponse",
-            Payload=payload
+            Payload=payload,
         )
 
-        if result.get("FunctionError"):
-            log_event(
-                "ERROR",
-                "Order processor returned a function error",
-                request_id=context.aws_request_id,
-                function_error=result.get("FunctionError")
+        invoke_status = int(result.get("StatusCode", 0) or 0)
+        if invoke_status != 200:
+            raise RuntimeError(
+                f"Order processor invocation returned status {invoke_status}"
             )
-            raise RuntimeError("Order processor Lambda execution failed")
+
+        if result.get("FunctionError"):
+            raise RuntimeError(
+                f"Order processor Lambda returned {result.get('FunctionError')}"
+            )
 
         raw_payload = result.get("Payload")
         if raw_payload is None:
-            raise RuntimeError("Order processor returned no payload")
+            raise RuntimeError("Order processor returned no response payload")
 
-        raw_payload = raw_payload.read()
-        if isinstance(raw_payload, bytes):
-            raw_payload = raw_payload.decode("utf-8")
+        processor_payload = raw_payload.read()
+        if isinstance(processor_payload, bytes):
+            processor_payload = processor_payload.decode("utf-8")
 
-        if not raw_payload:
-            raise RuntimeError("Order processor returned an empty response")
+        processor_result = json.loads(processor_payload or "{}")
+        processor_status_code = int(
+            processor_result.get("statusCode", 500) or 500
+        )
 
-        try:
-            processor_response = json.loads(raw_payload)
-        except json.JSONDecodeError as exc:
+        processor_body = processor_result.get("body", {})
+        if isinstance(processor_body, str):
+            processor_body = json.loads(processor_body or "{}")
+
+        if processor_status_code >= 400:
             raise RuntimeError(
-                "Order processor returned invalid JSON"
-            ) from exc
+                processor_body.get("message", "Order processing failed")
+            )
 
-        if not isinstance(processor_response, dict):
-            raise RuntimeError("Order processor returned an invalid response object")
+        final_status = processor_body.get("status")
+        if final_status != "CONFIRMED":
+            raise RuntimeError(
+                f"Order processor did not confirm the order. Status: {final_status}"
+            )
 
         log_event(
             "INFO",
-            "Order processor completed",
+            "Order confirmed by processor",
             request_id=context.aws_request_id,
-            processor_status_code=processor_response.get("statusCode")
+            invoke_status_code=invoke_status,
+            order_id=processor_body.get("order_id"),
+            customer_id=processor_body.get("customer_id"),
+            status=final_status,
         )
 
-        return processor_response
+        return processor_body
 
     except Exception as exc:
         log_event(
             "ERROR",
-            "Order processor invocation failed",
+            "Synchronous order processing failed",
             request_id=context.aws_request_id,
             error_type=type(exc).__name__,
-            error=str(exc)
+            error=str(exc),
         )
-        raise
-
+        raise RuntimeError("Order processing failed") from exc
 
 
 # ==========================================================
@@ -915,30 +912,18 @@ def create_order(
                 items
         }
 
-        processor_response = invoke_order_processor(
-            order_data,
-            context
-        )
+        processor_result = invoke_order_processor(order_data, context)
 
-        processor_status_code = int(
-            processor_response.get("statusCode", 500) or 500
-        )
-
-        processor_body = processor_response.get("body", {})
-        if isinstance(processor_body, str):
-            try:
-                processor_body = json.loads(processor_body)
-            except json.JSONDecodeError:
-                processor_body = {"message": processor_body}
-
-        if not isinstance(processor_body, dict):
-            processor_body = {"message": str(processor_body)}
-
-        # The processor returns CONFIRMED after successful inventory deduction.
-        # Return that final state directly to Thunder Client.
         return response(
-            processor_status_code,
-            processor_body
+            200,
+            {
+                "message": "Order placed successfully",
+                "status": "CONFIRMED",
+                "order_id": processor_result.get("order_id"),
+                "customer_id": customer_id,
+                "total_amount": processor_result.get("total_amount"),
+                "request_id": context.aws_request_id
+            }
         )
 
     except PermissionError as exc:

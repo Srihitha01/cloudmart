@@ -250,6 +250,8 @@ Resources:
         IntegrationHttpMethod:
           POST
 
+        TimeoutInMillis: 20000
+
         Uri:
 
           Fn::Sub:
@@ -296,6 +298,8 @@ Resources:
 
         IntegrationHttpMethod:
           POST
+
+        TimeoutInMillis: 20000
 
         Uri:
 
@@ -348,6 +352,8 @@ Resources:
         IntegrationHttpMethod:
           POST
 
+        TimeoutInMillis: 20000
+
         Uri:
 
           Fn::Sub:
@@ -398,6 +404,8 @@ Resources:
 
         IntegrationHttpMethod:
           POST
+
+        TimeoutInMillis: 20000
 
         Uri:
 
@@ -450,6 +458,8 @@ Resources:
 
         IntegrationHttpMethod:
           POST
+
+        TimeoutInMillis: 20000
 
         Uri:
 
@@ -542,6 +552,8 @@ Resources:
         IntegrationHttpMethod:
           POST
 
+        TimeoutInMillis: 20000
+
         Uri:
 
           Fn::Sub:
@@ -590,6 +602,8 @@ Resources:
 
         IntegrationHttpMethod:
           POST
+
+        TimeoutInMillis: 20000
 
         Uri:
 
@@ -642,6 +656,8 @@ Resources:
 
         IntegrationHttpMethod:
           POST
+
+        TimeoutInMillis: 20000
 
         Uri:
 
@@ -881,6 +897,8 @@ Resources:
         IntegrationHttpMethod:
           POST
 
+        TimeoutInMillis: 20000
+
         Uri:
 
           Fn::Sub:
@@ -931,6 +949,8 @@ Resources:
 
         IntegrationHttpMethod:
           POST
+
+        TimeoutInMillis: 20000
 
         Uri:
 
@@ -985,6 +1005,8 @@ Resources:
         IntegrationHttpMethod:
           POST
 
+        TimeoutInMillis: 20000
+
         Uri:
           Fn::Sub:
 
@@ -1036,6 +1058,8 @@ Resources:
 
         IntegrationHttpMethod:
           POST
+
+        TimeoutInMillis: 20000
 
         Uri:
 
@@ -1089,6 +1113,8 @@ Resources:
 
         IntegrationHttpMethod:
           POST
+
+        TimeoutInMillis: 20000
 
         Uri:
 
@@ -1295,6 +1321,12 @@ Resources:
     Type: AWS::ApiGateway::Deployment
 
     DependsOn:
+
+      # Lambda invoke permissions must exist before deployment.
+      - AuthorizerLambdaInvokePermission
+      - ProductLambdaInvokePermission
+      - CustomerLambdaInvokePermission
+      - OrderLambdaInvokePermission
 
       # PRODUCT METHODS
       - GetProductsMethod

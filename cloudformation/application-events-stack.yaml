@@ -251,7 +251,7 @@ Resources:
       # The product Lambda now uses short AWS SDK timeouts and treats
       # EventBridge/CloudWatch metrics as best-effort operations.
       Timeout:
-        10
+        8
 
       MemorySize:
         512
@@ -354,7 +354,7 @@ Resources:
           Fn::Sub: cloudmart-${Environment}-CustomerLambdaRoleArn
 
       Timeout:
-        29
+        20
 
       MemorySize:
         512
@@ -445,7 +445,7 @@ Resources:
           Fn::Sub: cloudmart-${Environment}-ProductLambdaRoleArn
 
       Timeout:
-        29
+        20
 
       MemorySize:
         512
@@ -537,7 +537,7 @@ Resources:
           Fn::Sub: cloudmart-${Environment}-OrderLambdaRoleArn
 
       Timeout:
-        29
+        20
 
       MemorySize:
         512
@@ -634,8 +634,11 @@ Resources:
       Timeout:
         60
 
+      # More CPU/network throughput reduces synchronous order latency.
+      # The 60-second ceiling is retained because the API path itself is
+      # bounded separately by API Gateway and Order Lambda.
       MemorySize:
-        512
+        1024
 
       Layers:
 
