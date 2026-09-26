@@ -1392,6 +1392,7 @@ jobs:
             --template-file cloudformation/application-events-stack.yaml \
             --stack-name "$APPLICATION_EVENTS_STACK_NAME" \
             --s3-bucket "$LAMBDA_ARTIFACT_BUCKET" \
+            --s3-prefix "cloudformation/${GITHUB_SHA}" \
             --parameter-overrides \
               Environment="$ENVIRONMENT" \
               LambdaArtifactBucket="$LAMBDA_ARTIFACT_BUCKET" \
@@ -1577,8 +1578,21 @@ jobs:
 
           echo "========================================"
 
-          test -f dashboard/app.py
-          test -f dashboard/requirements.txt
+          echo "Git commit: $GITHUB_SHA"
+          git rev-parse HEAD
+
+          git ls-files --error-unmatch dashboard/app.py >/dev/null
+          git ls-files --error-unmatch dashboard/requirements.txt >/dev/null
+          git ls-files --error-unmatch dashboard/bootstrap-dashboard.sh >/dev/null
+          git ls-files --error-unmatch dashboard/templates/index.html >/dev/null
+
+          test -s dashboard/app.py
+          test -s dashboard/requirements.txt
+          test -s dashboard/bootstrap-dashboard.sh
+          test -s dashboard/templates/index.html
+
+          echo "Dashboard source files found:"
+          find dashboard -maxdepth 2 -type f -print | sort
 
           ARTIFACT_BUCKET=$(aws cloudformation describe-stacks             --stack-name "$DATA_STACK_NAME"             --region "$AWS_REGION"             --query "Stacks[0].Outputs[?OutputKey=='ArtifactBucketName'].OutputValue"             --output text)
 
@@ -1597,7 +1611,23 @@ jobs:
             --exclude "__pycache__/*" \
             --exclude "*.pyc"
 
-          echo "Dashboard files published successfully."
+          # Explicitly upload the required template as a second guard.
+          aws s3 cp \
+            dashboard/templates/index.html \
+            "s3://${ARTIFACT_BUCKET}/dashboard/templates/index.html" \
+            --region "$AWS_REGION"
+
+          echo "Verifying required dashboard artifacts in S3..."
+
+          aws s3api head-object --bucket "$ARTIFACT_BUCKET" --key "dashboard/app.py" >/dev/null
+          aws s3api head-object --bucket "$ARTIFACT_BUCKET" --key "dashboard/requirements.txt" >/dev/null
+          aws s3api head-object --bucket "$ARTIFACT_BUCKET" --key "dashboard/bootstrap-dashboard.sh" >/dev/null
+          aws s3api head-object --bucket "$ARTIFACT_BUCKET" --key "dashboard/templates/index.html" >/dev/null
+
+          echo "Verified S3 dashboard artifacts:"
+          aws s3 ls "s3://${ARTIFACT_BUCKET}/dashboard/" --recursive --region "$AWS_REGION"
+
+          echo "Dashboard files published and verified successfully."
 
       # ------------------------------------------------------
       # VALIDATE API TEMPLATE
@@ -1739,6 +1769,13 @@ jobs:
           echo "Report bucket: $REPORT_BUCKET"
           echo "Dashboard port: $DASHBOARD_PORT"
           echo "Nginx port: $NGINX_PORT"
+
+          echo "Verifying required dashboard artifacts before SSM refresh..."
+          aws s3api head-object --bucket "$ARTIFACT_BUCKET" --key "dashboard/app.py" >/dev/null
+          aws s3api head-object --bucket "$ARTIFACT_BUCKET" --key "dashboard/requirements.txt" >/dev/null
+          aws s3api head-object --bucket "$ARTIFACT_BUCKET" --key "dashboard/bootstrap-dashboard.sh" >/dev/null
+          aws s3api head-object --bucket "$ARTIFACT_BUCKET" --key "dashboard/templates/index.html" >/dev/null
+          echo "Required dashboard artifacts are present in S3."
 
           COMMANDS_JSON=$(python - <<PY
           import json
