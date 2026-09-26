@@ -686,6 +686,40 @@ jobs:
             --no-fail-on-empty-changeset
 
       # ------------------------------------------------------
+      # WAIT FOR IAM POLICY PROPAGATION
+      # ------------------------------------------------------
+      #
+      # Lambda validates VPC execution-role permissions while creating
+      # VPC-enabled functions. IAM changes can take a short time to
+      # propagate across AWS services.
+      #
+      - name: Wait for IAM Policy Propagation
+        run: |
+          echo "========================================"
+          echo "WAITING FOR IAM POLICY PROPAGATION"
+          echo "========================================"
+
+          sleep 15
+
+          for ROLE_NAME in \
+            "cloudmart-${ENVIRONMENT}-product-lambda-role" \
+            "cloudmart-${ENVIRONMENT}-customer-lambda-role" \
+            "cloudmart-${ENVIRONMENT}-order-lambda-role" \
+            "cloudmart-${ENVIRONMENT}-order-processor-role" \
+            "cloudmart-${ENVIRONMENT}-schema-initializer-role" \
+            "cloudmart-${ENVIRONMENT}-daily-report-role"
+          do
+            echo "Verifying role exists: $ROLE_NAME"
+            aws iam get-role \
+              --role-name "$ROLE_NAME" \
+              --region "$AWS_REGION" \
+              --query 'Role.RoleName' \
+              --output text
+          done
+
+          echo "IAM roles are ready for Lambda VPC creation."
+
+      # ------------------------------------------------------
       # VERIFY IAM STACK
       # ------------------------------------------------------
 
