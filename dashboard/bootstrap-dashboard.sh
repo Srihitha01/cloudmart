@@ -7,6 +7,19 @@ mkdir -p "$(dirname "$LOG_FILE")"
 # Keep output visible to SSM/GitHub Actions AND save a local log.
 exec > >(tee -a "$LOG_FILE") 2>&1
 
+# Prevent CloudFormation UserData and the GitHub Actions SSM refresh
+# from modifying the dashboard at the same time.
+LOCK_FILE="/var/lock/cloudmart-dashboard-bootstrap.lock"
+install -d -m 0755 "$(dirname "$LOCK_FILE")"
+exec 9>"$LOCK_FILE"
+if command -v flock >/dev/null 2>&1; then
+  log_lock="Waiting for dashboard deployment lock"
+  echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] $log_lock"
+  flock -w 900 9
+else
+  echo "WARNING: flock is not available; continuing without deployment locking"
+fi
+
 on_error() {
   rc=$?
   echo ""
