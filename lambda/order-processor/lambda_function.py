@@ -13,9 +13,9 @@ from botocore.config import Config
 # ==========================================================
 
 AWS_API_CONFIG = Config(
-    connect_timeout=1,
-    read_timeout=2,
-    retries={"max_attempts": 0, "mode": "standard"}
+    connect_timeout=2,
+    read_timeout=5,
+    retries={"max_attempts": 2, "mode": "standard"}
 )
 
 ssm = boto3.client("ssm", config=AWS_API_CONFIG)
@@ -37,6 +37,10 @@ EVENT_BUS_NAME = os.environ["EVENT_BUS_NAME"]
 
 # Required notification delay between OrderPending and OrderPlaced.
 ORDER_PLACED_DELAY_SECONDS = 5
+
+# EventBridge notification publish settings.
+EVENT_PUBLISH_MAX_ATTEMPTS = 3
+EVENT_PUBLISH_RETRY_DELAY_SECONDS = 1
 
 
 # ==========================================================
@@ -216,55 +220,91 @@ def publish_event(
     detail_type,
     detail
 ):
-    """Best-effort EventBridge publishing; DB state remains authoritative."""
-    try:
-        result = events.put_events(
-            Entries=[
-                {
-                    "EventBusName": EVENT_BUS_NAME,
-                    "Source": source,
-                    "DetailType": detail_type,
-                    "Detail": json.dumps(
-                        detail,
-                        default=str
-                    )
-                }
-            ]
-        )
+    """Publish one application event to the CloudMart EventBridge bus.
 
-        failed_count = int(
-            result.get("FailedEntryCount", 0) or 0
-        )
+    EventBridge delivery is retried locally because this Lambda runs in a
+    private VPC and transient endpoint/network failures can occur. The order
+    database transaction remains authoritative, so a final notification
+    failure is logged clearly rather than rolling back a successful order.
+    """
 
-        if failed_count:
+    entry = {
+        "EventBusName": EVENT_BUS_NAME,
+        "Source": source,
+        "DetailType": detail_type,
+        "Detail": json.dumps(detail, default=str)
+    }
+
+    last_error = None
+
+    for attempt in range(1, EVENT_PUBLISH_MAX_ATTEMPTS + 1):
+        try:
+            result = events.put_events(
+                Entries=[entry]
+            )
+
+            failed_count = int(
+                result.get("FailedEntryCount", 0) or 0
+            )
+
+            entries = result.get("Entries") or []
+            failed_entry = entries[0] if entries and failed_count else {}
+
+            if failed_count == 0:
+                event_id = entries[0].get("EventId") if entries else None
+                log_event(
+                    "INFO",
+                    "Event published successfully",
+                    source=source,
+                    detail_type=detail_type,
+                    detail=detail,
+                    attempt=attempt,
+                    event_id=event_id
+                )
+                return True
+
+            last_error = (
+                f"EventBridge rejected event: "
+                f"{failed_entry.get('ErrorCode', 'UnknownError')} - "
+                f"{failed_entry.get('ErrorMessage', 'Unknown error')}"
+            )
+
             log_event(
                 "WARN",
-                "Event publishing failed; database state retained",
+                "EventBridge returned a failed entry; retrying",
                 source=source,
                 detail_type=detail_type,
+                attempt=attempt,
+                max_attempts=EVENT_PUBLISH_MAX_ATTEMPTS,
+                error=last_error,
                 event_result=result
             )
-            return False
 
-        log_event(
-            "INFO",
-            "Event published successfully",
-            source=source,
-            detail_type=detail_type,
-            detail=detail
-        )
-        return True
+        except Exception as exc:
+            last_error = str(exc)
+            log_event(
+                "WARN",
+                "EventBridge publish attempt failed; retrying",
+                source=source,
+                detail_type=detail_type,
+                attempt=attempt,
+                max_attempts=EVENT_PUBLISH_MAX_ATTEMPTS,
+                error_type=type(exc).__name__,
+                error=last_error
+            )
 
-    except Exception as exc:
-        log_event(
-            "WARN",
-            "Event publishing skipped; database state retained",
-            source=source,
-            detail_type=detail_type,
-            error_type=type(exc).__name__,
-            error=str(exc)
-        )
-        return False
+        if attempt < EVENT_PUBLISH_MAX_ATTEMPTS:
+            time.sleep(EVENT_PUBLISH_RETRY_DELAY_SECONDS)
+
+    log_event(
+        "ERROR",
+        "EventBridge publish failed after all retry attempts; database state retained",
+        source=source,
+        detail_type=detail_type,
+        max_attempts=EVENT_PUBLISH_MAX_ATTEMPTS,
+        error=last_error
+    )
+    return False
 
 
 
