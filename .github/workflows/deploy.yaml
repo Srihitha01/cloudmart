@@ -1391,6 +1391,8 @@ jobs:
           aws cloudformation deploy \
             --template-file cloudformation/application-events-stack.yaml \
             --stack-name "$APPLICATION_EVENTS_STACK_NAME" \
+            --s3-bucket "$LAMBDA_ARTIFACT_BUCKET" \
+            --s3-prefix "cloudformation/${GITHUB_SHA}" \
             --parameter-overrides \
               Environment="$ENVIRONMENT" \
               LambdaArtifactBucket="$LAMBDA_ARTIFACT_BUCKET" \
