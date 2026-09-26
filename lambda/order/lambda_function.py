@@ -18,8 +18,8 @@ AWS_API_CONFIG = Config(
 )
 
 ORDER_PROCESSOR_INVOKE_CONFIG = Config(
-    connect_timeout=2,
-    read_timeout=5,
+    connect_timeout=3,
+    read_timeout=15,
     retries={"max_attempts": 0, "mode": "standard"}
 )
 
