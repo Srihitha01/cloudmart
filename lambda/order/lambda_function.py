@@ -19,7 +19,7 @@ AWS_API_CONFIG = Config(
 
 ORDER_PROCESSOR_INVOKE_CONFIG = Config(
     connect_timeout=3,
-    read_timeout=15,
+    read_timeout=18,
     retries={"max_attempts": 0, "mode": "standard"}
 )
 
@@ -619,12 +619,11 @@ def validate_order_items(items):
 
 def invoke_order_processor(order_data, context):
     """
-    Run the Order Processor synchronously so the API can return only after
-    the order has reached CONFIRMED status.
+    Invoke the Order Processor synchronously and return the final order result.
 
-    The processor still performs the required 5-second OrderPending ->
-    OrderPlaced notification delay, so the API response will normally take
-    several seconds.
+    The processor intentionally performs the required 5-second
+    OrderPending -> OrderPlaced notification delay before confirming the
+    order, so the Lambda client read timeout must be longer than that delay.
     """
 
     payload = json.dumps(
@@ -644,41 +643,49 @@ def invoke_order_processor(order_data, context):
             result.get("StatusCode", 0) or 0
         )
 
-        if invoke_status >= 400 or invoke_status == 0:
+        if invoke_status >= 400:
             raise RuntimeError(
-                "Order processor invocation failed. "
-                f"StatusCode: {invoke_status}"
+                f"Order processor invocation failed with StatusCode: {invoke_status}"
             )
 
         response_payload = result.get("Payload")
-        processor_response = {}
 
-        if response_payload is not None:
-            raw_payload = response_payload.read()
-            if raw_payload:
-                processor_response = json.loads(
-                    raw_payload.decode("utf-8")
-                    if isinstance(raw_payload, (bytes, bytearray))
-                    else raw_payload
-                )
+        if response_payload is None:
+            raise RuntimeError(
+                "Order processor returned no response payload"
+            )
 
-        processor_status = int(
+        raw_payload = response_payload.read()
+
+        if isinstance(raw_payload, bytes):
+            raw_payload = raw_payload.decode("utf-8")
+
+        if not raw_payload:
+            raise RuntimeError(
+                "Order processor returned an empty response"
+            )
+
+        processor_response = json.loads(raw_payload)
+
+        processor_status_code = int(
             processor_response.get("statusCode", 500) or 500
         )
 
-        processor_body = processor_response.get("body", {})
-        if isinstance(processor_body, str):
-            try:
-                processor_body = json.loads(processor_body)
-            except json.JSONDecodeError:
-                processor_body = {
-                    "message": processor_body
-                }
+        raw_body = processor_response.get("body", {})
 
-        if not isinstance(processor_body, dict):
+        if isinstance(raw_body, str):
+            try:
+                processor_body = json.loads(raw_body)
+            except json.JSONDecodeError as exc:
+                raise RuntimeError(
+                    "Order processor returned an invalid response body"
+                ) from exc
+        elif isinstance(raw_body, dict):
+            processor_body = raw_body
+        else:
             processor_body = {}
 
-        if processor_status >= 400:
+        if processor_status_code >= 400:
             raise RuntimeError(
                 processor_body.get(
                     "message",
@@ -686,33 +693,43 @@ def invoke_order_processor(order_data, context):
                 )
             )
 
-        final_status = str(
+        order_id = processor_body.get("order_id")
+        status = str(
             processor_body.get("status", "")
-        ).upper()
+        ).strip().upper()
 
-        if final_status != "CONFIRMED":
+        if order_id is None:
             raise RuntimeError(
-                "Order processing completed without CONFIRMED status"
+                "Order processor did not return order_id"
+            )
+
+        if status != "CONFIRMED":
+            raise RuntimeError(
+                f"Order processor returned unexpected final status: {status or 'UNKNOWN'}"
             )
 
         log_event(
             "INFO",
-            "Order confirmed by processor",
+            "Order processed successfully",
             request_id=context.aws_request_id,
-            processor_status_code=processor_status,
             invocation_type="RequestResponse",
+            processor_status_code=processor_status_code,
+            order_id=order_id,
             customer_id=order_data.get("customer_id"),
-            order_id=processor_body.get("order_id"),
-            status=final_status,
+            status=status,
         )
 
-        return processor_body
+        return {
+            "order_id": order_id,
+            "customer_id": order_data.get("customer_id"),
+            "status": status,
+        }
 
     except Exception as exc:
 
         log_event(
             "ERROR",
-            "Synchronous order processing failed",
+            "Order processor invocation failed",
             request_id=context.aws_request_id,
             error_type=type(exc).__name__,
             error=str(exc),
@@ -955,8 +972,9 @@ def create_order(
             200,
             {
                 "message": "Order placed successfully",
+                "order_id": processor_result["order_id"],
                 "customer_id": customer_id,
-                "status": "CONFIRMED"
+                "status": processor_result["status"]
             }
         )
 
