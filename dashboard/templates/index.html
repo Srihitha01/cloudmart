@@ -299,7 +299,7 @@ th{background:#f6f8fc;color:#60708b;font-size:10px;text-transform:uppercase;font
       <div class="status-list">
         {% for status, icon, cls in [('PENDING','⏳','status-pending'),('CONFIRMED','✅','status-confirmed'),('DELIVERED','📦','status-delivered'),('CANCELLED','🚫','status-cancelled'),('FAILED','❌','status-failed')] %}
           {% set count = metrics.status_counts.get(status, 0) %}
-          {% set pct = ((count / total_status) * 100) if total_status.value else 0 %}
+          {% set pct = ((count / total_status.value) * 100) if total_status.value else 0 %}
           <div class="status-row">
             <div>{{icon}} {{status}}</div>
             <div class="status-track"><div class="status-fill {{cls}}" style="width:{{pct}}%"></div></div>
