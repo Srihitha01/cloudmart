@@ -284,11 +284,36 @@ jobs:
 
           echo "Region:      $AWS_REGION"
 
+          PARAMETER_FILE="cloudformation/network-parameters.json"
+
+          if [ ! -f "$PARAMETER_FILE" ]; then
+            echo "ERROR: $PARAMETER_FILE was not found."
+            exit 1
+          fi
+
+          # Ensure the parameter file uses the environment loaded from config/config.json.
+          PARAMETER_ENVIRONMENT=$(jq -r '.[] | select(.ParameterKey=="Environment") | .ParameterValue' "$PARAMETER_FILE")
+          if [ "$PARAMETER_ENVIRONMENT" != "$ENVIRONMENT" ]; then
+            echo "ERROR: Environment in $PARAMETER_FILE ($PARAMETER_ENVIRONMENT) does not match config/config.json ($ENVIRONMENT)."
+            exit 1
+          fi
+
+          # Convert the JSON parameter objects into AWS CLI Key=Value arguments.
+          mapfile -t NETWORK_PARAMETER_OVERRIDES < <(
+            jq -r '.[] | "\(.ParameterKey)=\(.ParameterValue)"' "$PARAMETER_FILE"
+          )
+
+          if [ "${#NETWORK_PARAMETER_OVERRIDES[@]}" -eq 0 ]; then
+            echo "ERROR: No parameters found in $PARAMETER_FILE."
+            exit 1
+          fi
+
+          echo "Using network parameters from: $PARAMETER_FILE"
+
           aws cloudformation deploy \
             --template-file cloudformation/network-stack.yaml \
             --stack-name "$NETWORK_STACK_NAME" \
-            --parameter-overrides \
-              Environment="$ENVIRONMENT" \
+            --parameter-overrides "${NETWORK_PARAMETER_OVERRIDES[@]}" \
             --region "$AWS_REGION" \
             --no-fail-on-empty-changeset
 
