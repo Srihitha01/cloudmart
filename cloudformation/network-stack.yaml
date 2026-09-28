@@ -8,6 +8,7 @@ Description: >
   No NAT Gateway is used.
 
 Parameters:
+
   Environment:
     Type: String
     AllowedValues:
@@ -17,28 +18,25 @@ Parameters:
 
   VpcCidr:
     Type: String
-    Default: 10.0.0.0/16
+  #Default: 10.0.0.0/16
     Description: CIDR block for CloudMart VPC
 
   PublicSubnetCidr:
     Type: String
-    Default: 10.0.1.0/24
-    Description: CIDR block for the existing public subnet
+    # Default: 10.0.1.0/24
+    Description: CIDR block for public subnet
 
-  MonitoringPublicSubnetCidr:
+  PrivateSubnetCidr:
     Type: String
-    Default: 10.0.4.0/24
-    Description: CIDR block for the monitoring dashboard public subnet
+    # Default: 10.0.2.0/24
+    Description: CIDR block for primary private subnet
 
-  PrivateSubnet1Cidr:
+  SecondaryPrivateSubnetCidr:
     Type: String
-    Default: 10.0.2.0/24
-    Description: CIDR block for the primary private application subnet
+    # Default: 10.0.3.0/24
+    Description: CIDR block for secondary private subnet
 
-  PrivateSubnet2Cidr:
-    Type: String
-    Default: 10.0.3.0/24
-    Description: CIDR block for the secondary private subnet
+
 Resources:
 
   # ==========================================================
