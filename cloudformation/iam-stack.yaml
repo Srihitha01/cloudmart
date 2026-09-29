@@ -381,6 +381,9 @@ Resources:
 
               - Effect: Allow
 
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
 
                 Resource:
                   - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/db/name
@@ -1510,10 +1513,6 @@ Resources:
   AuthSSMParameters:
 
     Type: Custom::CloudMartAuthParameters
-
-    DependsOn:
-
-      - AuthSSMWriterFunction
 
     Properties:
 
