@@ -1,54 +1,11 @@
 # CloudMart
 
-CloudMart is an AWS-based e-commerce application built with AWS CloudFormation, GitHub Actions OIDC, API Gateway, Lambda, Amazon RDS for MySQL, S3, SSM Parameter Store, EventBridge, SNS, CloudWatch, and an EC2-hosted Flask operations dashboard.
+CloudMart is an e-commerce application hosted on AWS. Its infrastructure is defined in AWS CloudFormation and deployed through a GitHub Actions workflow that authenticates to AWS using OpenID Connect (OIDC). API Gateway receives application requests and routes them to AWS Lambda functions. The functions use Amazon RDS for MySQL to store application data, while S3 stores deployment artifacts and generated reports. SSM Parameter Store holds runtime configuration and protected values. EventBridge routes application events, SNS sends notifications, and CloudWatch provides monitoring. An EC2-hosted Flask dashboard gives operators a view of application activity.
 
 > **Final submission status:** Update only after checking the live deployment.  
 > **API invoke URL:** `<add verified API Gateway stage URL>`  
 > **Dashboard URL:** `<add verified dashboard URL>`  
 > **Region:** `ap-south-1` · **Environment:** `dev` or `prod` from `config/config.json`
-
-## Architecture
-
-```mermaid
-flowchart TB
-    DEV[Developer] --> GH[GitHub repository]
-    GH --> GA[GitHub Actions workflow_dispatch]
-    GA --> OIDC[GitHub OIDC deployment role]
-    OIDC --> CFN[CloudFormation]
-    CFN --> NET[Network-Security stack]
-    CFN --> DATA[Data-Storage stack]
-    CFN --> IAM[IAM stack]
-    CFN --> APP[Application-Events stack]
-    CFN --> API[API-Monitoring-EC2 stack]
-    NET --> VPC[VPC]
-    VPC --> PUB[Public subnet]
-    VPC --> PRIV[Private subnets]
-    PUB --> EC2[EC2 Flask dashboard<br/>Nginx + Gunicorn]
-    PRIV --> RDS[(RDS MySQL)]
-    CLIENT[API client] --> APIGW[API Gateway REST API]
-    APIGW --> AUTH[Lambda Authorizer]
-    AUTH --> RDS
-    APIGW --> PROD[Product Lambda]
-    APIGW --> CUST[Customer Lambda]
-    APIGW --> ORD[Order Lambda]
-    ORD --> PROC[Order Processor Lambda]
-    PROD --> RDS
-    CUST --> RDS
-    PROC --> RDS
-    PROD --> EB[EventBridge]
-    CUST --> EB
-    ORD --> EB
-    PROC --> EB
-    EB --> SNS[SNS notifications]
-    REPORT[Daily Report Lambda] --> S3R[(S3 report bucket)]
-    EC2 --> RDS
-    EC2 --> S3R
-    CW[CloudWatch dashboard and alarms] --> SNS
-```
-
-The VPC places the dashboard EC2 instance in the public subnet and RDS in private subnets. Database-connected Lambdas use the configured private networking. Customer bearer tokens are hashed and validated against RDS. The administrator token is stored separately in SSM SecureString.
-
-The deployed design uses RDS MySQL for customers, products, inventory, and orders. **DynamoDB and SQS are not part of this implementation.** The Order Lambda invokes the Order Processor synchronously so the normal successful API path can return the processor’s final `CONFIRMED` result rather than an asynchronous `PENDING` acknowledgement.
 
 ## CloudFormation stacks
 
@@ -158,7 +115,7 @@ The dashboard is refreshed on the existing CloudFormation-managed EC2 instance t
 
 ## Deployment
 
-See [docs/deployment-runbook.md](docs/deployment-runbook.md) for prerequisites, workflow steps, validation, verification, troubleshooting, and teardown. The workflow is manually triggered, validates configuration, deploys the five stacks in dependency order, packages Lambda artifacts, and verifies resources.
+For the full procedure, see [docs/deployment-runbook.md](docs/deployment-runbook.md). It explains the prerequisites, GitHub OIDC setup, required secrets and inputs, deployment steps, validation, post-deployment checks, troubleshooting, and teardown. To deploy, a maintainer manually starts the GitHub Actions workflow. The workflow reads the project configuration, packages the application artifacts, and deploys the five CloudFormation stacks in the order required by their dependencies.
 
 ## Final review checklist
 
@@ -167,7 +124,6 @@ See [docs/deployment-runbook.md](docs/deployment-runbook.md) for prerequisites, 
 - [ ] API invoke URL and dashboard URL are verified and recorded above.
 - [ ] Missing/invalid bearer tokens are rejected on protected routes.
 - [ ] Valid customer access is limited to authorized customer resources.
-- [ ] Product/customer/order CRUD paths have evidence recorded in `docs/crud-verification.md`.
 - [ ] Successful order placement returns `CONFIRMED` on the normal path.
 - [ ] Cross-customer order access/cancellation is rejected.
 - [ ] EventBridge, SNS, daily report, dashboard, and CloudWatch alarms are verified.
@@ -184,4 +140,3 @@ Delete stacks in reverse dependency order using CloudFormation: API-Monitoring-E
 - [Architecture](docs/architecture.md)
 - [Data model](docs/data-model.md)
 - [Deployment runbook](docs/deployment-runbook.md)
-- [CRUD verification](docs/crud-verification.md)
