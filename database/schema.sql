@@ -376,7 +376,7 @@ WHERE NOT EXISTS (
 -- Demo bearer token for every seeded customer: minni@123
 -- The database stores SHA-256(token), never the plaintext token.
 -- Seed rows are inserted only when their natural identifying value is absent.
--- These are test fixtures; review before using in production.
+-- These are test fixtures, review before using in production.
 -- =========================================================
 
 -- Categories: five demo categories
@@ -402,7 +402,7 @@ WHERE NOT EXISTS (SELECT 1 FROM categories WHERE name = 'Office Supplies');
 
 
 -- Customers: five demo customers, all sharing the same demo token.
--- Customer email is unique in this schema; bearer_token intentionally is not.
+-- Customer email is unique in this schema, bearer_token intentionally is not.
 INSERT INTO customers (name, email, bearer_token, address, status)
 SELECT 'Rahul Sharma', 'rahul.sharma@example.com', SHA2('minni@123', 256),
        'Hyderabad, Telangana', 'ACTIVE'
@@ -430,7 +430,7 @@ SELECT 'Meera Iyer', 'meera.iyer@example.com', SHA2('minni@123', 256),
 WHERE NOT EXISTS (SELECT 1 FROM customers WHERE email = 'meera.iyer@example.com');
 
 
--- Products: five demo products. One has low stock; one is soft-deleted.
+-- Products: five demo products. One has low stock, one is soft-deleted.
 -- Inventory is represented by products.stock_quantity in this schema.
 INSERT INTO products (category_id, name, description, price, stock_quantity, reorder_threshold, status)
 SELECT c.category_id, 'Wireless Mouse', 'Wireless optical mouse', 799.00, 25, 5, 'ACTIVE'
@@ -591,7 +591,7 @@ LIMIT 1;
 
 
 -- =========================================================
--- 9. CRUD EXAMPLES (COMMENTED; DO NOT RUN DURING INITIALIZATION)
+-- 9. CRUD EXAMPLES (COMMENTED, DO NOT RUN DURING INITIALIZATION)
 -- =========================================================
 -- These are SQL illustrations for direct database testing. Normal app
 -- operations should go through API Gateway/Lambda so authorization,
@@ -599,47 +599,47 @@ LIMIT 1;
 -- Physical DELETE is intentionally avoided for customers/products/orders.
 --
 -- CREATE examples:
--- INSERT INTO categories (name, description) VALUES ('Demo Category', 'Test');
+-- INSERT INTO categories (name, description) VALUES ('Demo Category', 'Test'),
 -- INSERT INTO customers (name,email,bearer_token,address)
---   VALUES ('Demo User','demo@example.com',SHA2('minni@123',256),'Hyderabad');
+--   VALUES ('Demo User','demo@example.com',SHA2('minni@123',256),'Hyderabad'),
 -- INSERT INTO products (category_id,name,description,price,stock_quantity,reorder_threshold)
---   VALUES (1,'Demo Product','Test product',100.00,10,2);
--- INSERT INTO orders (customer_id,status,total_amount) VALUES (1,'PENDING',100.00);
--- INSERT INTO order_items (order_id,product_id,quantity,unit_price) VALUES (1,1,1,100.00);
+--   VALUES (1,'Demo Product','Test product',100.00,10,2),
+-- INSERT INTO orders (customer_id,status,total_amount) VALUES (1,'PENDING',100.00),
+-- INSERT INTO order_items (order_id,product_id,quantity,unit_price) VALUES (1,1,1,100.00),
 -- INSERT INTO order_logs (order_id,previous_status,new_status,changed_by,note)
---   VALUES (1,NULL,'PENDING','manual-test','Created for testing');
+--   VALUES (1,NULL,'PENDING','manual-test','Created for testing'),
 --
 -- READ examples:
--- SELECT * FROM categories;
--- SELECT customer_id,name,email,status,deleted_at FROM customers;
--- SELECT * FROM products WHERE deleted_at IS NULL;
--- SELECT * FROM products WHERE stock_quantity <= reorder_threshold AND deleted_at IS NULL;
--- SELECT * FROM orders WHERE status = 'FAILED';
--- SELECT * FROM order_items WHERE order_id = 1;
--- SELECT * FROM order_logs WHERE order_id = 1 ORDER BY created_at;
+-- SELECT * FROM categories,
+-- SELECT customer_id,name,email,status,deleted_at FROM customers,
+-- SELECT * FROM products WHERE deleted_at IS NULL,
+-- SELECT * FROM products WHERE stock_quantity <= reorder_threshold AND deleted_at IS NULL,
+-- SELECT * FROM orders WHERE status = 'FAILED',
+-- SELECT * FROM order_items WHERE order_id = 1,
+-- SELECT * FROM order_logs WHERE order_id = 1 ORDER BY created_at,
 --
 -- UPDATE examples:
--- UPDATE categories SET description='Updated description' WHERE category_id=1;
--- UPDATE customers SET address='Updated address' WHERE customer_id=1 AND deleted_at IS NULL;
--- UPDATE products SET price=120.00 WHERE product_id=1 AND deleted_at IS NULL;
--- UPDATE products SET stock_quantity=2 WHERE product_id=1 AND deleted_at IS NULL;
--- UPDATE orders SET status='CONFIRMED' WHERE order_id=1 AND status='PENDING';
+-- UPDATE categories SET description='Updated description' WHERE category_id=1,
+-- UPDATE customers SET address='Updated address' WHERE customer_id=1 AND deleted_at IS NULL,
+-- UPDATE products SET price=120.00 WHERE product_id=1 AND deleted_at IS NULL,
+-- UPDATE products SET stock_quantity=2 WHERE product_id=1 AND deleted_at IS NULL,
+-- UPDATE orders SET status='CONFIRMED' WHERE order_id=1 AND status='PENDING',
 -- INSERT INTO order_logs (order_id,previous_status,new_status,changed_by,note)
---   VALUES (1,'PENDING','CONFIRMED','manual-test','Status changed in test');
+--   VALUES (1,'PENDING','CONFIRMED','manual-test','Status changed in test'),
 --
 -- SOFT DELETE / RESTORE examples:
 -- UPDATE customers SET status='DELETED', deleted_at=CURRENT_TIMESTAMP,
 --   deleted_by='manual-test', delete_reason='Test soft delete'
---   WHERE customer_id=5 AND deleted_at IS NULL;
+--   WHERE customer_id=5 AND deleted_at IS NULL,
 -- UPDATE customers SET status='ACTIVE', deleted_at=NULL, deleted_by=NULL,
---   delete_reason=NULL WHERE customer_id=5;
+--   delete_reason=NULL WHERE customer_id=5,
 -- UPDATE products SET status='DELETED', deleted_at=CURRENT_TIMESTAMP
---   WHERE product_id=5 AND deleted_at IS NULL;
+--   WHERE product_id=5 AND deleted_at IS NULL,
 -- UPDATE products SET status='ACTIVE', deleted_at=NULL
---   WHERE product_id=5;
+--   WHERE product_id=5,
 --
 -- Order status changes should follow application authorization/ownership rules.
--- In particular, customer cancellation must be limited to the owning customer;
+-- In particular, customer cancellation must be limited to the owning customer,
 -- do not use direct SQL to bypass the Lambda's checks. The schema has no
 -- dedicated low_stock table: low-stock is represented by products where
 -- stock_quantity <= reorder_threshold, and the application emits the event.

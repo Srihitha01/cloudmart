@@ -1039,6 +1039,25 @@ Resources:
                   response.read()
 
 
+          def split_sql_statements(sql_text):
+              # The schema contains explanatory and commented-out CRUD SQL.
+              # Remove full-line comments before splitting so a semicolon in
+              # a comment can never become part of an executable statement.
+              executable_lines = [
+                  line for line in sql_text.splitlines()
+                  if not line.lstrip().startswith("--")
+              ]
+              executable_sql = "\\n".join(executable_lines)
+
+              # Schema statements do not contain procedural blocks or
+              # semicolons inside quoted values, so statement splitting is safe.
+              return [
+                  statement.strip()
+                  for statement in executable_sql.split(";")
+                  if statement.strip()
+              ]
+
+
           def initialize_schema():
               schema_object = s3.get_object(
                   Bucket=SCHEMA_BUCKET,
@@ -1049,11 +1068,7 @@ Resources:
               connection = get_connection()
               try:
                   with connection.cursor() as cursor:
-                      for statement in schema_sql.split(";"):
-                          statement = statement.strip()
-                          if not statement:
-                              continue
-
+                      for statement in split_sql_statements(schema_sql):
                           try:
                               cursor.execute(statement)
                           except pymysql.err.OperationalError as error:
