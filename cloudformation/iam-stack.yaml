@@ -352,7 +352,7 @@ Resources:
           PolicyDocument:
 
             Version: '2012-10-17'
-
+   
             Statement:
 
               - Effect: Allow
@@ -381,9 +381,6 @@ Resources:
 
               - Effect: Allow
 
-                Action:
-                  - ssm:GetParameter
-                  - ssm:GetParameters
 
                 Resource:
                   - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudmart/${Environment}/db/name
