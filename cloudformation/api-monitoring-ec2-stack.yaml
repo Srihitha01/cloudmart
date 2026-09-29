@@ -4,7 +4,7 @@ Description: >
   CloudMart API-Monitoring-EC2 Stack.
   Creates API Gateway REST API with Lambda Authorizer,
   Product and customer-specific Order API routes,
-  CloudWatch monitoring and alarms,
+  CloudWatch monitoring and alarms, 
   and an EC2 Flask Dashboard.
 
 # ============================================================
