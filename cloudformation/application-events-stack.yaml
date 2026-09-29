@@ -1047,7 +1047,7 @@ Resources:
                   line for line in sql_text.splitlines()
                   if not line.lstrip().startswith("--")
               ]
-              executable_sql = "\\n".join(executable_lines)
+              executable_sql = "\n".join(executable_lines)
 
               # Schema statements do not contain procedural blocks or
               # semicolons inside quoted values, so statement splitting is safe.
@@ -1143,7 +1143,7 @@ Resources:
         !Ref SchemaS3Key
 
       SchemaVersion:
-        !Ref SchemaS3Key
+        "2026-09-29-fix1"
 
 
   # ==========================================================
