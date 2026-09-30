@@ -163,9 +163,47 @@ th{background:#f6f8fc;color:#60708b;font-size:10px;text-transform:uppercase;font
   .top{align-items:flex-start;flex-direction:column}.top-right{width:100%}.search-top{width:100%}.hero h1{font-size:26px}.widget-grid{grid-template-columns:1fr 1fr;gap:10px}.widget{padding:15px}.widget-value{font-size:23px}.mini-grid{grid-template-columns:repeat(2,1fr)}.quick-actions{grid-template-columns:1fr}
   .day{min-height:54px;padding:5px}.calendar-event{display:none}
 }
+
+/* Shared styles for pages rendered by the single index.html template */
+.detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 24px}
+.detail-item{padding:12px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
+.detail-item label{display:block;color:var(--muted);font-size:10px;text-transform:uppercase;font-weight:850;letter-spacing:.07em;margin-bottom:5px}
+.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 18px}
+.filter-form{display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+.filter-form input{min-width:220px;flex:1}
+.error-box{padding:15px;border-radius:12px;background:#fff0f0;border:1px solid #fecaca;color:#991b1b}
+.login-screen{min-height:100vh;display:grid;place-items:center;padding:24px;background:radial-gradient(circle at top left,#eaf1ff,transparent 40%),linear-gradient(135deg,#f7f9fd,#eef4fc)}
+.login-card{width:min(430px,100%);padding:34px;background:#fff;border:1px solid var(--line);border-radius:20px;box-shadow:0 18px 55px rgba(23,35,60,.12)}
+.login-card h1{margin:0 0 8px;font-size:27px;letter-spacing:-.5px}
+.login-card p{margin:0 0 20px;color:var(--muted)}
+.login-card label{display:block;font-size:12px;font-weight:800;margin:13px 0 6px}
+.login-card input{width:100%;padding:13px}
+.login-card button{width:100%;margin-top:18px;padding:13px}
+.report-preview{white-space:pre-wrap;overflow:auto;max-height:70vh;background:#f8faff;border:1px solid var(--line);border-radius:12px;padding:18px;font:12px/1.6 "SFMono-Regular",Consolas,monospace}
+@media(max-width:750px){.detail-grid{grid-template-columns:1fr}.filter-form{width:100%}.filter-form input{min-width:0}}
+
 </style>
 </head>
 <body>
+{% if view == "login" %}
+<div class="login-screen">
+  <section class="login-card">
+    <div class="brand" style="padding:0 0 18px;border-bottom:1px solid var(--line);color:var(--text)">
+      <h1>CloudMart</h1>
+      <p style="color:var(--muted)">Operations Console · Administrator sign in</p>
+    </div>
+    <h1 style="margin-top:22px">Welcome back</h1>
+    <p>Enter your administrator bearer token to access the CloudMart dashboard.</p>
+    <form method="post">
+      <label for="admin-token">Administrator bearer token</label>
+      <input id="admin-token" name="token" type="password" placeholder="Enter bearer token" autocomplete="current-password" required autofocus>
+      <button type="submit">Sign in securely</button>
+    </form>
+    {% if error %}<div class="error-box" role="alert" style="margin-top:14px">{{error}}</div>{% endif %}
+  </section>
+</div>
+{% else %}
+
 <div class="layout">
 
 <aside class="side">
@@ -211,7 +249,8 @@ th{background:#f6f8fc;color:#60708b;font-size:10px;text-transform:uppercase;font
   </div>
 </header>
 
-<main class="content">
+<main class="content">{% if view == 'dashboard' %}
+
   <div class="hero">
     <div>
       <h1>Welcome back, Srihitha! 👋</h1>
@@ -470,7 +509,233 @@ th{background:#f6f8fc;color:#60708b;font-size:10px;text-transform:uppercase;font
     {% endif %}
   </section>
 
-</main>
+
+{% elif view == 'list' %}
+
+  <div class="hero">
+    <div>
+      <h1>{{heading if view == 'list' else title}}</h1>
+      <p>
+        {% if view == 'list' and entity == 'products' %}Browse and filter CloudMart inventory products.
+        {% elif view == 'list' and entity == 'orders' %}Review customer orders and their current statuses.
+        {% elif view == 'list' and entity == 'customers' %}Review registered customer records.
+        {% elif view == 'events' %}Review order status history and operational events.
+        {% elif view == 'reports' %}Browse generated daily CSV reports by date.
+        {% elif view == 'search' %}Search results across products, orders, and customers.
+        {% elif view == 'report_view' %}Preview a private CSV report stored in S3.
+        {% else %}CloudMart operational details.{% endif %}
+      </p>
+    </div>
+    <div class="hero-actions">
+      {% if view == 'list' and entity == 'products' %}<a class="btn alt" href="{{url_for('dashboard')}}">← Overview</a>
+      {% elif view == 'list' and entity == 'orders' %}<a class="btn alt" href="{{url_for('dashboard')}}">← Overview</a>
+      {% elif view == 'list' and entity == 'customers' %}<a class="btn alt" href="{{url_for('dashboard')}}">← Overview</a>
+      {% elif view in ['events','reports','search'] %}<a class="btn alt" href="{{url_for('dashboard')}}">← Overview</a>
+      {% elif view == 'product_detail' %}<a class="btn alt" href="{{url_for('products_page')}}">← Products</a>
+      {% elif view == 'order_detail' %}<a class="btn alt" href="{{url_for('orders_page')}}">← Orders</a>
+      {% elif view == 'customer_detail' %}<a class="btn alt" href="{{url_for('customers_page')}}">← Customers</a>
+      {% elif view == 'report_view' %}<a class="btn alt" href="{{url_for('reports_page')}}">← Reports</a>
+      {% endif %}
+    </div>
+  </div>
+
+  
+    <div class="search-row">
+      {% if entity == 'products' %}<form method="get" action="{{url_for('products_page')}}">
+      {% elif entity == 'orders' %}<form method="get" action="{{url_for('orders_page')}}">
+      {% else %}<form method="get" action="{{url_for('customers_page')}}">{% endif %}
+        <input name="q" value="{{q}}" placeholder="{{placeholder}}" aria-label="{{placeholder}}">
+        {% if entity == 'products' and stock_filter %}<input type="hidden" name="filter" value="{{stock_filter}}">{% endif %}
+        {% if entity == 'orders' and status_filter %}<input type="hidden" name="status" value="{{status_filter}}">{% endif %}
+        <button type="submit">Search</button>
+      </form>
+      {% if entity == 'products' %}<a class="btn alt" href="{{url_for('products_page')}}">Clear filters</a>{% endif %}
+      {% if entity == 'orders' %}<a class="btn alt" href="{{url_for('orders_page')}}">Clear filters</a>{% endif %}
+    </div>
+    <section class="panel">
+      <div class="panel-head">
+        <div><h3>{{heading}}</h3><div class="muted">{{rows|length}} results</div></div>
+        {% if entity == 'products' and stock_filter == 'low_stock' %}<span class="badge amber">Low stock filter</span>{% endif %}
+        {% if entity == 'orders' and status_filter == 'FAILED' %}<span class="badge red">Failed orders filter</span>{% endif %}
+      </div>
+      <div class="table"><table>
+        {% if entity == 'products' %}
+          <thead><tr><th>ID</th><th>Name</th><th>Category</th><th>Price</th><th>Stock</th><th>Threshold</th><th>Action</th></tr></thead>
+          <tbody>{% for r in rows %}
+            <tr><td>#{{r.product_id}}</td><td>{{r.name}}</td><td>{{r.category}}</td><td>{{rupees(r.price)}}</td><td>{{r.stock_quantity}}</td><td>{{r.reorder_threshold}}</td><td><a href="{{url_for('product_detail',product_id=r.product_id)}}">Details →</a></td></tr>
+          {% else %}<tr><td colspan="7" class="empty">No products found.</td></tr>{% endfor %}</tbody>
+        {% elif entity == 'orders' %}
+          <thead><tr><th>Order</th><th>Customer</th><th>Date</th><th>Amount</th><th>Status</th><th>Action</th></tr></thead>
+          <tbody>{% for r in rows %}
+            <tr><td><a href="{{url_for('order_detail',order_id=r.order_id)}}">#{{r.order_id}}</a></td><td>#{{r.customer_id}}</td><td>{{shown(r.order_date)}}</td><td>{{rupees(r.total_amount)}}</td><td>{% if r.status in ['FAILED','CANCELLED'] %}<span class="badge red">{{r.status}}</span>{% elif r.status in ['CONFIRMED','DELIVERED'] %}<span class="badge green">{{r.status}}</span>{% else %}<span class="badge blue">{{r.status}}</span>{% endif %}</td><td><a href="{{url_for('order_detail',order_id=r.order_id)}}">Details →</a></td></tr>
+          {% else %}<tr><td colspan="6" class="empty">No orders found.</td></tr>{% endfor %}</tbody>
+        {% else %}
+          <thead><tr><th>ID</th><th>Name</th><th>Email</th><th>Status</th><th>Created</th><th>Action</th></tr></thead>
+          <tbody>{% for r in rows %}
+            <tr><td>#{{r.customer_id}}</td><td>{{r.name}}</td><td>{{r.email}}</td><td>{% if r.status == 'ACTIVE' %}<span class="badge green">{{r.status}}</span>{% else %}<span class="badge amber">{{r.status}}</span>{% endif %}</td><td>{{shown(r.created_at)}}</td><td><a href="{{url_for('customer_detail',customer_id=r.customer_id)}}">Details →</a></td></tr>
+          {% else %}<tr><td colspan="6" class="empty">No customers found.</td></tr>{% endfor %}</tbody>
+        {% endif %}
+      </table></div>
+    </section>
+
+  {% elif view == 'product_detail' %}
+    <section class="panel">
+      <div class="panel-head"><h3>{{product.name if product else 'Product not found'}}</h3></div>
+      {% if product %}<div class="detail-grid">{% for k,v in product.items() %}
+        <div class="detail-item"><label>{{k.replace('_',' ')}}</label>{{shown(v)}}</div>
+      {% endfor %}</div>{% else %}<div class="empty">Product not found.</div>{% endif %}
+    </section>
+    <section class="panel">
+      <div class="panel-head"><h3>Related order activity</h3><span class="muted">Recent orders containing this product</span></div>
+      <div class="table"><table><thead><tr><th>Order</th><th>Customer</th><th>Quantity</th><th>Status</th><th>Date</th></tr></thead>
+        <tbody>{% for r in history %}
+          <tr><td><a href="{{url_for('order_detail',order_id=r.order_id)}}">#{{r.order_id}}</a></td><td>#{{r.customer_id}}</td><td>{{r.quantity}}</td><td>{{r.status}}</td><td>{{shown(r.order_date)}}</td></tr>
+        {% else %}<tr><td colspan="5" class="empty">No related activity.</td></tr>{% endfor %}</tbody>
+      </table></div>
+      <p class="small">Inventory is maintained in the products table. Related order activity is shown from order_items.</p>
+    </section>
+
+  {% elif view == 'order_detail' %}
+    <section class="panel">
+      <div class="panel-head"><h3>Order #{{order.order_id if order else '—'}}</h3></div>
+      {% if order %}<div class="detail-grid">{% for k,v in order.items() %}
+        <div class="detail-item"><label>{{k.replace('_',' ')}}</label>{{shown(v)}}</div>
+      {% endfor %}</div>{% else %}<div class="empty">Order not found.</div>{% endif %}
+    </section>
+    <section class="panel">
+      <div class="panel-head"><h3>Order items</h3></div>
+      <div class="table"><table><thead><tr><th>Item</th><th>Product</th><th>Quantity</th><th>Unit price</th><th>Subtotal</th></tr></thead>
+        <tbody>{% for i in items %}
+          <tr><td>{{i.order_item_id}}</td><td>{{i.product_name}}</td><td>{{i.quantity}}</td><td>{{rupees(i.unit_price)}}</td><td>{{rupees(i.quantity*i.unit_price)}}</td></tr>
+        {% else %}<tr><td colspan="5" class="empty">No items found.</td></tr>{% endfor %}</tbody>
+      </table></div>
+    </section>
+    <section class="panel">
+      <div class="panel-head"><h3>Order history</h3></div>
+      <div class="table"><table><thead><tr><th>Previous</th><th>New</th><th>Changed by</th><th>Note</th><th>Time</th></tr></thead>
+        <tbody>{% for l in logs %}
+          <tr><td>{{l.previous_status or '—'}}</td><td>{{l.new_status}}</td><td>{{l.changed_by or '—'}}</td><td>{{l.note or '—'}}</td><td>{{shown(l.created_at)}}</td></tr>
+        {% else %}<tr><td colspan="5" class="empty">No history found.</td></tr>{% endfor %}</tbody>
+      </table></div>
+    </section>
+
+  {% elif view == 'customer_detail' %}
+    <section class="panel">
+      <div class="panel-head"><h3>{{customer.name if customer else 'Customer not found'}}</h3></div>
+      {% if customer %}<div class="detail-grid">{% for k,v in customer.items() %}
+        <div class="detail-item"><label>{{k.replace('_',' ')}}</label>{{shown(v)}}</div>
+      {% endfor %}</div>{% else %}<div class="empty">Customer not found.</div>{% endif %}
+    </section>
+    <section class="panel">
+      <div class="panel-head"><h3>Customer orders</h3></div>
+      <div class="table"><table><thead><tr><th>Order</th><th>Date</th><th>Amount</th><th>Status</th></tr></thead>
+        <tbody>{% for o in orders %}
+          <tr><td><a href="{{url_for('order_detail',order_id=o.order_id)}}">#{{o.order_id}}</a></td><td>{{shown(o.order_date)}}</td><td>{{rupees(o.total_amount)}}</td><td>{{o.status}}</td></tr>
+        {% else %}<tr><td colspan="4" class="empty">No orders found.</td></tr>{% endfor %}</tbody>
+      </table></div>
+    </section>
+
+  {% elif view == 'events' %}
+    <div class="search-row"><form method="get" action="{{url_for('events_page')}}">
+      <input name="q" value="{{q}}" placeholder="Search order ID, status, or note">
+      <button type="submit">Search</button>
+    </form></div>
+    <section class="panel">
+      <div class="panel-head"><h3>Event history</h3><span class="muted">{{events|length}} records</span></div>
+      <div class="table"><table><thead><tr><th>Order</th><th>Previous</th><th>New</th><th>Changed by</th><th>Note</th><th>Time</th></tr></thead>
+        <tbody>{% for e in events %}
+          <tr><td><a href="{{url_for('order_detail',order_id=e.order_id)}}">#{{e.order_id}}</a></td><td>{{e.previous_status or '—'}}</td><td>{{e.new_status}}</td><td>{{e.changed_by or '—'}}</td><td>{{e.note or '—'}}</td><td>{{shown(e.created_at)}}</td></tr>
+        {% else %}<tr><td colspan="6" class="empty">No events found.</td></tr>{% endfor %}</tbody>
+      </table></div>
+    </section>
+
+  {% elif view == 'reports' %}
+    {% if cloudwatch_url %}
+    <section class="panel widget-blue">
+      <div class="panel-head"><h3>☁️ Monitoring</h3><span class="muted">CloudWatch</span></div>
+      <p>Open the CloudMart operations dashboard in CloudWatch.</p>
+      <a class="btn" href="{{cloudwatch_url}}" target="_blank" rel="noopener">Open CloudWatch dashboard</a>
+    </section>
+    {% endif %}
+    <section class="panel">
+      <div class="panel-head">
+        <div><h3>🗓️ Select a report date</h3><div class="muted">Choose a date to open the daily report generated for that day.</div></div>
+        {% if selected_report %}<span class="badge green">Report available</span>{% else %}<span class="badge amber">No report for this date</span>{% endif %}
+      </div>
+      <form class="filter-form" method="get" action="{{url_for('reports_page')}}">
+        <input type="date" name="report_date" value="{{selected_date.isoformat()}}">
+        <button type="submit">🔎 Show Report</button>
+      </form>
+      {% if selected_report %}
+      <div class="report-selected" style="margin-top:16px">
+        <div class="report-icon">📊</div>
+        <div><strong>{{selected_report.key}}</strong><div class="muted">Generated {{shown(selected_report.last_modified)}}</div></div>
+        <div class="report-actions">
+          <a class="btn" href="{{url_for('report_view',key=selected_report.key)}}">👁️ View Report</a>
+          <a class="btn alt" href="{{selected_report.url}}">⬇️ Download CSV</a>
+        </div>
+      </div>
+      {% else %}<div class="empty">No generated report was found for {{selected_date.strftime('%d %b %Y')}}.</div>{% endif %}
+    </section>
+    <section class="panel">
+      <div class="panel-head">
+        <a class="calendar-nav" href="{{url_for('reports_page',report_date=('%04d-%02d-01'|format(report_calendar.prev_year,report_calendar.prev_month)))}}">‹</a>
+        <h3>📅 Report Calendar · {{report_calendar.month_name}}</h3>
+        <a class="calendar-nav" href="{{url_for('reports_page',report_date=('%04d-%02d-01'|format(report_calendar.next_year,report_calendar.next_month)))}}">›</a>
+      </div>
+      <div class="calendar">
+        <div class="weekdays">{% for d in ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'] %}<div>{{d}}</div>{% endfor %}</div>
+        {% for week in report_calendar.weeks %}<div class="week">{% for day in week %}
+          {% if day %}
+          <a class="day day-link {% if day.selected %}selected{% endif %} {% if day.today %}today{% endif %} {% if day.has_report %}has-report{% endif %}" href="{{url_for('reports_page',report_date=day.iso)}}">
+            <span class="day-num">{{day.day}}</span>{% if day.has_report %}<span class="report-dot"></span><div class="calendar-event">📄 Report</div>{% endif %}
+          </a>
+          {% else %}<div class="day"></div>{% endif %}
+        {% endfor %}</div>{% endfor %}
+      </div>
+    </section>
+    <section class="panel">
+      <div class="panel-head"><h3>📁 All Daily Reports</h3><span class="muted">{{report_bucket or 'Bucket not configured'}}</span></div>
+      {% if reports %}
+      <div class="table"><table><thead><tr><th>Report</th><th>Date</th><th>Size</th><th>Generated</th><th>Actions</th></tr></thead>
+        <tbody>{% for r in reports %}
+          <tr><td>{{r.key}}</td><td>{{r.report_date or '—'}}</td><td>{{r.size}} bytes</td><td>{{shown(r.last_modified)}}</td>
+          <td><a class="btn alt" href="{{url_for('report_view',key=r.key)}}">👁️ View</a> <a class="btn alt" href="{{r.url}}">⬇️ CSV</a></td></tr>
+        {% endfor %}</tbody>
+      </table></div>
+      {% else %}<div class="empty">No daily reports found. Verify the report Lambda, EventBridge schedule, and S3 bucket parameter.</div>{% endif %}
+    </section>
+
+  {% elif view == 'report_view' %}
+    <div class="toolbar">
+      <a class="btn alt" href="{{url_for('reports_page')}}">← Back to reports</a>
+      <a class="btn" href="{{report_url}}">⬇️ Download CSV</a>
+    </div>
+    <section class="panel">
+      <div class="panel-head"><h3>{{key}}</h3><span class="muted">Private S3 report · download link generated on demand</span></div>
+      <pre class="report-preview">{{content}}</pre>
+    </section>
+
+  {% elif view == 'search' %}
+    <section class="panel">
+      <div class="panel-head"><h3>Search results</h3><span class="muted">Query: {{q}}</span></div>
+      {% for r in results %}
+        <div class="detail-item">
+          <span class="badge blue">{{r.type}}</span>
+          {% if r.type == 'Product' %}<a href="{{url_for('product_detail',product_id=r.id)}}">{{r.label}}</a>
+          {% elif r.type == 'Order' %}<a href="{{url_for('order_detail',order_id=r.id)}}">{{r.label}}</a>
+          {% else %}<a href="{{url_for('customer_detail',customer_id=r.id)}}">{{r.label}}</a>{% endif %}
+          <div class="muted">{{r.extra}}</div>
+        </div>
+      {% else %}<div class="empty">No matching records found.</div>{% endfor %}
+    </section>
+
+  {% elif view == 'error' %}
+    <section class="panel"><div class="error-box">{{error}}</div></section>
+  {% endif %}
+
+{% endif %}
+
 </section>
 </div>
 </body>
