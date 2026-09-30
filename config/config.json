@@ -1,7 +1,7 @@
-[
+﻿[
   {
     "Key": "Environment",
-    "Value": "dev"
+    "Value": "prod"
   },
   {
     "Key": "Project",
