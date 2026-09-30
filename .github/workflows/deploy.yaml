@@ -1441,6 +1441,59 @@ jobs:
             --no-fail-on-empty-changeset
 
       # ------------------------------------------------------
+      # GENERATE AN IMMEDIATE DAILY REPORT
+      # Runs after the application-events stack has been deployed.
+      # The existing EventBridge daily schedule remains unchanged.
+      # ------------------------------------------------------
+
+      - name: Generate Immediate Daily Report
+
+        run: |
+
+          echo "========================================"
+          echo "GENERATING IMMEDIATE DAILY REPORT"
+          echo "========================================"
+
+          FUNCTION_NAME="cloudmart-${ENVIRONMENT}-daily-report"
+          RESPONSE_FILE="daily-report-response.json"
+
+          echo "Invoking Lambda: $FUNCTION_NAME"
+
+          aws lambda invoke \\
+            --function-name "$FUNCTION_NAME" \\
+            --invocation-type RequestResponse \\
+            --payload '{}' \\
+            --cli-binary-format raw-in-base64-out \\
+            --region "$AWS_REGION" \\
+            "$RESPONSE_FILE" \\
+            --query 'StatusCode' \\
+            --output text
+
+          echo "Lambda response:"
+          cat "$RESPONSE_FILE"
+          echo ""
+
+          if python - "$RESPONSE_FILE" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as response_file:
+              response = json.load(response_file)
+
+          if response.get("statusCode") != 200 or not response.get("key"):
+              print("ERROR: Daily report did not return statusCode 200 and an S3 key.")
+              sys.exit(1)
+
+          print(f"Daily report created: {response['key']}")
+          PY
+          then
+            echo "Immediate daily report completed successfully."
+          else
+            echo "ERROR: Immediate daily report generation failed."
+            exit 1
+          fi
+
+      # ------------------------------------------------------
       # VERIFY APPLICATION STACK
       # ------------------------------------------------------
 
