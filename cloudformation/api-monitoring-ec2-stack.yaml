@@ -236,11 +236,9 @@ Resources:
       HttpMethod:
         GET
 
+      # Public endpoint: listing products does not require a bearer token.
       AuthorizationType:
-        CUSTOM
-
-      AuthorizerId:
-        !Ref CloudMartAuthorizer
+        NONE
 
       Integration:
 
