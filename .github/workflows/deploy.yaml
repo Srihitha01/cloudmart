@@ -1449,7 +1449,7 @@ jobs:
       - name: Generate Immediate Daily Report
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
 
           echo "========================================"
           echo "GENERATING IMMEDIATE DAILY REPORT"
@@ -1460,15 +1460,12 @@ jobs:
 
           echo "Invoking Lambda: ${FUNCTION_NAME}"
 
-          aws lambda invoke \\
-            --function-name "${FUNCTION_NAME}" \\
-            --invocation-type RequestResponse \\
-            --payload '{}' \\
-            --cli-binary-format raw-in-base64-out \\
-            --region "${AWS_REGION}" \\
-            "${RESPONSE_FILE}" \\
-            --query 'StatusCode' \\
-            --output text
+          STATUS_CODE=$(aws lambda invoke --function-name "${FUNCTION_NAME}" --invocation-type RequestResponse --payload '{}' --cli-binary-format raw-in-base64-out --region "${AWS_REGION}" "${RESPONSE_FILE}" --query 'StatusCode' --output text)
+
+          if [[ "${STATUS_CODE}" != "200" ]]; then
+            echo "ERROR: Lambda invocation returned HTTP status ${STATUS_CODE}."
+            exit 1
+          fi
 
           echo "Lambda response:"
           cat "${RESPONSE_FILE}"
