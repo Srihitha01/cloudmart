@@ -1447,8 +1447,9 @@ jobs:
       # ------------------------------------------------------
 
       - name: Generate Immediate Daily Report
-
+        shell: bash
         run: |
+          set -e
 
           echo "========================================"
           echo "GENERATING IMMEDIATE DAILY REPORT"
@@ -1457,23 +1458,23 @@ jobs:
           FUNCTION_NAME="cloudmart-${ENVIRONMENT}-daily-report"
           RESPONSE_FILE="daily-report-response.json"
 
-          echo "Invoking Lambda: $FUNCTION_NAME"
+          echo "Invoking Lambda: ${FUNCTION_NAME}"
 
           aws lambda invoke \\
-            --function-name "$FUNCTION_NAME" \\
+            --function-name "${FUNCTION_NAME}" \\
             --invocation-type RequestResponse \\
             --payload '{}' \\
             --cli-binary-format raw-in-base64-out \\
-            --region "$AWS_REGION" \\
-            "$RESPONSE_FILE" \\
+            --region "${AWS_REGION}" \\
+            "${RESPONSE_FILE}" \\
             --query 'StatusCode' \\
             --output text
 
           echo "Lambda response:"
-          cat "$RESPONSE_FILE"
+          cat "${RESPONSE_FILE}"
           echo ""
 
-          if python - "$RESPONSE_FILE" <<'PY'
+          python - "${RESPONSE_FILE}" <<'PY'
           import json
           import sys
 
@@ -1486,16 +1487,8 @@ jobs:
 
           print(f"Daily report created: {response['key']}")
           PY
-          then
-            echo "Immediate daily report completed successfully."
-          else
-            echo "ERROR: Immediate daily report generation failed."
-            exit 1
-          fi
 
-      # ------------------------------------------------------
-      # VERIFY APPLICATION STACK
-      # ------------------------------------------------------
+          echo "Immediate daily report completed successfully."
 
       - name: Verify Application Events Stack
 
