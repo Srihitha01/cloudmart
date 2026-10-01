@@ -69,6 +69,132 @@ The AWS account must also have the GitHub Actions OIDC identity provider configu
 
 The assumed role requires permissions for the workflow's actual CloudFormation deployment/inspection, S3 artifact operations, SSM Run Command and polling, Lambda/stack verification, and narrowly scoped `iam:PassRole` actions where needed. Apply least privilege; do not respond to an access error by granting unrestricted permissions without review. Never store long-lived AWS access keys as a workaround for OIDC configuration.
 
+### 3.3.1 GitHub Actions OIDC connection
+
+OpenID Connect (OIDC) allows GitHub Actions to obtain short-lived AWS credentials by exchanging a GitHub-issued identity token through AWS STS. This avoids storing long-lived AWS access keys in GitHub.
+
+**Connection flow**
+
+```text
+GitHub repository / selected branch
+        |
+        v
+Manual GitHub Actions workflow_dispatch
+        |
+        v
+Workflow requests an OIDC token (id-token: write)
+        |
+        v
+GitHub token identifies repository + ref/environment and audience
+        |
+        v
+aws-actions/configure-aws-credentials
+        |
+        v
+AWS STS AssumeRoleWithWebIdentity
+        |
+        v
+AWS checks the account OIDC provider + IAM role trust policy
+        |
+        v
+STS returns temporary credentials for the deployment role
+        |
+        v
+AWS CLI uses those credentials for CloudFormation, S3, SSM,
+verification, and other authorized deployment steps
+```
+
+The account OIDC provider for this repository/account is expected to be:
+
+`arn:aws:iam::285150348844:oidc-provider/token.actions.githubusercontent.com`
+
+Its client ID/audience must include `sts.amazonaws.com`. In the workflow, grant `id-token: write` and `contents: read`; configure `aws-actions/configure-aws-credentials` with region `ap-south-1` and `role-to-assume: ${{ secrets.AWS_ROLE_ARN }}`.
+
+**GitHub secret:** create `AWS_ROLE_ARN` under **Repository Settings → Secrets and variables → Actions → Repository secrets**. The value must be the IAM deployment role ARN, such as:
+
+`arn:aws:iam::285150348844:role/<GITHUB_ACTIONS_DEPLOYMENT_ROLE>`
+
+The secret is not the OIDC provider ARN, AWS console URL, access key, or secret access key. The secret name used in GitHub must match the workflow expression exactly.
+
+**Trust policy supplied for this setup — corrected subject format**
+
+The provided trust policy's `sub` pattern, `repo:Srihitha01@*/cloudmart@*:*`, uses `@` separators that do not match GitHub's repository subject format. For this repository, use the `OWNER/REPOSITORY` form and restrict it to the deployment branches. This example allows `main` and `feature/order-flow`; change the branch entries to match the branches from which you actually run deployments.
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "GitHubActionsCloudMartDeployment",
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::285150348844:oidc-provider/token.actions.githubusercontent.com"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
+        },
+        "StringLike": {
+          "token.actions.githubusercontent.com:sub": [
+            "repo:Srihitha01/cloudmart:ref:refs/heads/main",
+            "repo:Srihitha01/cloudmart:ref:refs/heads/feature/order-flow"
+          ]
+        }
+      }
+    }
+  ]
+}
+```
+
+If the workflow uses a GitHub **Environment** instead of a branch-based subject, the subject is environment-based (for example, `repo:Srihitha01/cloudmart:environment:prod`); configure the job's `environment` and trust condition to match. Do not broaden the subject to every repository/branch unless that is deliberate and reviewed. The role trust relationship and the identity-based permissions policy are two separate IAM configurations.
+
+### 3.3.2 Deployment role and CloudFormation service role
+
+Keep these roles distinct:
+
+| Role | Used by | Responsibility |
+|---|---|---|
+| GitHub Actions deployment role | AWS STS assumes it after validating the GitHub OIDC token | Orchestrates the workflow: stack deployment/inspection, artifact upload, SSM command/polling, verification, and passing the CloudFormation service role if configured. |
+| `CloudMart-CloudFormation-ServiceRole` | CloudFormation assumes it for stack operations when supplied to the deployment | Grants CloudFormation the resource-creation/update/deletion permissions required by the templates. |
+
+The supplied permissions policy includes `iam:PassRole` for the CloudFormation service role. That permission is needed when the workflow submits the stack operation with that role (for example, using `--role-arn`). Check the workflow's deploy commands and current stack service-role configuration to confirm whether it is used. If it is used, the service role itself must have the necessary CloudFormation execution permissions. `iam:PassRole` only authorizes passing a role; it does not grant the caller the permissions contained in that role.
+
+The runtime IAM roles for Lambda functions and the EC2 dashboard are separate again. They are assumed by those workloads, not by GitHub Actions. Do not use the GitHub deployment role as a Lambda execution role or EC2 instance role.
+
+### Deployment-role permissions by purpose
+
+The attached permissions policy is the **identity-based permissions policy** for the GitHub Actions deployment role. Its statements cover these areas:
+
+| Policy statement (`Sid`) | Purpose |
+|---|---|
+| `CloudFormationStackManagement` | Create/update/delete stacks and change sets; inspect, validate, and execute deployments. |
+| `NetworkInfrastructureManagement` | Manage VPCs, subnets, route tables, internet gateways, security groups, and VPC endpoints. |
+| `EC2InstanceManagement` | Launch, inspect, start/stop/terminate EC2 instances and manage their network interfaces. |
+| `RDSManagement` | Create, modify, delete, inspect, tag, and manage RDS instances and subnet groups. |
+| `AllowCreateRDSServiceLinkedRole` | Create the RDS service-linked role, constrained to `rds.amazonaws.com`. |
+| `S3BucketManagement` / `S3ObjectManagement` | Create/configure buckets and upload/read/delete deployment objects and versions. |
+| `APIGatewayManagement` | Create/read/update/delete API Gateway resources. |
+| `CloudMartLambdaManagement` / `CloudMartLambdaInvocation` | Manage CloudMart Lambda functions, versions, aliases, permissions, tags, and invoke them. |
+| `CloudMartLambdaLayerPublish` / `CloudMartLambdaLayerVersionManagement` / `CloudMartLambdaLayerList` | Publish, inspect, list, and delete CloudMart Lambda layer versions. |
+| `CloudMartRoleManagement` | Create/update/delete CloudMart IAM roles and manage their policies/attachments. |
+| `CloudMartInstanceProfileManagement` | Create/delete CloudMart EC2 instance profiles and associate roles. |
+| `PassCloudMartRoles` | Pass CloudMart runtime roles to AWS services when resources are created. |
+| `CloudWatchAlarmManagement` / `CloudWatchDashboardManagement` | Manage alarms, dashboards, tags, and metric reads. |
+| `CloudWatchLogsManagement` | Manage log groups, streams, retention, tags, and log events. |
+| `EventBridgeManagement` / `EventBridgeSchedulerManagement` | Manage event buses, rules, targets, schedules, and schedule groups. |
+| `SNSManagement` | Manage SNS topics, subscriptions, attributes, and tags. |
+| `CloudMartSSMParameterManagement` / `CloudMartSSMParameterDescribe` | Read/write/delete CloudMart parameters and describe parameters. |
+| `EC2DashboardSSMManagement` | Send SSM commands and poll command results for dashboard refresh. |
+| `ReadAmazonLinuxPublicAMI` | Read the Amazon Linux 2023 public AMI SSM parameter. |
+| `PassCloudFormationServiceRole` | Pass `CloudMart-CloudFormation-ServiceRole` if the workflow submits CloudFormation operations using that service role. |
+| `ReadCallerIdentity` | Verify the effective AWS identity with STS `GetCallerIdentity`. |
+
+**Policy review note:** the supplied policy is broad rather than fully least-privilege: multiple statements use `Resource: "*"`, and it includes destructive permissions for stacks, EC2, RDS, S3, and IAM. Before production use, scope resources/actions where supported, consider separating deploy and teardown permissions, and constrain `iam:PassRole` with the relevant `iam:PassedToService` condition. Add permissions only after checking the specific denied action/resource; do not respond to access errors with unrestricted administrator access.
+
+The full supplied permissions policy is reproduced in **Appendix A** below and is also provided as a separate JSON file for convenient IAM attachment/review. The trust policy is separate: it belongs in the IAM role's **Trust relationships**, not inside this identity-based permissions policy.
+
+
 ### 3.4 Other secret and manual input
 
 - **`CLOUDMART_ALERT_EMAIL`**: GitHub Actions repository secret for the notification recipient. Keep the email address out of source code and templates.
@@ -164,6 +290,58 @@ The workflow is manually triggered with `workflow_dispatch`; pushing code alone 
 Templates larger than 51,200 bytes must be deployed using an S3 template bucket. The Application-Events and API-Monitoring-EC2 deploy commands should use the existing artifact bucket created by Data-Storage via `--s3-bucket`. Do not create another bucket manually. Keep the commit-SHA artifact keys used by the workflow aligned with the values passed to CloudFormation.
 
 The API-Monitoring-EC2 template parameters identified in the supplied runbook are `Environment`, `EC2InstanceType`, `DashboardPort`, and `NginxPort`. Do not pass Lambda S3 keys or database SSM parameter names to that stack unless its template is intentionally updated to declare them.
+
+### Deployment lifecycle and artifact timing
+
+```text
+Reviewed code is committed and pushed
+        |
+        v
+Actions > CloudMart Infrastructure Deployment > Run workflow
+        |
+        v
+Select branch and supply db_password input
+        |
+        v
+Validate configuration, parameter files, templates, and source paths
+        |
+        v
+GitHub OIDC token -> AWS STS -> temporary deployment-role credentials
+        |
+        v
+1. Network-Security stack
+        |
+        v
+2. Data-Storage stack: RDS + artifact/report S3 buckets + DB SSM parameters
+        |
+        v
+3. IAM stack: runtime roles, policies, instance profile/auth parameters
+        |
+        v
+Build/package and upload commit-specific Lambda/layer/schema artifacts
+to the artifact bucket
+        |
+        v
+4. Application-Events stack: Lambda resources, schema initialization,
+EventBridge rules, and SNS resources
+        |
+        v
+Upload dashboard source; 5. API-Monitoring-EC2 stack; refresh existing
+dashboard EC2 via SSM
+        |
+        v
+Run configured report/health checks; record outputs and evidence
+```
+
+**When objects are stored in S3**
+
+- The Data-Storage stack creates the deployment artifact bucket and the separate report bucket. Downstream workflow steps use the artifact bucket name from that stack's outputs.
+- Lambda ZIPs, the PyMySQL layer, schema SQL, and dashboard source are uploaded to the artifact bucket after the bucket exists and before the relevant stack/resource or dashboard refresh consumes them. The workflow uses commit-specific object keys to associate artifacts with the source revision.
+- For CloudFormation templates larger than 51,200 bytes, the deployment command uses the existing artifact bucket with `--s3-bucket`; template packaging/upload occurs as part of submitting that stack deployment.
+- The report bucket stores generated CSV reports. The Daily Report Lambda writes those after it is invoked (including the workflow's configured post-deployment invocation and the scheduled run), not as part of uploading the source code.
+- The dashboard reads its application files from the artifact bucket and report files from the report bucket. Do not treat these as one bucket or one deployment phase.
+
+**Deployment failure/retry:** stop at the first failed step, inspect its error and CloudFormation events, fix the source/configuration in Git, run validation, and start a fresh manual workflow run. Do not manually create replacement AWS resources or repeatedly rerun without resolving the underlying failure.
 
 ## 6. Post-deployment verification
 
@@ -329,3 +507,446 @@ The deployment is ready for review when the intended workflow run succeeds, all 
 
 ---
 **End of runbook.**
+
+
+## Appendix A — Full supplied GitHub Actions deployment-role permissions policy
+
+This is the permissions policy from the accompanying uploaded text file, formatted as JSON. Review its scope before attaching it, especially wildcard resources and destructive permissions.
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "CloudFormationStackManagement",
+      "Effect": "Allow",
+      "Action": [
+        "cloudformation:CreateStack",
+        "cloudformation:UpdateStack",
+        "cloudformation:DeleteStack",
+        "cloudformation:CreateChangeSet",
+        "cloudformation:DeleteChangeSet",
+        "cloudformation:DescribeChangeSet",
+        "cloudformation:ExecuteChangeSet",
+        "cloudformation:DescribeStacks",
+        "cloudformation:DescribeStackEvents",
+        "cloudformation:DescribeStackResources",
+        "cloudformation:GetTemplate",
+        "cloudformation:GetTemplateSummary",
+        "cloudformation:ListChangeSets",
+        "cloudformation:ListStackResources",
+        "cloudformation:ValidateTemplate"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "NetworkInfrastructureManagement",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:CreateVpc",
+        "ec2:DeleteVpc",
+        "ec2:DescribeVpcs",
+        "ec2:DescribeAvailabilityZones",
+        "ec2:ModifyVpcAttribute",
+        "ec2:CreateTags",
+        "ec2:DeleteTags",
+        "ec2:DescribeTags",
+        "ec2:CreateSubnet",
+        "ec2:DeleteSubnet",
+        "ec2:DescribeSubnets",
+        "ec2:ModifySubnetAttribute",
+        "ec2:CreateRouteTable",
+        "ec2:DeleteRouteTable",
+        "ec2:DescribeRouteTables",
+        "ec2:AssociateRouteTable",
+        "ec2:DisassociateRouteTable",
+        "ec2:CreateRoute",
+        "ec2:ReplaceRoute",
+        "ec2:DeleteRoute",
+        "ec2:CreateInternetGateway",
+        "ec2:DeleteInternetGateway",
+        "ec2:AttachInternetGateway",
+        "ec2:DetachInternetGateway",
+        "ec2:DescribeInternetGateways",
+        "ec2:CreateSecurityGroup",
+        "ec2:DeleteSecurityGroup",
+        "ec2:DescribeSecurityGroups",
+        "ec2:AuthorizeSecurityGroupIngress",
+        "ec2:AuthorizeSecurityGroupEgress",
+        "ec2:RevokeSecurityGroupIngress",
+        "ec2:RevokeSecurityGroupEgress",
+        "ec2:CreateVpcEndpoint",
+        "ec2:DeleteVpcEndpoints",
+        "ec2:DescribeVpcEndpoints",
+        "ec2:ModifyVpcEndpoint",
+        "ec2:DescribeNetworkInterfaces",
+        "ec2:DescribeVolumes",
+        "ec2:DescribeVolumeStatus"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "EC2InstanceManagement",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:RunInstances",
+        "ec2:TerminateInstances",
+        "ec2:DescribeInstances",
+        "ec2:DescribeInstanceStatus",
+        "ec2:DescribeImages",
+        "ec2:DescribeInstanceTypes",
+        "ec2:ModifyInstanceAttribute",
+        "ec2:StopInstances",
+        "ec2:StartInstances",
+        "ec2:CreateNetworkInterface",
+        "ec2:DeleteNetworkInterface",
+        "ec2:AttachNetworkInterface",
+        "ec2:DetachNetworkInterface"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "RDSManagement",
+      "Effect": "Allow",
+      "Action": [
+        "rds:CreateDBInstance",
+        "rds:ModifyDBInstance",
+        "rds:DeleteDBInstance",
+        "rds:DescribeDBInstances",
+        "rds:CreateDBSubnetGroup",
+        "rds:ModifyDBSubnetGroup",
+        "rds:DeleteDBSubnetGroup",
+        "rds:DescribeDBSubnetGroups",
+        "rds:ListTagsForResource",
+        "rds:AddTagsToResource",
+        "rds:RemoveTagsFromResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "AllowCreateRDSServiceLinkedRole",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateServiceLinkedRole"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "iam:AWSServiceName": "rds.amazonaws.com"
+        }
+      }
+    },
+    {
+      "Sid": "S3BucketManagement",
+      "Effect": "Allow",
+      "Action": [
+        "s3:CreateBucket",
+        "s3:DeleteBucket",
+        "s3:GetBucketLocation",
+        "s3:ListBucket",
+        "s3:GetBucketVersioning",
+        "s3:PutBucketVersioning",
+        "s3:GetEncryptionConfiguration",
+        "s3:PutEncryptionConfiguration",
+        "s3:GetBucketPublicAccessBlock",
+        "s3:PutBucketPublicAccessBlock",
+        "s3:GetBucketTagging",
+        "s3:PutBucketTagging",
+        "s3:GetLifecycleConfiguration",
+        "s3:PutLifecycleConfiguration",
+        "s3:GetBucketPolicy",
+        "s3:PutBucketPolicy",
+        "s3:DeleteBucketPolicy"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "S3ObjectManagement",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject",
+        "s3:GetObjectVersion",
+        "s3:DeleteObjectVersion"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "APIGatewayManagement",
+      "Effect": "Allow",
+      "Action": [
+        "apigateway:GET",
+        "apigateway:POST",
+        "apigateway:PUT",
+        "apigateway:PATCH",
+        "apigateway:DELETE"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CloudMartLambdaManagement",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:CreateFunction",
+        "lambda:GetFunction",
+        "lambda:GetFunctionConfiguration",
+        "lambda:UpdateFunctionCode",
+        "lambda:UpdateFunctionConfiguration",
+        "lambda:DeleteFunction",
+        "lambda:PublishVersion",
+        "lambda:ListVersionsByFunction",
+        "lambda:CreateAlias",
+        "lambda:UpdateAlias",
+        "lambda:DeleteAlias",
+        "lambda:GetAlias",
+        "lambda:AddPermission",
+        "lambda:RemovePermission",
+        "lambda:TagResource",
+        "lambda:UntagResource",
+        "lambda:ListTags"
+      ],
+      "Resource": "arn:aws:lambda:ap-south-1:285150348844:function:cloudmart-*"
+    },
+    {
+      "Sid": "CloudMartLambdaInvocation",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:InvokeFunction"
+      ],
+      "Resource": "arn:aws:lambda:ap-south-1:285150348844:function:cloudmart-*"
+    },
+    {
+      "Sid": "CloudMartLambdaLayerPublish",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:PublishLayerVersion"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CloudMartLambdaLayerVersionManagement",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:GetLayerVersion",
+        "lambda:DeleteLayerVersion"
+      ],
+      "Resource": "arn:aws:lambda:ap-south-1:285150348844:layer:cloudmart-*:*"
+    },
+    {
+      "Sid": "CloudMartLambdaLayerList",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:ListLayerVersions"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CloudMartRoleManagement",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateRole",
+        "iam:GetRole",
+        "iam:UpdateRole",
+        "iam:UpdateAssumeRolePolicy",
+        "iam:DeleteRole",
+        "iam:TagRole",
+        "iam:UntagRole",
+        "iam:PutRolePolicy",
+        "iam:GetRolePolicy",
+        "iam:DeleteRolePolicy",
+        "iam:ListRolePolicies",
+        "iam:AttachRolePolicy",
+        "iam:DetachRolePolicy",
+        "iam:ListAttachedRolePolicies"
+      ],
+      "Resource": "arn:aws:iam::285150348844:role/cloudmart-*"
+    },
+    {
+      "Sid": "CloudMartInstanceProfileManagement",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateInstanceProfile",
+        "iam:GetInstanceProfile",
+        "iam:DeleteInstanceProfile",
+        "iam:AddRoleToInstanceProfile",
+        "iam:RemoveRoleFromInstanceProfile"
+      ],
+      "Resource": "arn:aws:iam::285150348844:instance-profile/cloudmart-*"
+    },
+    {
+      "Sid": "PassCloudMartRoles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:PassRole"
+      ],
+      "Resource": "arn:aws:iam::285150348844:role/cloudmart-*"
+    },
+    {
+      "Sid": "CloudWatchAlarmManagement",
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:PutMetricAlarm",
+        "cloudwatch:DeleteAlarms",
+        "cloudwatch:DescribeAlarms",
+        "cloudwatch:DescribeAlarmsForMetric",
+        "cloudwatch:GetMetricData",
+        "cloudwatch:GetMetricStatistics",
+        "cloudwatch:ListMetrics",
+        "cloudwatch:TagResource",
+        "cloudwatch:UntagResource",
+        "cloudwatch:ListTagsForResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CloudWatchDashboardManagement",
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:PutDashboard",
+        "cloudwatch:GetDashboard",
+        "cloudwatch:DeleteDashboards",
+        "cloudwatch:ListDashboards"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CloudWatchLogsManagement",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:DeleteLogGroup",
+        "logs:DescribeLogGroups",
+        "logs:PutRetentionPolicy",
+        "logs:DeleteRetentionPolicy",
+        "logs:TagResource",
+        "logs:UntagResource",
+        "logs:ListTagsForResource",
+        "logs:CreateLogStream",
+        "logs:DeleteLogStream",
+        "logs:DescribeLogStreams",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "EventBridgeManagement",
+      "Effect": "Allow",
+      "Action": [
+        "events:CreateEventBus",
+        "events:DeleteEventBus",
+        "events:DescribeEventBus",
+        "events:PutRule",
+        "events:DeleteRule",
+        "events:DescribeRule",
+        "events:EnableRule",
+        "events:DisableRule",
+        "events:PutTargets",
+        "events:RemoveTargets",
+        "events:TagResource",
+        "events:UntagResource",
+        "events:ListTagsForResource",
+        "events:ListRules",
+        "events:ListTargetsByRule"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "EventBridgeSchedulerManagement",
+      "Effect": "Allow",
+      "Action": [
+        "scheduler:CreateSchedule",
+        "scheduler:UpdateSchedule",
+        "scheduler:DeleteSchedule",
+        "scheduler:GetSchedule",
+        "scheduler:CreateScheduleGroup",
+        "scheduler:DeleteScheduleGroup",
+        "scheduler:GetScheduleGroup",
+        "scheduler:TagResource",
+        "scheduler:UntagResource",
+        "scheduler:ListTagsForResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "SNSManagement",
+      "Effect": "Allow",
+      "Action": [
+        "sns:CreateTopic",
+        "sns:DeleteTopic",
+        "sns:GetTopicAttributes",
+        "sns:SetTopicAttributes",
+        "sns:Subscribe",
+        "sns:Unsubscribe",
+        "sns:GetSubscriptionAttributes",
+        "sns:SetSubscriptionAttributes",
+        "sns:ListSubscriptionsByTopic",
+        "sns:ListTagsForResource",
+        "sns:TagResource",
+        "sns:UntagResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CloudMartSSMParameterManagement",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:GetParameter",
+        "ssm:GetParameters",
+        "ssm:GetParametersByPath",
+        "ssm:PutParameter",
+        "ssm:DeleteParameter",
+        "ssm:DeleteParameters",
+        "ssm:AddTagsToResource",
+        "ssm:RemoveTagsFromResource",
+        "ssm:ListTagsForResource"
+      ],
+      "Resource": "arn:aws:ssm:ap-south-1:285150348844:parameter/cloudmart/*"
+    },
+    {
+      "Sid": "CloudMartSSMParameterDescribe",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:DescribeParameters"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "EC2DashboardSSMManagement",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:SendCommand",
+        "ssm:GetCommandInvocation",
+        "ssm:ListCommandInvocations",
+        "ssm:ListCommands"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ReadAmazonLinuxPublicAMI",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:GetParameter",
+        "ssm:GetParameters"
+      ],
+      "Resource": "arn:aws:ssm:ap-south-1::parameter/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
+    },
+    {
+      "Sid": "PassCloudFormationServiceRole",
+      "Effect": "Allow",
+      "Action": [
+        "iam:PassRole"
+      ],
+      "Resource": "arn:aws:iam::285150348844:role/CloudMart-CloudFormation-ServiceRole"
+    },
+    {
+      "Sid": "ReadCallerIdentity",
+      "Effect": "Allow",
+      "Action": [
+        "sts:GetCallerIdentity"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+```
