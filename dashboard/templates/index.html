@@ -442,16 +442,17 @@ th{background:#f6f8fc;color:#60708b;font-size:10px;text-transform:uppercase;font
     <div class="panel-head"><div><h3>📦 Current Inventory</h3><div class="muted">Live product stock from RDS</div></div><a class="btn alt" href="{{url_for('products_page')}}">View All Products</a></div>
     <div class="table">
       <table>
-        <thead><tr><th>ID</th><th>Product</th><th>Category</th><th>Price</th><th>Stock</th><th>Status</th><th>Action</th></tr></thead>
+        <thead><tr><th>ID</th><th>Product</th><th>Category</th><th>Price</th><th>Stock</th><th>Product Status</th><th>Stock Health</th><th>Action</th></tr></thead>
         <tbody>
         {% for p in products %}
           <tr>
             <td>#{{p.product_id}}</td><td>{{p.name}}</td><td>{{p.category}}</td><td>{{rupees(p.price)}}</td><td>{{p.stock_quantity}}</td>
+            <td>{% if (p.status or '')|upper == 'ACTIVE' %}<span class="badge green">ACTIVE</span>{% elif (p.status or '')|upper in ['INACTIVE','DELETED'] %}<span class="badge amber">{{(p.status or 'INACTIVE')|upper}}</span>{% else %}<span class="badge blue">{{(p.status or 'UNKNOWN')|upper}}</span>{% endif %}</td>
             <td>{% if p.stock_quantity <= p.reorder_threshold %}<span class="badge amber">⚠️ Low Stock</span>{% else %}<span class="badge green">✅ Healthy</span>{% endif %}</td>
             <td><a href="{{url_for('product_detail',product_id=p.product_id)}}">View Details →</a></td>
           </tr>
         {% else %}
-          <tr><td colspan="7" class="empty">No products found.</td></tr>
+          <tr><td colspan="8" class="empty">No products found.</td></tr>
         {% endfor %}
         </tbody>
       </table>
@@ -560,10 +561,15 @@ th{background:#f6f8fc;color:#60708b;font-size:10px;text-transform:uppercase;font
       </div>
       <div class="table"><table>
         {% if entity == 'products' %}
-          <thead><tr><th>ID</th><th>Name</th><th>Category</th><th>Price</th><th>Stock</th><th>Threshold</th><th>Action</th></tr></thead>
+          <thead><tr><th>ID</th><th>Name</th><th>Category</th><th>Price</th><th>Stock</th><th>Threshold</th><th>Status</th><th>Action</th></tr></thead>
           <tbody>{% for r in rows %}
-            <tr><td>#{{r.product_id}}</td><td>{{r.name}}</td><td>{{r.category}}</td><td>{{rupees(r.price)}}</td><td>{{r.stock_quantity}}</td><td>{{r.reorder_threshold}}</td><td><a href="{{url_for('product_detail',product_id=r.product_id)}}">Details →</a></td></tr>
-          {% else %}<tr><td colspan="7" class="empty">No products found.</td></tr>{% endfor %}</tbody>
+            <tr>
+              <td>#{{r.product_id}}</td><td>{{r.name}}</td><td>{{r.category}}</td>
+              <td>{{rupees(r.price)}}</td><td>{{r.stock_quantity}}</td><td>{{r.reorder_threshold}}</td>
+              <td>{% if (r.status or '')|upper == 'ACTIVE' %}<span class="badge green">{{(r.status or 'ACTIVE')|upper}}</span>{% elif (r.status or '')|upper in ['INACTIVE','DELETED'] %}<span class="badge amber">{{(r.status or 'INACTIVE')|upper}}</span>{% else %}<span class="badge blue">{{(r.status or 'UNKNOWN')|upper}}</span>{% endif %}</td>
+              <td><a href="{{url_for('product_detail',product_id=r.product_id)}}">Details →</a></td>
+            </tr>
+          {% else %}<tr><td colspan="8" class="empty">No products found.</td></tr>{% endfor %}</tbody>
         {% elif entity == 'orders' %}
           <thead><tr><th>Order</th><th>Customer</th><th>Date</th><th>Amount</th><th>Status</th><th>Action</th></tr></thead>
           <tbody>{% for r in rows %}

@@ -389,7 +389,7 @@ def dashboard():
         summary = context()["summary"]
         products = all_rows(
             """SELECT p.product_id,p.name,COALESCE(c.name,'Uncategorized') category,
-                      p.price,p.stock_quantity,p.reorder_threshold
+                      p.price,p.stock_quantity,p.reorder_threshold,p.status
                FROM products p
                LEFT JOIN categories c ON p.category_id=c.category_id
                WHERE p.deleted_at IS NULL
@@ -447,13 +447,13 @@ def products_page():
     if g: return g
     q = request.args.get("q", "").strip(); like = f"%{q}%"
     stock_filter = request.args.get("filter", "").strip().lower()
-    where = "p.deleted_at IS NULL AND (%s='' OR p.name LIKE %s OR CAST(p.product_id AS CHAR) LIKE %s)"
+    where = "(%s='' OR p.name LIKE %s OR CAST(p.product_id AS CHAR) LIKE %s)"
     args = [q, like, like]
     heading = "Products & inventory"
     if stock_filter == "low_stock":
-        where += " AND p.stock_quantity <= p.reorder_threshold"
+        where += " AND p.status = 'ACTIVE' AND p.stock_quantity <= p.reorder_threshold"
         heading = "Low-stock products"
-    rows = all_rows(f"""SELECT p.product_id,p.name,COALESCE(c.name,'Uncategorized') category,p.price,p.stock_quantity,p.reorder_threshold FROM products p LEFT JOIN categories c ON p.category_id=c.category_id WHERE {where} ORDER BY p.product_id""", tuple(args))
+    rows = all_rows(f"""SELECT p.product_id,p.name,COALESCE(c.name,'Uncategorized') category,p.price,p.stock_quantity,p.reorder_threshold,p.status FROM products p LEFT JOIN categories c ON p.category_id=c.category_id WHERE {where} ORDER BY p.product_id""", tuple(args))
     return page("Products", "list", entity="products", q=q, placeholder="Search product name or ID", heading=heading, rows=rows, stock_filter=stock_filter)
 
 
