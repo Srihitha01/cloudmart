@@ -314,7 +314,7 @@ Resources:
 
 
   # ==========================================================
-  # GET /products/{id}
+  # GET /products/{id} - PUBLIC
   # ==========================================================
 
   GetProductByIdMethod:
@@ -333,17 +333,12 @@ Resources:
         GET
 
       AuthorizationType:
-        CUSTOM
-
-      AuthorizerId:
-        !Ref CloudMartAuthorizer
+        NONE
 
       RequestParameters:
-
         method.request.path.id: true
 
       Integration:
-
         Type:
           AWS_PROXY
 
@@ -353,15 +348,10 @@ Resources:
         TimeoutInMillis: 20000
 
         Uri:
-
           Fn::Sub:
-
             - arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaArn}/invocations
-
             - LambdaArn:
-
                 Fn::ImportValue:
-
                   Fn::Sub:
                     cloudmart-${Environment}-ProductLambdaArn
 
