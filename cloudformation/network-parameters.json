@@ -1,7 +1,7 @@
 ﻿[
   {
     "ParameterKey": "Environment",
-    "ParameterValue": "prod"
+    "ParameterValue": "dev"
   },
   {
     "ParameterKey": "VpcCidr",
