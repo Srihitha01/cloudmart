@@ -135,8 +135,4 @@ For the full procedure, see [docs/deployment-runbook.md](docs/deployment-runbook
 
 Delete stacks in reverse dependency order using CloudFormation: API-Monitoring-EC2, Application-Events, IAM, Data-Storage, then Network-Security. Back up required database/report data first, check termination protection and S3 contents, and verify the target environment. Do not manually delete individual resources to bypass a failed stack.
 
-## Documentation
 
-- [Architecture](docs/architecture.md)
-- [Data model](docs/data-model.md)
-- [Deployment runbook](docs/deployment-runbook.md)
