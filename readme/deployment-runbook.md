@@ -1,288 +1,126 @@
-CloudMart Deployment Runbook
+# CloudMart Infrastructure Deployment Runbook
 
-1. Document Purpose
+**Workflow:** `.github/workflows/deploy.yaml`  
+**Workflow name:** `CloudMart Infrastructure Deployment`  
+**Trigger:** Manual `workflow_dispatch`  
+**AWS Region:** `ap-south-1`  
+**Environment:** `dev` or `prod`, from `config/config.json`  
+**Infrastructure:** AWS CloudFormation  
+**AWS authentication:** GitHub Actions OIDC with an AWS IAM deployment role
 
-This runbook is the operational procedure for deploying, validating, troubleshooting, updating, and tearing down the CloudMart application using GitHub Actions, GitHub OIDC, AWS IAM, and AWS CloudFormation.
+> This runbook documents the deployment process and verification steps. During each run, record the actual workflow URL, commit SHA, stack outputs, test results, and evidence. This document alone is not proof of a successful fresh-account deployment.
 
-Source of truth: the CloudMart repository, especially:
+## 1. Purpose
 
-.github/workflows/deploy.yaml
+This runbook describes how to deploy, verify, troubleshoot, and tear down CloudMart using GitHub Actions and CloudFormation. The workflow validates configuration and source files, obtains temporary AWS credentials through GitHub OIDC, deploys infrastructure in dependency order, uploads application artifacts, initializes the database schema, refreshes the existing EC2 dashboard through Systems Manager (SSM), and performs post-deployment checks.
 
-config/config.json
+CloudFormation is the source of truth for AWS infrastructure. Do not manually create replacement VPCs, databases, security groups, endpoints, or dashboard instances. The supplied network design has one public subnet and two private subnets, uses VPC endpoints, and does not use a NAT Gateway. It does not include a separate monitoring subnet.
 
-config/network-parameters.json (if present/used by the selected revision)
+## 2. Architecture and stack order
 
-cloudformation/*.yaml
+Deploy the five stacks in the following order. Replace `{environment}` with `dev` or `prod`.
 
-lambda/**
+| Order | Stack name | Template | Purpose |
+|---|---|---|---|
+| 1 | `cloudmart-network-security-{environment}` | `cloudformation/network-stack.yaml` | VPC, public/private subnets, internet gateway, route tables, security groups, and VPC endpoints |
+| 2 | `cloudmart-data-storage-{environment}` | `cloudformation/data-stack.yaml` | RDS MySQL, S3 artifact/report buckets, database subnet group, and database SSM parameters |
+| 3 | `cloudmart-iam-{environment}` | `cloudformation/iam-stack.yaml` | IAM roles and policies for Lambda and EC2, plus authentication-related parameter provisioning |
+| 4 | `cloudmart-application-events-{environment}` | `cloudformation/application-events-stack.yaml` | Lambda functions/layer, schema initialization, EventBridge rules, and SNS resources |
+| 5 | `cloudmart-api-monitoring-ec2-{environment}` | `cloudformation/api-monitoring-ec2-stack.yaml` | API Gateway, authorizer integration, monitoring resources, and EC2 dashboard |
 
-database/schema.sql
+### Why this order matters
 
-dashboard/**
+1. **Network-Security** creates the VPC foundation and exports subnet/security-group identifiers consumed by later stacks.
+2. **Data-Storage** creates the database and S3 buckets. The artifact bucket stores deployment packages and dashboard/template artifacts; the report bucket stores generated reports.
+3. **IAM** creates the roles and policies needed by application and dashboard components.
+4. **Application-Events** deploys Lambda and event/notification resources and applies the database schema through the schema initializer.
+5. **API-Monitoring-EC2** deploys the API and dashboard/monitoring resources. The workflow retrieves the CloudFormation-managed EC2 instance and refreshes it through SSM; it should not create a duplicate dashboard instance.
 
-This runbook intentionally does not contain an architecture section. It documents deployment, resources, configuration, security, verification, troubleshooting, and teardown.
+## 3. Prerequisites
 
-2. Deployment Baseline
+### 3.1 Repository contents
 
-Item
+Before deployment, confirm the selected branch contains the workflow, configuration, all five CloudFormation templates, `database/schema.sql`, the authorizer/product/customer/order/order-processor/daily-report Lambda code, and dashboard files such as `app.py`, `requirements.txt`, and `bootstrap-dashboard.sh`. Confirm that every path referenced by the workflow matches the repository layout and is committed.
 
-Value
+### 3.2 AWS account and region
 
-Project
+- Confirm the intended AWS account and set/verify the region as `ap-south-1`.
+- Review AWS service availability, quotas, cost, and data-retention requirements.
+- Inspect existing stacks and resources to ensure the deployment targets the intended environment.
+- RDS and EC2 resources may continue to incur charges while running.
 
-CloudMart
+### 3.3 GitHub Actions OIDC connection and secret
 
-AWS Region
+The workflow authenticates to AWS through **OpenID Connect (OIDC)**. GitHub Actions obtains an OIDC token and the AWS credentials action exchanges it for temporary credentials by assuming an AWS IAM role. This avoids storing long-lived AWS access keys in repository secrets.
 
-ap-south-1
+**Repository secret:** `AWS_ROLE_ARN`
 
-Environments
+Configure or verify it in GitHub:
 
-dev, prod
+1. Open the repository **Settings**.
+2. Select **Secrets and variables → Actions**.
+3. Under **Repository secrets**, create or inspect `AWS_ROLE_ARN`.
+4. Set the secret value to the AWS IAM role ARN that the workflow is allowed to assume, for example: `arn:aws:iam::<AWS_ACCOUNT_ID>:role/<GITHUB_ACTIONS_DEPLOYMENT_ROLE>`.
+5. Save the secret. GitHub masks secret values in logs.
 
-Deployment mechanism
+**Important naming detail:** The supplied workflow/runbook uses `secrets.AWS_ROLE_ARN`. If the secret was created with the name `AWS_ROLE`, either rename it to `AWS_ROLE_ARN` or change the workflow expression to `secrets.AWS_ROLE`. The GitHub secret name and YAML reference must match exactly. The secret value must be the **IAM role ARN**, not an AWS console URL, login URL, access key, or secret access key.
 
-GitHub Actions + AWS CloudFormation
+The AWS account must also have the GitHub Actions OIDC identity provider configured. The deployment role's trust policy must restrict access to the intended GitHub repository and branch/environment. The workflow should grant `id-token: write` and `contents: read`, and `aws-actions/configure-aws-credentials` should use the role ARN secret and region `ap-south-1`.
 
-Workflow
+The assumed role requires permissions for the workflow's actual CloudFormation deployment/inspection, S3 artifact operations, SSM Run Command and polling, Lambda/stack verification, and narrowly scoped `iam:PassRole` actions where needed. Apply least privilege; do not respond to an access error by granting unrestricted permissions without review. Never store long-lived AWS access keys as a workaround for OIDC configuration.
 
-.github/workflows/deploy.yaml
+### 3.3.1 GitHub Actions OIDC connection
 
-Workflow trigger
+OpenID Connect (OIDC) allows GitHub Actions to obtain short-lived AWS credentials by exchanging a GitHub-issued identity token through AWS STS. This avoids storing long-lived AWS access keys in GitHub.
 
-Manual workflow_dispatch
+**Connection flow**
 
-AWS authentication
-
-GitHub Actions OIDC
-
-Deployment role secret
-
-AWS_ROLE_ARN
-
-Notification secret
-
-CLOUDMART_ALERT_EMAIL
-
-Database password
-
-Manual workflow_dispatch input: db_password
-
-IaC source of truth
-
-CloudFormation templates
-
-Database
-
-Amazon RDS MySQL
-
-Application runtime
-
-Python 3.12 Lambda
-
-Dashboard runtime
-
-EC2 + Flask/Gunicorn + Nginx
-
-API
-
-API Gateway REST API
-
-Database connectivity
-
-VPC-enabled Lambda functions
-
-Eventing
-
-EventBridge
-
-Notifications
-
-SNS
-
-Monitoring
-
-CloudWatch
-
-Operational commands
-
-AWS Systems Manager (SSM)
-
-3. Repository Components Required for Deployment
-
-Before running the deployment, verify that the selected branch contains these components.
-
-3.1 GitHub Actions
-
-.github/
-└── workflows/
-    └── deploy.yaml
-
-The workflow contains these deployment jobs:
-
-load-config
-
-deploy-network
-
-deploy-data
-
-deploy-iam
-
-deploy-application-events
-
-deploy-api-monitoring-ec2
-
-The workflow is manually triggered. A normal push does not automatically start deployment unless the workflow is changed to add another trigger.
-
-3.2 CloudFormation templates
-
-cloudformation/
-├── network-stack.yaml
-├── data-stack.yaml
-├── iam-stack.yaml
-├── application-events-stack.yaml
-└── api-monitoring-ec2-stack.yaml
-
-3.3 Lambda source
-
-lambda/
-├── authorizer/
-│   └── lambda_function.py
-├── customer/
-│   ├── lambda_function.py
-│   └── requirements.txt
-├── product/
-│   ├── lambda_function.py
-│   └── requirements.txt
-├── order/
-│   └── lambda_function.py
-├── order-processor/
-│   └── lambda_function.py
-└── daily-report/
-    └── lambda_function.py
-
-The deployment workflow also checks for requirements files where applicable and packages the Lambda artifacts.
-
-3.4 Database
-
-database/
-└── schema.sql
-
-The schema initializer consumes this SQL through the application-events deployment.
-
-3.5 Dashboard
-
-dashboard/
-├── app.py
-├── requirements.txt
-├── bootstrap-dashboard.sh
-└── templates/
-    └── index.html
-
-3.6 Configuration
-
-config/
-└── config.json
-
-Do not place passwords, bearer tokens, access keys, or other secrets in configuration files.
-
-4. GitHub OIDC Setup
-
-4.1 Why OIDC is required
-
-CloudMart uses GitHub Actions OIDC instead of storing long-lived AWS access keys in GitHub.
-
-The authentication sequence is:
-
-GitHub Actions
-    |
-    | requests OIDC identity token
-    v
-GitHub OIDC provider
-    |
-    | token presented to AWS STS
-    v
+```text
+GitHub repository / selected branch
+        |
+        v
+Manual GitHub Actions workflow_dispatch
+        |
+        v
+Workflow requests an OIDC token (id-token: write)
+        |
+        v
+GitHub token identifies repository + ref/environment and audience
+        |
+        v
+aws-actions/configure-aws-credentials
+        |
+        v
 AWS STS AssumeRoleWithWebIdentity
-    |
-    v
-GitHub Actions deployment IAM role
-    |
-    v
-Temporary AWS credentials
-    |
-    v
-CloudFormation / S3 / SSM / Lambda / verification commands
+        |
+        v
+AWS checks the account OIDC provider + IAM role trust policy
+        |
+        v
+STS returns temporary credentials for the deployment role
+        |
+        v
+AWS CLI uses those credentials for CloudFormation, S3, SSM,
+verification, and other authorized deployment steps
+```
 
-4.2 AWS OIDC provider
+The account OIDC provider for this repository/account is expected to be:
 
-The repository deployment account is configured to use:
+`arn:aws:iam::285150348844:oidc-provider/token.actions.githubusercontent.com`
 
-arn:aws:iam::285150348844:oidc-provider/token.actions.githubusercontent.com
+Its client ID/audience must include `sts.amazonaws.com`. In the workflow, grant `id-token: write` and `contents: read`; configure `aws-actions/configure-aws-credentials` with region `ap-south-1` and `role-to-assume: ${{ secrets.AWS_ROLE_ARN }}`.
 
-The OIDC provider audience must include:
+**GitHub secret:** create `AWS_ROLE_ARN` under **Repository Settings → Secrets and variables → Actions → Repository secrets**. The value must be the IAM deployment role ARN, such as:
 
-sts.amazonaws.com
+`arn:aws:iam::285150348844:role/<GITHUB_ACTIONS_DEPLOYMENT_ROLE>`
 
-4.3 GitHub repository secret: AWS_ROLE_ARN
+The secret is not the OIDC provider ARN, AWS console URL, access key, or secret access key. The secret name used in GitHub must match the workflow expression exactly.
 
-Create:
+**Trust policy supplied for this setup — corrected subject format**
 
-GitHub → Repository → Settings → Secrets and variables → Actions → Repository secrets
+The provided trust policy's `sub` pattern, `repo:Srihitha01@*/cloudmart@*:*`, uses `@` separators that do not match GitHub's repository subject format. For this repository, use the `OWNER/REPOSITORY` form and restrict it to the deployment branches. This example allows `main` and `feature/order-flow`; change the branch entries to match the branches from which you actually run deployments.
 
-Secret name:
-
-AWS_ROLE_ARN
-
-Secret value:
-
-arn:aws:iam::285150348844:role/<GITHUB_ACTIONS_DEPLOYMENT_ROLE>
-
-The value must be the IAM role ARN.
-
-It must not be:
-
-AWS console URL
-
-AWS login URL
-
-access key ID
-
-secret access key
-
-OIDC provider ARN
-
-The workflow references:
-
-role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-
-The secret name and workflow expression must match exactly.
-
-4.4 GitHub workflow permissions
-
-The workflow must have permissions equivalent to:
-
-permissions:
-  id-token: write
-  contents: read
-
-id-token: write is required so GitHub can issue the OIDC token.
-
-contents: read is required so the workflow can check out the repository.
-
-4.5 IAM trust policy
-
-The deployment role trust relationship must trust GitHub's OIDC provider and restrict the subject to the intended CloudMart repository and deployment branch/environment.
-
-For branch-based deployments, the repository subject format is:
-
-repo:Srihitha01/cloudmart:ref:refs/heads/main
-
-and, if required:
-
-repo:Srihitha01/cloudmart:ref:refs/heads/feature/order-flow
-
-Example trust relationship:
-
+```json
 {
   "Version": "2012-10-17",
   "Statement": [
@@ -307,156 +145,80 @@ Example trust relationship:
     }
   ]
 }
+```
 
-If GitHub Environments are used, use the environment subject required by the workflow, for example:
+If the workflow uses a GitHub **Environment** instead of a branch-based subject, the subject is environment-based (for example, `repo:Srihitha01/cloudmart:environment:prod`); configure the job's `environment` and trust condition to match. Do not broaden the subject to every repository/branch unless that is deliberate and reviewed. The role trust relationship and the identity-based permissions policy are two separate IAM configurations.
 
-repo:Srihitha01/cloudmart:environment:prod
+### 3.3.2 Deployment role and CloudFormation service role
 
-Do not broaden the trust relationship unnecessarily.
+Keep these roles distinct:
 
-5. GitHub Actions Deployment Role
+| Role | Used by | Responsibility |
+|---|---|---|
+| GitHub Actions deployment role | AWS STS assumes it after validating the GitHub OIDC token | Orchestrates the workflow: stack deployment/inspection, artifact upload, SSM command/polling, verification, and passing the CloudFormation service role if configured. |
+| `CloudMart-CloudFormation-ServiceRole` | CloudFormation assumes it for stack operations when supplied to the deployment | Grants CloudFormation the resource-creation/update/deletion permissions required by the templates. |
 
-The GitHub Actions deployment role is responsible for orchestration. It is not a Lambda execution role and it is not the EC2 runtime role.
+The supplied permissions policy includes `iam:PassRole` for the CloudFormation service role. That permission is needed when the workflow submits the stack operation with that role (for example, using `--role-arn`). Check the workflow's deploy commands and current stack service-role configuration to confirm whether it is used. If it is used, the service role itself must have the necessary CloudFormation execution permissions. `iam:PassRole` only authorizes passing a role; it does not grant the caller the permissions contained in that role.
 
-The deployment role requires permissions for the actions actually performed by the workflow, including:
+The runtime IAM roles for Lambda functions and the EC2 dashboard are separate again. They are assumed by those workloads, not by GitHub Actions. Do not use the GitHub deployment role as a Lambda execution role or EC2 instance role.
 
-CloudFormation stack deployment and inspection
+### Deployment-role permissions by purpose
 
-VPC/network resource management
+The attached permissions policy is the **identity-based permissions policy** for the GitHub Actions deployment role. Its statements cover these areas:
 
-EC2 resource management
+| Policy statement (`Sid`) | Purpose |
+|---|---|
+| `CloudFormationStackManagement` | Create/update/delete stacks and change sets; inspect, validate, and execute deployments. |
+| `NetworkInfrastructureManagement` | Manage VPCs, subnets, route tables, internet gateways, security groups, and VPC endpoints. |
+| `EC2InstanceManagement` | Launch, inspect, start/stop/terminate EC2 instances and manage their network interfaces. |
+| `RDSManagement` | Create, modify, delete, inspect, tag, and manage RDS instances and subnet groups. |
+| `AllowCreateRDSServiceLinkedRole` | Create the RDS service-linked role, constrained to `rds.amazonaws.com`. |
+| `S3BucketManagement` / `S3ObjectManagement` | Create/configure buckets and upload/read/delete deployment objects and versions. |
+| `APIGatewayManagement` | Create/read/update/delete API Gateway resources. |
+| `CloudMartLambdaManagement` / `CloudMartLambdaInvocation` | Manage CloudMart Lambda functions, versions, aliases, permissions, tags, and invoke them. |
+| `CloudMartLambdaLayerPublish` / `CloudMartLambdaLayerVersionManagement` / `CloudMartLambdaLayerList` | Publish, inspect, list, and delete CloudMart Lambda layer versions. |
+| `CloudMartRoleManagement` | Create/update/delete CloudMart IAM roles and manage their policies/attachments. |
+| `CloudMartInstanceProfileManagement` | Create/delete CloudMart EC2 instance profiles and associate roles. |
+| `PassCloudMartRoles` | Pass CloudMart runtime roles to AWS services when resources are created. |
+| `CloudWatchAlarmManagement` / `CloudWatchDashboardManagement` | Manage alarms, dashboards, tags, and metric reads. |
+| `CloudWatchLogsManagement` | Manage log groups, streams, retention, tags, and log events. |
+| `EventBridgeManagement` / `EventBridgeSchedulerManagement` | Manage event buses, rules, targets, schedules, and schedule groups. |
+| `SNSManagement` | Manage SNS topics, subscriptions, attributes, and tags. |
+| `CloudMartSSMParameterManagement` / `CloudMartSSMParameterDescribe` | Read/write/delete CloudMart parameters and describe parameters. |
+| `EC2DashboardSSMManagement` | Send SSM commands and poll command results for dashboard refresh. |
+| `ReadAmazonLinuxPublicAMI` | Read the Amazon Linux 2023 public AMI SSM parameter. |
+| `PassCloudFormationServiceRole` | Pass `CloudMart-CloudFormation-ServiceRole` if the workflow submits CloudFormation operations using that service role. |
+| `ReadCallerIdentity` | Verify the effective AWS identity with STS `GetCallerIdentity`. |
 
-RDS management
+**Policy review note:** the supplied policy is broad rather than fully least-privilege: multiple statements use `Resource: "*"`, and it includes destructive permissions for stacks, EC2, RDS, S3, and IAM. Before production use, scope resources/actions where supported, consider separating deploy and teardown permissions, and constrain `iam:PassRole` with the relevant `iam:PassedToService` condition. Add permissions only after checking the specific denied action/resource; do not respond to access errors with unrestricted administrator access.
 
-S3 bucket/object operations
+The full supplied permissions policy is reproduced in **Appendix A** below and is also provided as a separate JSON file for convenient IAM attachment/review. The trust policy is separate: it belongs in the IAM role's **Trust relationships**, not inside this identity-based permissions policy.
 
-API Gateway management
 
-Lambda deployment and invocation
+### 3.4 Other secret and manual input
 
-Lambda layer publishing
+- **`CLOUDMART_ALERT_EMAIL`**: GitHub Actions repository secret for the notification recipient. Keep the email address out of source code and templates.
+- **`db_password`**: required manual workflow input for the database deployment. The supplied workflow prompt specifies 12–41 characters and validates a minimum of 12. Use a strong unique value. Do not commit it, put it in a parameter file, or expose it in logs or evidence.
 
-IAM role/instance-profile management
+Verify the actual workflow's secret/input names before changing them.
 
-iam:PassRole for approved CloudMart roles
+### 3.5 Configuration and network parameter file
 
-CloudWatch alarms and dashboards
+`config/config.json` supplies `Environment`, `Project`, `ManagedBy`, and `Owner`. The environment must be `dev` or `prod`, and must agree with the workflow target and stack names. Runtime SSM paths follow `/cloudmart/{environment}/...`. Do not put credentials in this file.
 
-CloudWatch Logs
+The supplied `network-stack.yaml` uses these parameters:
 
-EventBridge rules and schedules
+| Parameter | Meaning | Example `dev` value |
+|---|---|---|
+| `Environment` | Deployment environment | `dev` |
+| `VpcCidr` | VPC CIDR | `10.0.0.0/16` |
+| `PublicSubnetCidr` | Public subnet CIDR | `10.0.1.0/24` |
+| `PrivateSubnetCidr` | Primary private subnet CIDR | `10.0.2.0/24` |
+| `SecondaryPrivateSubnetCidr` | Secondary private subnet CIDR | `10.0.3.0/24` |
 
-SNS topics/subscriptions
+If the workflow reads `cloudformation/network-parameters.json`, ensure the file exists and uses the CloudFormation JSON parameter-array format. Example:
 
-SSM Parameter Store
-
-SSM Run Command
-
-STS GetCallerIdentity
-
-The deployment policy should be reviewed for least privilege before production use. In particular, avoid unnecessarily broad Resource: "*" permissions and tightly constrain iam:PassRole.
-
-6. Required GitHub Secret and Input Values
-
-6.1 AWS_ROLE_ARN
-
-Required for OIDC authentication.
-
-AWS_ROLE_ARN=<IAM deployment role ARN>
-
-6.2 CLOUDMART_ALERT_EMAIL
-
-Required for SNS notification subscriptions.
-
-Create:
-
-CLOUDMART_ALERT_EMAIL
-
-under GitHub repository Actions secrets.
-
-Do not hard-code the notification email in CloudFormation source.
-
-6.3 db_password
-
-The workflow asks for:
-
-db_password
-
-at manual workflow execution.
-
-Requirements from the workflow:
-
-Must be provided.
-
-Minimum length: 12 characters.
-
-Use a strong unique password.
-
-Do not commit it.
-
-Do not put it in a parameter JSON file.
-
-Do not print it in logs.
-
-The workflow masks the input before continuing.
-
-7. Configuration
-
-7.1 config/config.json
-
-This file supplies deployment metadata including:
-
-Environment
-
-Project
-
-ManagedBy
-
-Owner
-
-The environment must be one of:
-
-dev
-prod
-
-The environment must match the stack names and workflow target.
-
-Runtime SSM parameter paths use:
-
-/cloudmart/{environment}/...
-
-No credentials belong in this file.
-
-7.2 Network parameters
-
-The network stack declares:
-
-Parameter
-
-Example
-
-Environment
-
-dev
-
-VpcCidr
-
-10.0.0.0/16
-
-PublicSubnetCidr
-
-10.0.1.0/24
-
-PrivateSubnetCidr
-
-10.0.2.0/24
-
-SecondaryPrivateSubnetCidr
-
-10.0.3.0/24
-
-If a network parameter JSON file is used by the selected workflow revision, it must use CloudFormation parameter-array syntax:
-
+```json
 [
   {"ParameterKey":"Environment","ParameterValue":"dev"},
   {"ParameterKey":"VpcCidr","ParameterValue":"10.0.0.0/16"},
@@ -464,2442 +226,727 @@ If a network parameter JSON file is used by the selected workflow revision, it m
   {"ParameterKey":"PrivateSubnetCidr","ParameterValue":"10.0.2.0/24"},
   {"ParameterKey":"SecondaryPrivateSubnetCidr","ParameterValue":"10.0.3.0/24"}
 ]
-
-8. CloudFormation Stack Inventory
-
-CloudMart deploys these five CloudFormation stacks.
-
-Order
-
-Stack
-
-Template
-
-Main responsibility
-
-1
-
-cloudmart-network-security-{environment}
-
-cloudformation/network-stack.yaml
-
-VPC, subnets, routing, security groups, VPC endpoints
-
-2
-
-cloudmart-data-storage-{environment}
-
-cloudformation/data-stack.yaml
-
-RDS, S3 buckets, database parameters
-
-3
-
-cloudmart-iam-{environment}
-
-cloudformation/iam-stack.yaml
-
-Lambda/EC2 IAM roles, instance profiles, authentication parameter resources
-
-4
-
-cloudmart-application-events-{environment}
-
-cloudformation/application-events-stack.yaml
-
-Lambda functions, layer, schema initialization, EventBridge, SNS
-
-5
-
-cloudmart-api-monitoring-ec2-{environment}
-
-cloudformation/api-monitoring-ec2-stack.yaml
-
-API Gateway, authorizer integration, CloudWatch monitoring, EC2 dashboard
-
-Use the same environment value consistently.
-
-For dev, the stack names are:
-
-cloudmart-network-security-dev
-cloudmart-data-storage-dev
-cloudmart-iam-dev
-cloudmart-application-events-dev
-cloudmart-api-monitoring-ec2-dev
-
-For prod, replace dev with prod.
-
-9. Complete AWS Resource Inventory
-
-9.1 Network stack resources
-
-CloudFormation resource definitions in network-stack.yaml:
-
-Resource
-
-AWS type
-
-CloudMartVPC
-
-AWS::EC2::VPC
-
-InternetGateway
-
-AWS::EC2::InternetGateway
-
-InternetGatewayAttachment
-
-AWS::EC2::VPCGatewayAttachment
-
-PublicSubnet
-
-AWS::EC2::Subnet
-
-PrivateSubnet
-
-AWS::EC2::Subnet
-
-SecondaryPrivateSubnet
-
-AWS::EC2::Subnet
-
-PublicRouteTable
-
-AWS::EC2::RouteTable
-
-PublicRoute
-
-AWS::EC2::Route
-
-PublicSubnetRouteTableAssociation
-
-AWS::EC2::SubnetRouteTableAssociation
-
-PrivateRouteTable
-
-AWS::EC2::RouteTable
-
-PrivateSubnetRouteTableAssociation
-
-AWS::EC2::SubnetRouteTableAssociation
-
-SecondaryPrivateSubnetRouteTableAssociation
-
-AWS::EC2::SubnetRouteTableAssociation
-
-LambdaSecurityGroup
-
-AWS::EC2::SecurityGroup
-
-EC2SecurityGroup
-
-AWS::EC2::SecurityGroup
-
-RDSSecurityGroup
-
-AWS::EC2::SecurityGroup
-
-VPCEndpointSecurityGroup
-
-AWS::EC2::SecurityGroup
-
-S3GatewayEndpoint
-
-AWS::EC2::VPCEndpoint
-
-SSMEndpoint
-
-AWS::EC2::VPCEndpoint
-
-SSMMessagesEndpoint
-
-AWS::EC2::VPCEndpoint
-
-EC2MessagesEndpoint
-
-AWS::EC2::VPCEndpoint
-
-EventBridgeEndpoint
-
-AWS::EC2::VPCEndpoint
-
-SNSEndpoint
-
-AWS::EC2::VPCEndpoint
-
-CloudWatchLogsEndpoint
-
-AWS::EC2::VPCEndpoint
-
-LambdaVPCEndpoint
-
-AWS::EC2::VPCEndpoint
-
-The network stack exports identifiers consumed by downstream stacks.
-
-Network stack outputs
-
-VpcId
-
-PublicSubnetId
-
-PrivateSubnetId
-
-SecondaryPrivateSubnetId
-
-LambdaSecurityGroupId
-
-RDSSecurityGroupId
-
-EC2SecurityGroupId
-
-VPCEndpointSecurityGroupId
-
-S3EndpointId
-
-SSMEndpointId
-
-SSMMessagesEndpointId
-
-EC2MessagesEndpointId
-
-EventBridgeEndpointId
-
-SNSEndpointId
-
-CloudWatchLogsEndpointId
-
-LambdaEndpointId
-
-9.2 Data storage stack resources
-
-data-stack.yaml creates:
-
-Resource
-
-AWS type
-
-Purpose
-
-CloudMartDBSubnetGroup
-
-AWS::RDS::DBSubnetGroup
-
-RDS subnet group
-
-CloudMartRDS
-
-AWS::RDS::DBInstance
-
-CloudMart MySQL database
-
-CloudMartReportBucket
-
-AWS::S3::Bucket
-
-Generated reports
-
-CloudMartArtifactBucket
-
-AWS::S3::Bucket
-
-Deployment/Lambda/dashboard/CFN artifacts
-
-DBEndpointParameter
-
-AWS::SSM::Parameter
-
-DB endpoint
-
-DBNameParameter
-
-AWS::SSM::Parameter
-
-DB name
-
-DBPortParameter
-
-AWS::SSM::Parameter
-
-DB port
-
-DBUsernameParameter
-
-AWS::SSM::Parameter
-
-DB username
-
-DBPasswordSSMWriterRole
-
-AWS::IAM::Role
-
-Secure parameter writer
-
-DBPasswordSSMWriterFunction
-
-AWS::Lambda::Function
-
-Writes DB password to SSM
-
-DBPasswordParameter
-
-Custom::CloudMartSecureParameter
-
-Secure DB password parameter
-
-ReportBucketParameter
-
-AWS::SSM::Parameter
-
-Report bucket name
-
-ArtifactBucketParameter
-
-AWS::SSM::Parameter
-
-Artifact bucket name
-
-Database SSM parameter paths
-
-/cloudmart/{environment}/db/endpoint
-/cloudmart/{environment}/db/name
-/cloudmart/{environment}/db/port
-/cloudmart/{environment}/db/username
-/cloudmart/{environment}/db/password
-
-The password is stored as a secure parameter through the custom resource mechanism.
-
-S3 bucket responsibilities
-
-Artifact bucket
-
-Stores deployment artifacts such as:
-
-PyMySQL Lambda layer
-
-Authorizer Lambda package
-
-Product Lambda package
-
-Customer Lambda package
-
-Order Lambda package
-
-Order Processor Lambda package
-
-Daily Report Lambda package
-
-Database schema
-
-Dashboard source
-
-Large CloudFormation templates when --s3-bucket deployment is required
-
-Report bucket
-
-Stores generated Daily Report CSV files.
-
-Do not treat these two buckets as interchangeable.
-
-Data stack outputs
-
-DBEndpoint
-
-DBPort
-
-DBNameOutput
-
-DBUsernameOutput
-
-DBInstanceIdentifier
-
-RDSSecurityGroupId
-
-ReportBucketName
-
-ReportBucketArn
-
-ArtifactBucketName
-
-ArtifactBucketArn
-
-DBEndpointParameterName
-
-DBNameParameterName
-
-DBPortParameterName
-
-DBUsernameParameterName
-
-DBPasswordParameterName
-
-ReportBucketParameterName
-
-ArtifactBucketParameterName
-
-9.3 IAM stack resources
-
-iam-stack.yaml creates:
-
-Resource
-
-AWS type
-
-LambdaAuthorizerRole
-
-AWS::IAM::Role
-
-ProductLambdaRole
-
-AWS::IAM::Role
-
-CustomerLambdaRole
-
-AWS::IAM::Role
-
-OrderLambdaRole
-
-AWS::IAM::Role
-
-OrderProcessorLambdaRole
-
-AWS::IAM::Role
-
-SchemaInitializerLambdaRole
-
-AWS::IAM::Role
-
-DailyReportLambdaRole
-
-AWS::IAM::Role
-
-RDSAdminEC2Role
-
-AWS::IAM::Role
-
-RDSAdminEC2InstanceProfile
-
-AWS::IAM::InstanceProfile
-
-EC2DashboardRole
-
-AWS::IAM::Role
-
-EC2DashboardInstanceProfile
-
-AWS::IAM::InstanceProfile
-
-AuthSSMWriterRole
-
-AWS::IAM::Role
-
-AuthSSMWriterFunction
-
-AWS::Lambda::Function
-
-AuthSSMParameters
-
-Custom::CloudMartAuthParameters
-
-Authentication SSM paths
-
-The IAM stack provisions authentication-related parameters under:
-
-/cloudmart/{environment}/auth
-
-The code references authentication parameters including:
-
-/cloudmart/{environment}/auth/token
-/cloudmart/{environment}/auth/customer-tokens
-
-IAM outputs
-
-LambdaAuthorizerRoleArn
-
-ProductLambdaRoleArn
-
-CustomerLambdaRoleArn
-
-OrderLambdaRoleArn
-
-OrderProcessorLambdaRoleArn
-
-SchemaInitializerLambdaRoleArn
-
-DailyReportLambdaRoleArn
-
-RDSAdminEC2RoleArn
-
-RDSAdminEC2InstanceProfile
-
-EC2DashboardRoleArn
-
-EC2DashboardInstanceProfile
-
-10. Application and Event Resources
-
-application-events-stack.yaml creates the following resources.
-
-10.1 EventBridge event bus
-
-Resource
-
-Type
-
-CloudMartEventBus
-
-AWS::Events::EventBus
-
-10.2 Lambda layer
-
-Resource
-
-Type
-
-PyMySQLLayer
-
-AWS::Lambda::LayerVersion
-
-The workflow builds the layer with:
-
-PyMySQL==1.1.1
-cryptography==45.0.6
-
-and uploads the package to the artifact bucket.
-
-10.3 Lambda functions
-
-Logical resource
-
-Function purpose
-
-LambdaAuthorizer
-
-Validates bearer-token authorization
-
-CustomerLambda
-
-Customer creation and customer management
-
-ProductLambda
-
-Product CRUD
-
-OrderLambda
-
-Customer/admin order operations
-
-OrderProcessorLambda
-
-Order processing and confirmation/failure handling
-
-DailyReportLambda
-
-Generates scheduled CSV reports
-
-SchemaInitializerLambda
-
-Applies database/schema.sql
-
-Function naming convention:
-
-cloudmart-{environment}-lambda-authorizer
-cloudmart-{environment}-customer-lambda
-cloudmart-{environment}-product-lambda
-cloudmart-{environment}-order-lambda
-cloudmart-{environment}-order-processor-lambda
-cloudmart-{environment}-daily-report-lambda
-cloudmart-{environment}-schema-initializer-lambda
-
-10.4 Lambda permissions
-
-The stack also contains:
-
-OrderProcessorInvokePermission
-
-DailyReportLambdaInvokePermission
-
-These allow the required AWS services to invoke the corresponding Lambda functions.
-
-10.5 Daily report schedule
-
-Resource:
-
-DailyReportSchedule
-
-Type:
-
-AWS::Events::Rule
-
-It invokes the Daily Report Lambda on its configured schedule.
-
-The generated report is written to the report S3 bucket.
-
-10.6 Database schema initialization
-
-Resource:
-
-DatabaseSchemaInitialization
-
-Type:
-
-Custom::CloudMartDatabaseSchema
-
-The schema initializer uses the SQL stored in:
-
-database/schema.sql
-
-Do not manually run a different schema against the deployed database unless the project procedure explicitly requires it.
-
-11. SNS Notification Resources
-
-The application-events stack creates four SNS topics:
-
-Resource
-
-Purpose
-
-ProductAlertTopic
-
-Product/low-stock alert notification
-
-ProductNotificationTopic
-
-Product event notification
-
-OrderAlertTopic
-
-Order alert notification
-
-OrderNotificationTopic
-
-Order notification
-
-It also creates four email subscriptions:
-
-ProductAlertEmailSubscription
-
-ProductNotificationEmailSubscription
-
-OrderAlertEmailSubscription
-
-OrderNotificationEmailSubscription
-
-The corresponding topic policies are:
-
-ProductAlertTopicPolicy
-
-ProductNotificationTopicPolicy
-
-OrderAlertTopicPolicy
-
-OrderNotificationTopicPolicy
-
-The notification recipient comes from:
-
-CLOUDMART_ALERT_EMAIL
-
-SNS email subscriptions must be confirmed before email delivery can be considered verified.
-
-12. EventBridge Rules
-
-The application-events stack creates these rules:
-
-Rule
-
-Purpose
-
-LowStockEventRule
-
-Handles low-stock events
-
-ProductInventoryLowStockEventRule
-
-Product inventory low-stock event processing
-
-ProductLowStockAlertEventRule
-
-Low-stock alert routing
-
-OrderFailedEventsToSNSRule
-
-Sends failed-order events toward SNS
-
-OrderPendingEventsToSNSRule
-
-Sends pending-order events toward SNS
-
-OrderPlacedEventsToSNSRule
-
-Sends placed-order events toward SNS
-
-OrderConfirmedEventsToSNSRule
-
-Sends confirmed-order events toward SNS
-
-OrderCancelledEventsToSNSRule
-
-Sends cancelled-order events toward SNS
-
-OrderDeliveredEventsToSNSRule
-
-Sends delivered-order events toward SNS
-
-After deployment, verify that all required rules are enabled and have their expected targets.
-
-13. API Gateway and API Resources
-
-api-monitoring-ec2-stack.yaml creates the REST API:
-
-cloudmart-{environment}-api
-
-API endpoint type:
-
-REGIONAL
-
-The stack creates a TOKEN Lambda Authorizer using the Authorization header.
-
-Authorizer result caching is configured with:
-
-AuthorizerResultTtlInSeconds: 0
-
-13.1 API resources
-
-The API contains these route groups:
-
-Products
-
-/products
-/products/{id}
-
-Customers
-
-/customers
-/customers/{customer_id}
-
-Customer orders
-
-/customers/{customer_id}/orders
-/customers/{customer_id}/orders/{order_id}
-/customers/{customer_id}/orders/{order_id}/status
-
-Administrative orders
-
-/orders
-/orders/{id}
-/orders/{id}/status
-
-13.2 API methods
-
-Method
-
-Route
-
-Authorization
-
-GET
-
-/products
-
-Public
-
-POST
-
-/products
-
-Lambda Authorizer
-
-GET
-
-/products/{id}
-
-Public
-
-PUT
-
-/products/{id}
-
-Lambda Authorizer
-
-DELETE
-
-/products/{id}
-
-Lambda Authorizer
-
-POST
-
-/customers
-
-Public
-
-GET
-
-/customers
-
-Lambda Authorizer
-
-GET
-
-/customers/{customer_id}
-
-Lambda Authorizer
-
-PUT
-
-/customers/{customer_id}
-
-Lambda Authorizer
-
-PATCH
-
-/customers/{customer_id}
-
-Lambda Authorizer
-
-DELETE
-
-/customers/{customer_id}
-
-Lambda Authorizer
-
-POST
-
-/customers/{customer_id}/orders
-
-Lambda Authorizer
-
-GET
-
-/customers/{customer_id}/orders
-
-Lambda Authorizer
-
-GET
-
-/customers/{customer_id}/orders/{order_id}
-
-Lambda Authorizer
-
-PUT
-
-/customers/{customer_id}/orders/{order_id}
-
-Lambda Authorizer
-
-PATCH
-
-/customers/{customer_id}/orders/{order_id}/status
-
-Lambda Authorizer
-
-GET
-
-/orders
-
-Lambda Authorizer
-
-GET
-
-/orders/{id}
-
-Lambda Authorizer
-
-PATCH
-
-/orders/{id}/status
-
-Lambda Authorizer
-
-Important public endpoints
-
-The deployed template explicitly makes these product reads public:
-
-GET /products
-GET /products/{id}
-
-Customer creation is also public:
-
-POST /customers
-
-Do not add a bearer-token requirement to these routes unless the CloudFormation template is intentionally changed.
-
-14. API Gateway Supporting Resources
-
-The API stack also creates:
-
-AuthorizerLambdaInvokePermission
-
-ProductLambdaInvokePermission
-
-OrderLambdaInvokePermission
-
-CustomerLambdaInvokePermission
-
-ApiDeploymentV12
-
-ApiGatewayLogGroup
-
-ApiStage
-
-The stage name is the selected environment:
-
-dev
-
-or:
-
-prod
-
-The API stage has:
-
-tracing enabled
-
-CloudWatch metrics enabled
-
-INFO logging
-
-data trace disabled
-
-API Gateway logs are written to:
-
-/aws/apigateway/cloudmart-{environment}
-
-with the template-configured retention period.
-
-15. CloudWatch Monitoring Resources
-
-The API/monitoring stack creates:
-
-CloudMartMonitoringDashboard
-
-Dashboard name:
-
-cloudmart-{environment}-operations
-
-The dashboard includes monitoring for API Gateway, Lambda, EC2, and RDS activity.
-
-15.1 CloudWatch alarms
-
-The stack defines:
-
-Alarm resource
-
-Api5XXErrorAlarm
-
-ProductLambdaErrorAlarm
-
-OrderLambdaErrorAlarm
-
-EC2HighCPUAlarm
-
-Api4XXErrorAlarm
-
-ApiLatencyAlarm
-
-ProductLambdaThrottleAlarm
-
-OrderLambdaThrottleAlarm
-
-ProductLambdaDurationAlarm
-
-OrderLambdaDurationAlarm
-
-RdsHighCpuAlarm
-
-RdsLowFreeStorageAlarm
-
-RdsHighConnectionsAlarm
-
-EC2StatusCheckAlarm
-
-After deployment, inspect alarm state and confirm alarm actions point to the intended SNS notification resources where configured.
-
-16. EC2 Dashboard Resources
-
-The API/monitoring stack creates:
-
-CloudMartDashboardInstance
-
-Type:
-
-AWS::EC2::Instance
-
-The stack also creates:
-
-CloudMartDashboardAccessPolicy
-
-Type:
-
-AWS::IAM::Policy
-
-The EC2 instance uses the CloudMart dashboard instance profile created by the IAM stack.
-
-Dashboard defaults
-
-EC2InstanceType: t3.micro
-DashboardPort: 5000
-NginxPort: 80
-
-The dashboard deployment uses:
-
-Flask
-
-Gunicorn
-
-Nginx
-
-AWS SSM
-
-artifact S3 bucket
-
-report S3 bucket
-
-The workflow refreshes the CloudFormation-managed existing instance using SSM. It must not create a duplicate dashboard instance manually.
-
-The workflow verifies:
-
-cloudmart-dashboard.service
-nginx.service
-http://127.0.0.1:5000/health
-http://127.0.0.1:80/health
-
-The dashboard artifacts expected in S3 are:
-
-dashboard/app.py
-dashboard/requirements.txt
-dashboard/bootstrap-dashboard.sh
-dashboard/templates/index.html
-
-17. CloudFormation Outputs to Record
-
-Network
-
-Record:
-
-VpcId
-PublicSubnetId
-PrivateSubnetId
-SecondaryPrivateSubnetId
-LambdaSecurityGroupId
-RDSSecurityGroupId
-EC2SecurityGroupId
-VPCEndpointSecurityGroupId
-S3EndpointId
-SSMEndpointId
-SSMMessagesEndpointId
-EC2MessagesEndpointId
-EventBridgeEndpointId
-SNSEndpointId
-CloudWatchLogsEndpointId
-LambdaEndpointId
-
-Data
-
-Record:
-
-DBEndpoint
-DBPort
-DBNameOutput
-DBUsernameOutput
-DBInstanceIdentifier
-ReportBucketName
-ArtifactBucketName
-DBEndpointParameterName
-DBNameParameterName
-DBPortParameterName
-DBUsernameParameterName
-DBPasswordParameterName
-ReportBucketParameterName
-ArtifactBucketParameterName
-
-IAM
-
-Record role/profile outputs where required for evidence.
-
-Application Events
-
-Record:
-
-EventBusName
-EventBusArn
-LambdaAuthorizerArn
-LambdaAuthorizerName
-CustomerLambdaArn
-CustomerLambdaName
-ProductLambdaArn
-ProductLambdaName
-OrderLambdaArn
-OrderLambdaName
-OrderProcessorLambdaArn
-OrderProcessorLambdaName
-DailyReportLambdaArn
-DailyReportLambdaName
-DailyReportScheduleArn
-SchemaInitializerLambdaArn
-SchemaInitializerLambdaName
-PyMySQLLayerArn
-ProductAlertTopicArn
-ProductNotificationTopicArn
-OrderAlertTopicArn
-OrderNotificationTopicArn
-LowStockEventRuleArn
-OrderPendingEventsToSNSRuleArn
-OrderPlacedEventsToSNSRuleArn
-OrderFailedEventsToSNSRuleArn
-
-API/Monitoring/EC2
-
-Record:
-
-ApiId
-ApiEndpoint
-AuthorizerId
-MonitoringDashboardName
-DashboardInstanceId
-DashboardUrl
-DashboardPublicDns
-
-Never record passwords, bearer tokens, or other credentials in the evidence file.
-
-18. Database Schema Verification
-
-The schema is initialized from:
-
-database/schema.sql
-
-The deployed database contains the core tables defined by that schema, including:
-
-categories
-customers
-products
-orders
-order_items
-order_logs
-
-The schema uses product stock fields for inventory management:
-
-products.stock_quantity
-products.reorder_threshold
-
-Customer bearer tokens are stored as hashes by the schema seed/application behavior.
-
-The schema includes soft-delete/status concepts for customers and products.
-
-Database verification
-
-After deployment, verify that:
-
-RDS is available.
-
-The database endpoint is present in SSM.
-
-The schema initializer completed successfully.
-
-The expected tables exist.
-
-Seed/test data is present only where intended.
-
-The application Lambdas can connect to the database.
-
-Do not expose database credentials in logs.
-
-19. Deployment Sequence
-
-Run deployment through GitHub Actions.
-
-The intended dependency sequence is:
-
-1. load-config
-       |
-2. deploy-network
-       |
-3. deploy-data
-       |
-4. deploy-iam
-       |
-5. deploy-application-events
-       |
-6. deploy-api-monitoring-ec2
-       |
-7. final verification
-
-Do not manually skip a failed dependency and deploy downstream resources.
-
-20. Pre-Deployment Checklist
-
-Before clicking Run workflow, confirm:
-
-Correct GitHub repository selected.
-
-Correct branch selected.
-
-Correct commit reviewed.
-
-deploy.yaml exists.
-
-config/config.json is valid.
-
-Environment is dev or prod.
-
-AWS region is ap-south-1.
-
-AWS_ROLE_ARN GitHub secret exists.
-
-AWS_ROLE_ARN contains the correct IAM role ARN.
-
-GitHub OIDC provider exists in AWS.
-
-OIDC audience is sts.amazonaws.com.
-
-IAM trust policy matches the repository and branch/environment.
-
-CLOUDMART_ALERT_EMAIL exists.
-
-SNS email recipient is correct.
-
-Database password is ready.
-
-Database password has at least 12 characters.
-
-No password is committed to Git.
-
-All five CloudFormation templates exist.
-
-All Lambda source files exist.
-
-database/schema.sql exists.
-
-Dashboard files exist.
-
-No unintended manual AWS changes are expected.
-
-Existing CloudFormation stacks have been reviewed.
-
-Production approval/cost review is complete where applicable.
-
-21. Optional Local CloudFormation Validation
-
-From the repository root:
-
+```
+
+The workflow should convert the JSON entries into `Key=Value` arguments for `aws cloudformation deploy --parameter-overrides`. Ensure `Environment` matches `config/config.json`. Do not include `MonitoringPublicSubnetCidr` in this file: that parameter/resource is not part of the supplied network architecture.
+
+## 4. Pre-deployment checklist
+
+| Check | What to confirm |
+|---|---|
+| Branch and commit | Intended, reviewed branch and commit are selected |
+| Workflow | `.github/workflows/deploy.yaml` has correct paths, stack order, secret references, and environment handling |
+| Configuration | `config/config.json` is valid and targets the intended environment |
+| Network parameters | Parameter keys exactly match `network-stack.yaml` |
+| Templates | All five templates pass `cfn-lint` without blocking errors |
+| Source files | Lambda handlers, schema, layer, and dashboard files referenced by workflow exist |
+| OIDC secret | `AWS_ROLE_ARN` exists and contains the intended role ARN; YAML references the same name |
+| OIDC trust | AWS trust policy is scoped to the intended repository and branch/environment |
+| Alert secret | `CLOUDMART_ALERT_EMAIL` is configured |
+| Database input | Strong `db_password` is ready and meets workflow validation |
+| AWS target | Correct account and `ap-south-1` region |
+| Existing resources | Current stack states/outputs reviewed; no unintended replacement or deletion |
+| Cost/data | Costs, backups, retention, and production approval reviewed |
+
+Optional local lint commands from the repository root:
+
+```bash
 python -m pip install --quiet cfn-lint
-
 cfn-lint -t cloudformation/network-stack.yaml --non-zero-exit-code error
 cfn-lint -t cloudformation/data-stack.yaml --non-zero-exit-code error
 cfn-lint -t cloudformation/iam-stack.yaml --non-zero-exit-code error
 cfn-lint -t cloudformation/application-events-stack.yaml --non-zero-exit-code error
 cfn-lint -t cloudformation/api-monitoring-ec2-stack.yaml --non-zero-exit-code error
-
-Resolve blocking errors before deployment.
-
-22. Starting a Deployment
-
-Commit the reviewed changes.
-
-Push them to the intended branch.
-
-Open GitHub.
-
-Open Actions.
-
-Select CloudMart Infrastructure Deployment.
-
-Select Run workflow.
-
-Select the intended branch.
-
-Enter db_password.
-
-Start the workflow.
-
-Monitor each job.
-
-Record the workflow URL, run ID, commit SHA, branch, environment, and final status.
-
-23. What Each Workflow Job Does
-
-23.1 load-config
-
-Loads deployment configuration such as:
-
-environment
-
-project
-
-managed-by value
-
-owner value
-
-The values are passed to downstream jobs.
-
-23.2 deploy-network
-
-The workflow:
-
-Checks out the repository.
-
-Configures AWS credentials through OIDC.
-
-Runs aws sts get-caller-identity.
-
-Validates network-stack.yaml.
-
-Deploys the network CloudFormation stack.
-
-Verifies stack status.
-
-Displays stack outputs.
-
-23.3 deploy-data
-
-The workflow:
-
-Checks out the repository.
-
-Authenticates through OIDC.
-
-Verifies AWS identity.
-
-Masks db_password.
-
-Validates the password.
-
-Validates data-stack.yaml.
-
-Deploys the data stack.
-
-Verifies /cloudmart/{environment}/db parameters.
-
-Verifies stack status.
-
-Displays outputs.
-
-23.4 deploy-iam
-
-The workflow:
-
-Authenticates through OIDC.
-
-Verifies AWS identity.
-
-Runs cfn-lint.
-
-Deploys iam-stack.yaml.
-
-Waits for IAM policy propagation.
-
-Verifies the required Lambda roles.
-
-Verifies authentication SSM parameters.
-
-Displays IAM outputs.
-
-The workflow checks roles for:
-
-product-lambda-role
-customer-lambda-role
-order-lambda-role
-order-processor-role
-schema-initializer-role
-daily-report-role
-
-23.5 deploy-application-events
-
-The workflow:
-
-Authenticates through OIDC.
-
-Verifies required Lambda/schema/dashboard source files.
-
-Validates the CloudFormation template.
-
-Retrieves the artifact bucket from the data stack.
-
-Creates a clean build directory.
-
-Builds the PyMySQL layer.
-
-Builds the Lambda ZIP packages.
-
-Uploads application artifacts to S3.
-
-Uploads schema/dashboard artifacts.
-
-Deploys the application-events stack.
-
-Verifies stack status and outputs.
-
-Runs configured post-deployment checks.
-
-23.6 deploy-api-monitoring-ec2
-
-The workflow:
-
-Authenticates through OIDC.
-
-Validates the API/monitoring template.
-
-Retrieves the existing CloudFormation-managed artifact bucket.
-
-Uses the artifact bucket for large-template deployment when required.
-
-Deploys the API/monitoring/EC2 stack.
-
-Retrieves the existing dashboard EC2 instance ID.
-
-Verifies dashboard artifacts exist in S3.
-
-Sends an SSM Run Command to the existing instance.
-
-Waits for the SSM command result.
-
-Verifies dashboard and Nginx health endpoints.
-
-Verifies stack status.
-
-Displays API/monitoring outputs.
-
-Displays final status for all five stacks.
-
-24. Large CloudFormation Template Handling
-
-CloudFormation templates larger than 51,200 bytes must be submitted through an S3 template bucket.
-
-CloudMart uses the artifact bucket created by the Data Storage stack.
-
-For example:
-
-aws cloudformation deploy \
-  --template-file cloudformation/api-monitoring-ec2-stack.yaml \
-  --stack-name "$API_MONITORING_EC2_STACK_NAME" \
-  --s3-bucket "$CFN_ARTIFACT_BUCKET" \
-  --parameter-overrides Environment="$ENVIRONMENT" \
-  --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
-  --region "$AWS_REGION" \
-  --no-fail-on-empty-changeset
-
-Do not create a second manual artifact bucket merely to work around the template-size limit.
-
-25. Artifact Deployment
-
-The workflow packages and uploads artifacts to the CloudFormation-managed artifact bucket.
-
-Expected Lambda artifact categories include:
-
-authorizer-lambda
-product-lambda
-customer-lambda
-order-lambda
-order-processor-lambda
-daily-report-lambda
-pymysql-layer
-schema
-dashboard
-
-The workflow uses commit-specific artifact keys so the deployed resources can be associated with the source revision.
-
-Before downstream deployment, verify the required object exists in S3.
-
-26. Post-Deployment Verification
-
-26.1 Verify all stack statuses
-
-Example:
-
+```
+
+Resolve errors before deployment. Review warnings, especially unused parameters, invalid references, and replacement-sensitive properties.
+
+## 5. Execute the GitHub Actions workflow
+
+The workflow is manually triggered with `workflow_dispatch`; pushing code alone does not start it.
+
+1. Commit and push the reviewed changes to the intended branch.
+2. Open the GitHub repository and select **Actions**.
+3. Choose **CloudMart Infrastructure Deployment**.
+4. Click **Run workflow** and select the branch.
+5. Enter the required `db_password` input without exposing it elsewhere.
+6. Start the run and monitor each job/step.
+7. Save the workflow run URL/ID, commit SHA, environment, and final status for review.
+
+### What the workflow does
+
+1. **Validates configuration and source:** checks configuration and required files.
+2. **Authenticates to AWS:** uses GitHub OIDC and the configured IAM role to obtain temporary AWS credentials.
+3. **Deploys Network-Security:** creates or updates VPC networking resources.
+4. **Deploys Data-Storage:** provisions RDS, S3 buckets, and database parameters.
+5. **Deploys IAM:** creates execution roles and policies.
+6. **Packages and uploads artifacts:** uploads the PyMySQL layer, Lambda packages, schema, dashboard source, and required template artifacts using commit-specific S3 keys.
+7. **Deploys Application-Events:** provisions functions, schema initialization, EventBridge, and SNS.
+8. **Deploys API-Monitoring-EC2:** provisions API/monitoring/dashboard resources and refreshes the existing dashboard EC2 through SSM.
+9. **Verifies deployment:** checks stack/function outputs and dashboard health as implemented in the workflow.
+
+### Large CloudFormation templates and artifacts
+
+Templates larger than 51,200 bytes must be deployed using an S3 template bucket. The Application-Events and API-Monitoring-EC2 deploy commands should use the existing artifact bucket created by Data-Storage via `--s3-bucket`. Do not create another bucket manually. Keep the commit-SHA artifact keys used by the workflow aligned with the values passed to CloudFormation.
+
+The API-Monitoring-EC2 template parameters identified in the supplied runbook are `Environment`, `EC2InstanceType`, `DashboardPort`, and `NginxPort`. Do not pass Lambda S3 keys or database SSM parameter names to that stack unless its template is intentionally updated to declare them.
+
+### Deployment lifecycle and artifact timing
+
+```text
+Reviewed code is committed and pushed
+        |
+        v
+Actions > CloudMart Infrastructure Deployment > Run workflow
+        |
+        v
+Select branch and supply db_password input
+        |
+        v
+Validate configuration, parameter files, templates, and source paths
+        |
+        v
+GitHub OIDC token -> AWS STS -> temporary deployment-role credentials
+        |
+        v
+1. Network-Security stack
+        |
+        v
+2. Data-Storage stack: RDS + artifact/report S3 buckets + DB SSM parameters
+        |
+        v
+3. IAM stack: runtime roles, policies, instance profile/auth parameters
+        |
+        v
+Build/package and upload commit-specific Lambda/layer/schema artifacts
+to the artifact bucket
+        |
+        v
+4. Application-Events stack: Lambda resources, schema initialization,
+EventBridge rules, and SNS resources
+        |
+        v
+Upload dashboard source; 5. API-Monitoring-EC2 stack; refresh existing
+dashboard EC2 via SSM
+        |
+        v
+Run configured report/health checks; record outputs and evidence
+```
+
+**When objects are stored in S3**
+
+- The Data-Storage stack creates the deployment artifact bucket and the separate report bucket. Downstream workflow steps use the artifact bucket name from that stack's outputs.
+- Lambda ZIPs, the PyMySQL layer, schema SQL, and dashboard source are uploaded to the artifact bucket after the bucket exists and before the relevant stack/resource or dashboard refresh consumes them. The workflow uses commit-specific object keys to associate artifacts with the source revision.
+- For CloudFormation templates larger than 51,200 bytes, the deployment command uses the existing artifact bucket with `--s3-bucket`; template packaging/upload occurs as part of submitting that stack deployment.
+- The report bucket stores generated CSV reports. The Daily Report Lambda writes those after it is invoked (including the workflow's configured post-deployment invocation and the scheduled run), not as part of uploading the source code.
+- The dashboard reads its application files from the artifact bucket and report files from the report bucket. Do not treat these as one bucket or one deployment phase.
+
+**Deployment failure/retry:** stop at the first failed step, inspect its error and CloudFormation events, fix the source/configuration in Git, run validation, and start a fresh manual workflow run. Do not manually create replacement AWS resources or repeatedly rerun without resolving the underlying failure.
+
+## 6. Post-deployment verification
+
+Record actual values from CloudFormation outputs and test results. Do not invent endpoint URLs, resource IDs, or bucket names.
+
+### 6.1 Stack status
+
+Example for the development network stack:
+
+```bash
 aws cloudformation describe-stacks \
   --stack-name cloudmart-network-security-dev \
   --region ap-south-1 \
   --query 'Stacks[0].[StackName,StackStatus]' \
   --output table
+```
 
-Repeat for:
+Repeat for `cloudmart-data-storage-dev`, `cloudmart-iam-dev`, `cloudmart-application-events-dev`, and `cloudmart-api-monitoring-ec2-dev`. Replace `dev` with `prod` for production. Successful statuses include `CREATE_COMPLETE` and `UPDATE_COMPLETE`. Investigate any in-progress, failed, or rollback state before declaring completion.
 
-cloudmart-data-storage-dev
-cloudmart-iam-dev
-cloudmart-application-events-dev
-cloudmart-api-monitoring-ec2-dev
+### 6.2 Stack outputs
 
-Successful states include:
-
-CREATE_COMPLETE
-UPDATE_COMPLETE
-
-Do not declare success if any stack is in a failed, rollback, or unresolved state.
-
-27. Verify CloudFormation Outputs
-
-Use:
-
+```bash
 aws cloudformation describe-stacks \
   --stack-name cloudmart-api-monitoring-ec2-dev \
   --region ap-south-1 \
   --query 'Stacks[0].Outputs[*].[OutputKey,OutputValue]' \
   --output table
+```
 
-Record actual values for:
+Record the verified API invoke URL, dashboard URL, artifact/report bucket names, and relevant IDs from actual outputs.
 
-API endpoint
+### 6.3 Lambda and CloudWatch Logs
 
-dashboard URL
+Confirm the authorizer, product, customer, order, order-processor, and daily-report functions exist and their deployments succeeded. For errors, inspect the relevant CloudWatch log groups and correlate timestamps, request IDs, exceptions, and duration. Check Lambda configuration, execution role, VPC settings, SSM parameter access, database connectivity, and schema as relevant.
 
-dashboard public DNS
+Never place bearer tokens, passwords, customer secrets, or other credentials in logs, screenshots, or evidence.
 
-API ID
+### 6.4 Authentication tests
 
-authorizer ID
+Use non-production test credentials. Record sanitized requests, expected/actual results, and evidence.
 
-bucket names
+| Test | Expected result |
+|---|---|
+| Protected request without Authorization header | Rejected |
+| Protected request with invalid bearer token | Rejected |
+| Valid active customer token | Accepted only for permitted resources |
+| Same customer logs in again | Existing token remains stable, per application behavior |
+| Multiple customers share a token | Customer identities remain distinct |
+| Inactive/soft-deleted customer authenticates | Rejected |
+| Customer accesses another customer's order | Denied |
 
-Lambda ARNs
+Use `Authorization: Bearer <test-token>` where required. Do not include real tokens in documentation.
+
+### 6.5 CRUD and order tests
+
+Use the current Lambda handlers and `database/schema.sql` as the authority for route names and payload shapes. Record method, route, sanitized payload, response/status, and evidence in `docs/crud-verification.md`.
+
+- **Products:** create, list, get, update, and delete.
+- **Customers:** create, administrative list, get, update/patch, and soft delete, where supported by the handlers.
+- **Orders:** place an order, list/read customer orders, and exercise configured update/status routes.
+- **Order processing:** successful placement should return the processor's final `CONFIRMED` status rather than an asynchronous `PENDING` acknowledgement, as specified in the supplied runbook.
+- **Authorization:** customers must not read or cancel another customer's order. Administrative/owner cancellation should be rejected; status changes must follow the current code's role and status rules.
+
+Do not mark tests passed until executed against the deployed environment and recorded.
+
+### 6.6 Events, SNS, reports, dashboard, and alarms
 
-event resources
+- Confirm EventBridge rules are enabled and targets are present.
+- In non-production, trigger a controlled low-stock scenario and verify event matching and SNS delivery.
+- Test order event/notification behavior with test orders.
+- Confirm the scheduled Daily Report Lambda writes an object to the report bucket.
+- Confirm SNS email subscriptions are confirmed and delivery works.
+- Open the dashboard URL from stack outputs and verify inventory, recent orders, navigation/search/details where implemented, and latest report access.
+- Check dashboard health on the configured service and Nginx ports.
+- Review the CloudWatch operations dashboard, metrics, alarm states, thresholds, and SNS actions after suitable test activity.
+- Confirm the dashboard EC2 is SSM-managed and was refreshed successfully by the workflow.
 
-monitoring dashboard name
+Avoid unnecessary test orders or alerts in production.
 
-Never invent these values in documentation.
-
-28. Verify Lambda Functions
-
-Confirm the following functions exist and are deployed:
-
-cloudmart-{environment}-lambda-authorizer
-cloudmart-{environment}-customer-lambda
-cloudmart-{environment}-product-lambda
-cloudmart-{environment}-order-lambda
-cloudmart-{environment}-order-processor-lambda
-cloudmart-{environment}-daily-report-lambda
-cloudmart-{environment}-schema-initializer-lambda
-
-Check:
-
-runtime
-
-handler
-
-execution role
-
-VPC configuration where applicable
-
-layer attachment
-
-environment variables
-
-S3 code package
-
-timeout/memory settings
-
-CloudWatch logs
-
-29. Verify CloudWatch Logs
-
-Inspect Lambda log groups and API Gateway logs.
-
-Check:
-
-request timestamps
-
-request IDs
-
-exceptions
-
-database errors
-
-authorization failures
-
-timeout errors
-
-order processing failures
-
-report-generation errors
-
-Never place the following in screenshots or evidence:
-
-database password
-
-bearer token
-
-access key
-
-secret key
-
-customer secrets
-
-30. Authentication Verification
-
-Use only test credentials.
-
-Protected endpoint tests
-
-Test
-
-Expected result
-
-Protected route with no Authorization header
-
-Rejected
-
-Protected route with invalid bearer token
-
-Rejected
-
-Protected route with valid active customer token
-
-Accepted when permitted
-
-Soft-deleted/inactive customer token
-
-Rejected
-
-Customer accesses another customer's order
-
-Denied
-
-Same customer logs in again
-
-Existing token behavior is preserved
-
-Multiple customers share the same bearer token
-
-Customer identities remain distinguishable according to application logic
-
-Authorization header format:
-
-Authorization: Bearer <test-token>
-
-Do not put real tokens in this runbook.
-
-31. Product API Verification
-
-Test:
-
-GET    /products
-GET    /products/{id}
-POST   /products
-PUT    /products/{id}
-DELETE /products/{id}
-
-Verify:
-
-public GET behavior
-
-authenticated write behavior
-
-product creation
-
-product retrieval
-
-product update
-
-product soft-delete behavior where implemented
-
-stock quantity
-
-reorder threshold
-
-database persistence
-
-event generation where configured
-
-32. Customer API Verification
-
-Test:
-
-POST   /customers
-GET    /customers
-GET    /customers/{customer_id}
-PUT    /customers/{customer_id}
-PATCH  /customers/{customer_id}
-DELETE /customers/{customer_id}
-
-Verify:
-
-customer creation
-
-customer lookup
-
-update/patch
-
-soft deletion
-
-authentication rules
-
-deleted customer rejection
-
-token behavior
-
-33. Customer Order API Verification
-
-Test:
-
-POST  /customers/{customer_id}/orders
-GET   /customers/{customer_id}/orders
-GET   /customers/{customer_id}/orders/{order_id}
-PUT   /customers/{customer_id}/orders/{order_id}
-PATCH /customers/{customer_id}/orders/{order_id}/status
-
-Verify:
-
-correct customer ownership
-
-order creation
-
-order retrieval
-
-order update
-
-status update
-
-inventory deduction
-
-order processing
-
-successful confirmation
-
-failed-order handling
-
-event publication
-
-notification behavior
-
-A customer must not be able to access or cancel another customer's order.
-
-34. Administrative Order API Verification
-
-Test:
-
-GET   /orders
-GET   /orders/{id}
-PATCH /orders/{id}/status
-
-Verify the role/status restrictions implemented by the deployed Lambda code.
-
-Do not assume that an administrative route automatically grants permission to perform every status transition.
-
-35. EventBridge Verification
-
-Verify rules:
-
-aws events list-rules \
-  --region ap-south-1 \
-  --query 'Rules[?contains(Name, `cloudmart`)].[Name,State]' \
-  --output table
-
-Verify that required rules are:
-
-ENABLED
-
-where expected.
-
-Inspect targets:
-
-aws events list-targets-by-rule \
-  --rule <RULE_NAME> \
-  --region ap-south-1
-
-Test controlled non-production events for:
-
-low stock
-
-product inventory changes
-
-order placed
-
-order pending
-
-order confirmed
-
-order failed
-
-order cancelled
-
-order delivered
-
-36. SNS Verification
-
-Verify topic existence:
-
-aws sns list-topics --region ap-south-1
-
-Verify subscriptions:
-
-aws sns list-subscriptions \
-  --region ap-south-1
-
-Confirm:
-
-correct email address
-
-subscription confirmation
-
-topic policy
-
-EventBridge target
-
-message delivery
-
-Do not mark notification verification as passed until an actual test notification is received/confirmed.
-
-37. Daily Report Verification
-
-Confirm:
-
-DailyReportLambda exists.
-
-DailyReportSchedule exists and is enabled.
-
-The Lambda can read the database.
-
-The Lambda can write to the report bucket.
-
-A CSV report is created.
-
-List report objects:
-
-aws s3 ls s3://<REPORT_BUCKET>/ \
-  --region ap-south-1
-
-The actual bucket name must come from CloudFormation output.
-
-38. Dashboard Verification
-
-Get the dashboard output:
-
-aws cloudformation describe-stacks \
-  --stack-name cloudmart-api-monitoring-ec2-dev \
-  --region ap-south-1 \
-  --query 'Stacks[0].Outputs[*].[OutputKey,OutputValue]' \
-  --output table
-
-Verify:
-
-DashboardInstanceId
-
-DashboardUrl
-
-DashboardPublicDns
-
-The workflow also verifies:
-
-cloudmart-dashboard.service
-nginx.service
-/health on the Flask/Gunicorn port
-/health through Nginx
-
-Verify dashboard functionality:
-
-inventory display
-
-recent orders
-
-product navigation/details where implemented
-
-customer/order views where implemented
-
-search where implemented
-
-latest report access
-
-page health
-
-report availability
-
-39. SSM Dashboard Refresh Verification
-
-The workflow uses:
-
-AWS-RunShellScript
-
-through Systems Manager.
-
-Verify the EC2 instance is managed by SSM.
-
-Check the command result:
-
-aws ssm get-command-invocation \
-  --command-id <COMMAND_ID> \
-  --instance-id <INSTANCE_ID> \
-  --region ap-south-1
-
-Successful status:
-
-Success
-
-Failure states include:
-
-Failed
-Cancelled
-TimedOut
-Cancelling
-
-If refresh fails, inspect both standard output and standard error before retrying.
-
-40. CloudWatch Monitoring Verification
-
-Open the CloudWatch dashboard:
-
-cloudmart-{environment}-operations
-
-Verify metrics for:
-
-API Gateway latency
-
-API Gateway request count
-
-API Gateway 4XX/5XX errors
-
-Lambda invocations
-
-Lambda errors
-
-Lambda duration
-
-Lambda throttles
-
-Lambda concurrency
-
-EC2 CPU/status/network
-
-RDS IOPS/network activity
-
-Verify alarm state for:
-
-API 4XX
-
-API 5XX
-
-API latency
-
-Product Lambda errors
-
-Order Lambda errors
-
-Product Lambda throttles
-
-Order Lambda throttles
-
-Product Lambda duration
-
-Order Lambda duration
-
-RDS CPU
-
-RDS free storage
-
-RDS connections
-
-EC2 CPU
-
-EC2 status check
-
-41. Database Connectivity Verification
-
-If a Lambda cannot reach RDS, check:
-
-Lambda subnet configuration.
-
-Lambda security group.
-
-RDS security group.
-
-RDS endpoint.
-
-RDS port.
-
-Database name.
-
-Database username.
-
-Secure database password parameter.
-
-SSM access permissions.
-
-VPC endpoints.
-
-Database availability.
-
-Schema initialization.
-
-Use the SSM parameter names generated by CloudFormation rather than hard-coded credentials.
-
-42. Failure Handling and Safe Retry
-
-When a deployment fails:
-
-Stop at the first failed workflow step.
-
-Record the workflow URL/run ID.
-
-Identify the stack and logical resource that failed.
-
-Read CloudFormation stack events.
-
-Read the relevant service logs.
-
-Identify the actual denied action/error.
-
-Fix the source code, CloudFormation template, configuration, or IAM policy.
-
-Run validation again.
-
-Commit and push the fix.
-
-Start a fresh workflow run.
-
-Verify the branch, environment, AWS account, and region before retrying.
-
-Do not repeatedly rerun a failing workflow without fixing the underlying cause.
-
-Do not manually create duplicate AWS resources to bypass CloudFormation.
-
-43. Troubleshooting Guide
-
-Problem
-
-Checks
-
-OIDC AssumeRoleWithWebIdentity failure
-
-AWS_ROLE_ARN, OIDC provider, audience, trust policy, repository/branch subject
-
-Secret not found
-
-GitHub secret name must exactly match AWS_ROLE_ARN
-
-AccessDenied
-
-Identify exact action/resource; add only required permission
-
-iam:PassRole failure
-
-Verify the caller can pass the exact runtime/CloudFormation role
-
-CloudFormation rollback
-
-Inspect stack events and failed logical resource
-
-Template > 51,200 bytes
-
-Use the CloudFormation-managed artifact bucket with --s3-bucket
-
-Artifact missing
-
-Check S3 object key, upload step, bucket output, and IAM permission
-
-Lambda deployment failure
-
-Check package, S3 key, execution role, layer, runtime, handler
-
-Lambda VPC permission error
-
-Check Lambda execution role EC2 network-interface permissions
-
-Lambda cannot reach RDS
-
-Check security groups, subnets, endpoint, port, SSM values
-
-Database table missing
-
-Check schema initializer and database/schema.sql
-
-SQL syntax error
-
-Inspect schema initializer logs and exact SQL statement
-
-API returns 401
-
-Check route authorization, Authorization header, token hash, customer status
-
-Public product GET returns 401
-
-Confirm GET /products and GET /products/{id} remain AuthorizationType: NONE
-
-API returns 5XX
-
-Inspect API Gateway and Lambda logs
-
-API timeout
-
-Check Lambda timeout, DB latency, network path, and downstream invocation
-
-Order remains/ends in wrong status
-
-Inspect Order Lambda, Order Processor Lambda, DB transaction and event logs
-
-Inventory not deducted
-
-Check order transaction, product stock, database row, and processor logs
-
-SNS email absent
-
-Confirm subscription, email confirmation, EventBridge target, topic policy
-
-Low-stock alert absent
-
-Check product stock threshold, emitted event, EventBridge rule, SNS target
-
-Daily report absent
-
-Check schedule, Lambda logs, S3 write permissions, report bucket
-
-Dashboard unavailable
-
-Check EC2 instance, security group, Nginx, Gunicorn, dashboard service
-
-SSM refresh fails
-
-Check SSM managed status, instance role, S3 access, bootstrap script, command output
-
-CloudWatch alarm not changing
-
-Verify metric dimensions, threshold, evaluation period, and action
-
-Stack update unexpectedly replaces resource
-
-Review CloudFormation change set and replacement-sensitive properties
-
-44. OIDC Troubleshooting Checklist
-
-If the workflow fails at AWS authentication, check in this order:
-
-GitHub
-
-AWS_ROLE_ARN exists.
-
-Secret value is an IAM role ARN.
-
-Workflow contains id-token: write.
-
-role-to-assume references secrets.AWS_ROLE_ARN.
-
-Correct branch was selected.
-
-AWS
-
-OIDC provider exists.
-
-Provider URL is GitHub's token endpoint.
-
-Audience contains sts.amazonaws.com.
-
-Trust relationship contains the correct repository subject.
-
-Branch/environment condition matches the workflow.
-
-Deployment role exists.
-
-Deployment role permissions are sufficient.
-
-Never replace OIDC with long-lived AWS access keys merely to bypass an OIDC problem.
-
-45. Drift Detection
-
-After a successful deployment, run CloudFormation drift detection for all five stacks.
-
-The purpose is to identify resources changed outside CloudFormation.
-
-Review:
-
-cloudmart-network-security-{environment}
-cloudmart-data-storage-{environment}
-cloudmart-iam-{environment}
-cloudmart-application-events-{environment}
-cloudmart-api-monitoring-ec2-{environment}
-
-Drift detection does not replace application-level verification.
-
-Also confirm:
-
-no unexpected manual resources were created
-
-no credentials were committed
-
-repository artifacts match the deployed commit
-
-stack outputs match the recorded deployment evidence
-
-46. Teardown
-
-WARNING: DESTRUCTIVE OPERATION
-
-Teardown can delete infrastructure and may permanently remove database/S3 data depending on the configured deletion and retention policies. Obtain approval and back up required data before proceeding.
-
-Delete the stacks in reverse dependency order:
-
-1. cloudmart-api-monitoring-ec2-{environment}
-2. cloudmart-application-events-{environment}
-3. cloudmart-iam-{environment}
-4. cloudmart-data-storage-{environment}
-5. cloudmart-network-security-{environment}
-
-Before deletion verify:
-
-account
-
-region
-
-environment
-
-termination protection
-
-RDS deletion/backup behavior
-
-S3 deletion/retention behavior
-
-exports/imports
-
-retained resources
-
-required evidence
-
-After teardown:
-
-verify stack deletion
-
-verify expected retained resources
-
-verify required backups
-
-check for continuing AWS charges
-
-47. Deployment Evidence Record
-
-Complete this section for every deployment.
-
-Evidence
-
-Value
-
-Repository
-
-<repository>
-
-Branch
-
-<branch>
-
-Commit SHA
-
-<commit>
-
-GitHub Actions run ID
-
-<run id>
-
-GitHub Actions URL
-
-<URL>
-
-AWS account
-
-<account>
-
-AWS region
-
-ap-south-1
-
-Environment
-
-<dev/prod>
-
-Assumed IAM role
-
-<role name/ARN>
-
-Network stack
-
-<status>
-
-Data stack
-
-<status>
-
-IAM stack
-
-<status>
-
-Application-events stack
-
-<status>
-
-API/monitoring/EC2 stack
-
-<status>
-
-API endpoint
-
-<verified output>
-
-Dashboard URL
-
-<verified output>
-
-Dashboard instance ID
-
-<verified output>
-
-Artifact bucket
-
-<verified output>
-
-Report bucket
-
-<verified output>
-
-Authentication tests
-
-<pass/fail + evidence>
-
-Product CRUD tests
-
-<pass/fail + evidence>
-
-Customer tests
-
-<pass/fail + evidence>
-
-Order tests
-
-<pass/fail + evidence>
-
-EventBridge tests
-
-<pass/fail + evidence>
-
-SNS tests
-
-<pass/fail + evidence>
-
-Daily report test
-
-<pass/fail + evidence>
-
-Dashboard test
-
-<pass/fail + evidence>
-
-CloudWatch alarms
-
-<pass/fail + evidence>
-
-Drift results
-
-<per-stack result>
-
-Open issues
-
-<none/details>
-
-Reviewer
-
-<name/date>
-
-Approval
-
-<name/date>
-
-Teardown
-
-<completed/not applicable>
-
-48. Final Deployment Acceptance Criteria
-
-A CloudMart deployment is ready for review only when all applicable conditions below are satisfied:
-
-GitHub Actions OIDC authentication succeeds.
-
-Correct IAM deployment role is assumed.
-
-Configuration validation succeeds.
-
-All five CloudFormation stacks complete successfully.
-
-All required stack outputs are recorded.
-
-RDS is available.
-
-Database schema initialization succeeds.
-
-Required SSM parameters exist.
-
-All required Lambda functions exist.
-
-Lambda packages/layer are available.
-
-API Gateway is deployed.
-
-Public product GET endpoints behave as configured.
-
-Protected endpoints reject missing/invalid tokens.
-
-Valid authorization succeeds.
-
-Customer ownership checks work.
-
-Product CRUD works.
-
-Customer operations work.
-
-Order operations work.
-
-Inventory updates work.
-
-Order processing works.
-
-EventBridge rules are enabled and tested.
-
-SNS subscriptions are confirmed.
-
-Notification tests succeed.
-
-Daily Report Lambda runs successfully.
-
-Report CSV is written to S3.
-
-EC2 dashboard is running.
-
-SSM dashboard refresh succeeds.
-
-Dashboard health endpoint succeeds.
-
-Dashboard URL is accessible.
-
-CloudWatch dashboard exists.
-
-CloudWatch alarms are present.
-
-Relevant alarms and metrics are reviewed.
-
-CloudFormation drift results are reviewed.
-
-No credentials or bearer tokens are present in repository/evidence.
-
-Open issues are documented or formally accepted.
-
-49. Operational Rules
-
-CloudFormation is the source of truth for AWS infrastructure.
-
-Do not manually create replacement infrastructure.
-
-Do not manually modify CloudFormation-managed resources to bypass deployment problems.
-
-Do not commit AWS credentials, database passwords, bearer tokens, or SNS email secrets.
-
-Use GitHub OIDC for GitHub-to-AWS authentication.
-
-Use SSM Parameter Store for runtime configuration/secrets as implemented by the stacks.
-
-Use CloudFormation outputs for actual resource identifiers and URLs.
-
-Use the existing artifact bucket for deployment artifacts.
-
-Do not create duplicate dashboard EC2 instances.
-
-Investigate the first deployment failure before retrying.
-
-Use sanitized test data for verification.
-
-Record deployment evidence for every release.
-
-Review destructive permissions and iam:PassRole permissions before production use.
-
-Review cost and data-retention implications before production deployment or teardown.
+### 6.7 Drift and source hygiene
+
+Run CloudFormation drift detection for all five stacks and record each result. Drift detection does not necessarily detect application-level divergence, so also review workflow and application deployment evidence. Confirm documentation paths resolve and no credentials or secrets were committed.
+
+## 7. Troubleshooting
+
+| Symptom | Checks and corrective action |
+|---|---|
+| OIDC role assumption fails | Verify `AWS_ROLE_ARN` secret name/value, workflow `role-to-assume`, AWS OIDC provider, trust conditions, repository/branch identity, and role permissions. The secret value must be an IAM role ARN, not a console URL. |
+| AccessDenied | Identify the denied action/resource from the error or CloudTrail; add only the required least-privilege permission after review. |
+| Configuration validation fails | Check JSON syntax, required keys, allowed environment, and consistency across config, parameter file, and stack name. |
+| Network lint: undefined parameter | Ensure each `!Ref` matches a declared parameter/resource. Use the names actually defined in the network template. |
+| Network lint: unused parameter | Remove a parameter not in the architecture or reference it in the intended resource. Do not add a monitoring subnet parameter when no such subnet exists in the design. |
+| Template exceeds 51,200 bytes | Use the existing Data-Storage artifact bucket with the deploy command's `--s3-bucket` option. |
+| Artifact bucket output missing | Inspect Data-Storage stack status, outputs, and events before downstream deployment. |
+| Lambda package/layer unavailable | Verify commit-specific S3 key, object existence, upload result, template reference, and S3 permissions. |
+| Lambda cannot reach RDS | Check VPC/subnets, Lambda-to-RDS security-group ingress, DB endpoint/port SSM parameters, credentials, and schema. |
+| API returns 401 | Check bearer header format, authorizer/cache settings, token hash, customer active/deleted state, and admin-token configuration. |
+| API returns 5xx/timeout | Inspect API Gateway and Lambda logs; check integration/Lambda timeouts, DB latency, and processor invocation results. |
+| Order does not confirm | Inspect Order/Order Processor logs, transaction and stock checks, schema, invocation result, and event errors. |
+| SNS email absent | Check subscription confirmation, topic/rule target, event pattern, alarm action, and `CLOUDMART_ALERT_EMAIL`. |
+| Dashboard/SSM refresh fails | Check EC2 managed-instance status, instance role, S3 access, bootstrap script, service logs, and health endpoint. |
+| Stack update fails/rolls back | Review CloudFormation events/change set, dependencies, exports/imports, permissions, and replacement-sensitive changes. Correct code and redeploy through the workflow; avoid manual resource edits. |
+
+### Safe retry process
+
+1. Open the failed Actions run and identify the first failing step.
+2. Capture the error, stack name, and logical resource ID if shown.
+3. Inspect CloudFormation events and relevant service logs.
+4. Fix the source, template, or configuration in Git.
+5. Run local validation.
+6. Push the reviewed fix and start a new manual workflow run.
+7. Verify the selected branch, environment, account, and region before retrying.
+
+Do not repeatedly rerun without addressing the cause, and do not manually create resources to bypass CloudFormation.
+
+## 8. Teardown
+
+> **Destructive:** Teardown may permanently remove RDS data and S3 objects depending on deletion/retention policies. Back up required data, verify account/region/environment, and obtain approval before proceeding.
+
+Delete stacks through CloudFormation in reverse dependency order:
+
+1. `cloudmart-api-monitoring-ec2-{environment}`
+2. `cloudmart-application-events-{environment}`
+3. `cloudmart-iam-{environment}`
+4. `cloudmart-data-storage-{environment}`
+5. `cloudmart-network-security-{environment}`
+
+Before deletion, check termination protection, deletion/retention policies, RDS backups, S3 contents, exports/imports, and environment names. Resolve failures through CloudFormation events and the approved infrastructure process rather than manually deleting individual resources.
+
+After teardown, verify stack deletion, inspect retained resources/data, and review any continuing AWS charges.
+
+## 9. Deployment evidence and sign-off
+
+Complete this record for each deployment using actual run details and outputs.
+
+| Evidence | Value to record |
+|---|---|
+| Repository / branch | `<fill in>` |
+| Commit SHA | `<fill in>` |
+| Actions run URL / ID and status | `<fill in>` |
+| AWS account / region | `<account identifier> / ap-south-1` |
+| Environment | `<dev / prod>` |
+| Assumed OIDC IAM role | `<role name or ARN; never credentials>` |
+| Network stack status | `<fill in>` |
+| Data-Storage stack status | `<fill in>` |
+| IAM stack status | `<fill in>` |
+| Application-Events stack status | `<fill in>` |
+| API-Monitoring-EC2 stack status | `<fill in>` |
+| API URL / dashboard URL | `<verified outputs>` |
+| Artifact/report bucket names | `<verified outputs>` |
+| Authentication tests | `<pass/fail and evidence location>` |
+| CRUD/order tests | `<pass/fail and evidence location>` |
+| Event/SNS/report tests | `<pass/fail and evidence location>` |
+| Dashboard/alarms | `<pass/fail and evidence location>` |
+| Drift results | `<result for each stack>` |
+| Open issues / accepted risks | `<none or details>` |
+| Reviewer / approval | `<name/date per team process>` |
+| Teardown | `<completed / not applicable>` |
+
+### Completion criteria
+
+The deployment is ready for review when the intended workflow run succeeds, all five stacks reach successful completion states, actual outputs are recorded, application/security/event/report/dashboard checks have evidence, and deviations are resolved or formally accepted. Ensure no credentials or sensitive tokens appear in the repository or evidence.
+
+---
+**End of runbook.**
+
+
+## Appendix A — Full supplied GitHub Actions deployment-role permissions policy
+
+This is the permissions policy from the accompanying uploaded text file, formatted as JSON. Review its scope before attaching it, especially wildcard resources and destructive permissions.
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "CloudFormationStackManagement",
+      "Effect": "Allow",
+      "Action": [
+        "cloudformation:CreateStack",
+        "cloudformation:UpdateStack",
+        "cloudformation:DeleteStack",
+        "cloudformation:CreateChangeSet",
+        "cloudformation:DeleteChangeSet",
+        "cloudformation:DescribeChangeSet",
+        "cloudformation:ExecuteChangeSet",
+        "cloudformation:DescribeStacks",
+        "cloudformation:DescribeStackEvents",
+        "cloudformation:DescribeStackResources",
+        "cloudformation:GetTemplate",
+        "cloudformation:GetTemplateSummary",
+        "cloudformation:ListChangeSets",
+        "cloudformation:ListStackResources",
+        "cloudformation:ValidateTemplate"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "NetworkInfrastructureManagement",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:CreateVpc",
+        "ec2:DeleteVpc",
+        "ec2:DescribeVpcs",
+        "ec2:DescribeAvailabilityZones",
+        "ec2:ModifyVpcAttribute",
+        "ec2:CreateTags",
+        "ec2:DeleteTags",
+        "ec2:DescribeTags",
+        "ec2:CreateSubnet",
+        "ec2:DeleteSubnet",
+        "ec2:DescribeSubnets",
+        "ec2:ModifySubnetAttribute",
+        "ec2:CreateRouteTable",
+        "ec2:DeleteRouteTable",
+        "ec2:DescribeRouteTables",
+        "ec2:AssociateRouteTable",
+        "ec2:DisassociateRouteTable",
+        "ec2:CreateRoute",
+        "ec2:ReplaceRoute",
+        "ec2:DeleteRoute",
+        "ec2:CreateInternetGateway",
+        "ec2:DeleteInternetGateway",
+        "ec2:AttachInternetGateway",
+        "ec2:DetachInternetGateway",
+        "ec2:DescribeInternetGateways",
+        "ec2:CreateSecurityGroup",
+        "ec2:DeleteSecurityGroup",
+        "ec2:DescribeSecurityGroups",
+        "ec2:AuthorizeSecurityGroupIngress",
+        "ec2:AuthorizeSecurityGroupEgress",
+        "ec2:RevokeSecurityGroupIngress",
+        "ec2:RevokeSecurityGroupEgress",
+        "ec2:CreateVpcEndpoint",
+        "ec2:DeleteVpcEndpoints",
+        "ec2:DescribeVpcEndpoints",
+        "ec2:ModifyVpcEndpoint",
+        "ec2:DescribeNetworkInterfaces",
+        "ec2:DescribeVolumes",
+        "ec2:DescribeVolumeStatus"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "EC2InstanceManagement",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:RunInstances",
+        "ec2:TerminateInstances",
+        "ec2:DescribeInstances",
+        "ec2:DescribeInstanceStatus",
+        "ec2:DescribeImages",
+        "ec2:DescribeInstanceTypes",
+        "ec2:ModifyInstanceAttribute",
+        "ec2:StopInstances",
+        "ec2:StartInstances",
+        "ec2:CreateNetworkInterface",
+        "ec2:DeleteNetworkInterface",
+        "ec2:AttachNetworkInterface",
+        "ec2:DetachNetworkInterface"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "RDSManagement",
+      "Effect": "Allow",
+      "Action": [
+        "rds:CreateDBInstance",
+        "rds:ModifyDBInstance",
+        "rds:DeleteDBInstance",
+        "rds:DescribeDBInstances",
+        "rds:CreateDBSubnetGroup",
+        "rds:ModifyDBSubnetGroup",
+        "rds:DeleteDBSubnetGroup",
+        "rds:DescribeDBSubnetGroups",
+        "rds:ListTagsForResource",
+        "rds:AddTagsToResource",
+        "rds:RemoveTagsFromResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "AllowCreateRDSServiceLinkedRole",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateServiceLinkedRole"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "iam:AWSServiceName": "rds.amazonaws.com"
+        }
+      }
+    },
+    {
+      "Sid": "S3BucketManagement",
+      "Effect": "Allow",
+      "Action": [
+        "s3:CreateBucket",
+        "s3:DeleteBucket",
+        "s3:GetBucketLocation",
+        "s3:ListBucket",
+        "s3:GetBucketVersioning",
+        "s3:PutBucketVersioning",
+        "s3:GetEncryptionConfiguration",
+        "s3:PutEncryptionConfiguration",
+        "s3:GetBucketPublicAccessBlock",
+        "s3:PutBucketPublicAccessBlock",
+        "s3:GetBucketTagging",
+        "s3:PutBucketTagging",
+        "s3:GetLifecycleConfiguration",
+        "s3:PutLifecycleConfiguration",
+        "s3:GetBucketPolicy",
+        "s3:PutBucketPolicy",
+        "s3:DeleteBucketPolicy"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "S3ObjectManagement",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject",
+        "s3:GetObjectVersion",
+        "s3:DeleteObjectVersion"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "APIGatewayManagement",
+      "Effect": "Allow",
+      "Action": [
+        "apigateway:GET",
+        "apigateway:POST",
+        "apigateway:PUT",
+        "apigateway:PATCH",
+        "apigateway:DELETE"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CloudMartLambdaManagement",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:CreateFunction",
+        "lambda:GetFunction",
+        "lambda:GetFunctionConfiguration",
+        "lambda:UpdateFunctionCode",
+        "lambda:UpdateFunctionConfiguration",
+        "lambda:DeleteFunction",
+        "lambda:PublishVersion",
+        "lambda:ListVersionsByFunction",
+        "lambda:CreateAlias",
+        "lambda:UpdateAlias",
+        "lambda:DeleteAlias",
+        "lambda:GetAlias",
+        "lambda:AddPermission",
+        "lambda:RemovePermission",
+        "lambda:TagResource",
+        "lambda:UntagResource",
+        "lambda:ListTags"
+      ],
+      "Resource": "arn:aws:lambda:ap-south-1:285150348844:function:cloudmart-*"
+    },
+    {
+      "Sid": "CloudMartLambdaInvocation",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:InvokeFunction"
+      ],
+      "Resource": "arn:aws:lambda:ap-south-1:285150348844:function:cloudmart-*"
+    },
+    {
+      "Sid": "CloudMartLambdaLayerPublish",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:PublishLayerVersion"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CloudMartLambdaLayerVersionManagement",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:GetLayerVersion",
+        "lambda:DeleteLayerVersion"
+      ],
+      "Resource": "arn:aws:lambda:ap-south-1:285150348844:layer:cloudmart-*:*"
+    },
+    {
+      "Sid": "CloudMartLambdaLayerList",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:ListLayerVersions"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CloudMartRoleManagement",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateRole",
+        "iam:GetRole",
+        "iam:UpdateRole",
+        "iam:UpdateAssumeRolePolicy",
+        "iam:DeleteRole",
+        "iam:TagRole",
+        "iam:UntagRole",
+        "iam:PutRolePolicy",
+        "iam:GetRolePolicy",
+        "iam:DeleteRolePolicy",
+        "iam:ListRolePolicies",
+        "iam:AttachRolePolicy",
+        "iam:DetachRolePolicy",
+        "iam:ListAttachedRolePolicies"
+      ],
+      "Resource": "arn:aws:iam::285150348844:role/cloudmart-*"
+    },
+    {
+      "Sid": "CloudMartInstanceProfileManagement",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateInstanceProfile",
+        "iam:GetInstanceProfile",
+        "iam:DeleteInstanceProfile",
+        "iam:AddRoleToInstanceProfile",
+        "iam:RemoveRoleFromInstanceProfile"
+      ],
+      "Resource": "arn:aws:iam::285150348844:instance-profile/cloudmart-*"
+    },
+    {
+      "Sid": "PassCloudMartRoles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:PassRole"
+      ],
+      "Resource": "arn:aws:iam::285150348844:role/cloudmart-*"
+    },
+    {
+      "Sid": "CloudWatchAlarmManagement",
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:PutMetricAlarm",
+        "cloudwatch:DeleteAlarms",
+        "cloudwatch:DescribeAlarms",
+        "cloudwatch:DescribeAlarmsForMetric",
+        "cloudwatch:GetMetricData",
+        "cloudwatch:GetMetricStatistics",
+        "cloudwatch:ListMetrics",
+        "cloudwatch:TagResource",
+        "cloudwatch:UntagResource",
+        "cloudwatch:ListTagsForResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CloudWatchDashboardManagement",
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:PutDashboard",
+        "cloudwatch:GetDashboard",
+        "cloudwatch:DeleteDashboards",
+        "cloudwatch:ListDashboards"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CloudWatchLogsManagement",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:DeleteLogGroup",
+        "logs:DescribeLogGroups",
+        "logs:PutRetentionPolicy",
+        "logs:DeleteRetentionPolicy",
+        "logs:TagResource",
+        "logs:UntagResource",
+        "logs:ListTagsForResource",
+        "logs:CreateLogStream",
+        "logs:DeleteLogStream",
+        "logs:DescribeLogStreams",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "EventBridgeManagement",
+      "Effect": "Allow",
+      "Action": [
+        "events:CreateEventBus",
+        "events:DeleteEventBus",
+        "events:DescribeEventBus",
+        "events:PutRule",
+        "events:DeleteRule",
+        "events:DescribeRule",
+        "events:EnableRule",
+        "events:DisableRule",
+        "events:PutTargets",
+        "events:RemoveTargets",
+        "events:TagResource",
+        "events:UntagResource",
+        "events:ListTagsForResource",
+        "events:ListRules",
+        "events:ListTargetsByRule"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "EventBridgeSchedulerManagement",
+      "Effect": "Allow",
+      "Action": [
+        "scheduler:CreateSchedule",
+        "scheduler:UpdateSchedule",
+        "scheduler:DeleteSchedule",
+        "scheduler:GetSchedule",
+        "scheduler:CreateScheduleGroup",
+        "scheduler:DeleteScheduleGroup",
+        "scheduler:GetScheduleGroup",
+        "scheduler:TagResource",
+        "scheduler:UntagResource",
+        "scheduler:ListTagsForResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "SNSManagement",
+      "Effect": "Allow",
+      "Action": [
+        "sns:CreateTopic",
+        "sns:DeleteTopic",
+        "sns:GetTopicAttributes",
+        "sns:SetTopicAttributes",
+        "sns:Subscribe",
+        "sns:Unsubscribe",
+        "sns:GetSubscriptionAttributes",
+        "sns:SetSubscriptionAttributes",
+        "sns:ListSubscriptionsByTopic",
+        "sns:ListTagsForResource",
+        "sns:TagResource",
+        "sns:UntagResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CloudMartSSMParameterManagement",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:GetParameter",
+        "ssm:GetParameters",
+        "ssm:GetParametersByPath",
+        "ssm:PutParameter",
+        "ssm:DeleteParameter",
+        "ssm:DeleteParameters",
+        "ssm:AddTagsToResource",
+        "ssm:RemoveTagsFromResource",
+        "ssm:ListTagsForResource"
+      ],
+      "Resource": "arn:aws:ssm:ap-south-1:285150348844:parameter/cloudmart/*"
+    },
+    {
+      "Sid": "CloudMartSSMParameterDescribe",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:DescribeParameters"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "EC2DashboardSSMManagement",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:SendCommand",
+        "ssm:GetCommandInvocation",
+        "ssm:ListCommandInvocations",
+        "ssm:ListCommands"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ReadAmazonLinuxPublicAMI",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:GetParameter",
+        "ssm:GetParameters"
+      ],
+      "Resource": "arn:aws:ssm:ap-south-1::parameter/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
+    },
+    {
+      "Sid": "PassCloudFormationServiceRole",
+      "Effect": "Allow",
+      "Action": [
+        "iam:PassRole"
+      ],
+      "Resource": "arn:aws:iam::285150348844:role/CloudMart-CloudFormation-ServiceRole"
+    },
+    {
+      "Sid": "ReadCallerIdentity",
+      "Effect": "Allow",
+      "Action": [
+        "sts:GetCallerIdentity"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+```
