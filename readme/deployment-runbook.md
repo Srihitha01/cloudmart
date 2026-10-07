@@ -394,7 +394,7 @@ The workflow is manually triggered with `workflow_dispatch`; pushing code alone 
 5. Enter the required `db_password` input without exposing it elsewhere.
 6. Start the run and monitor each job/step.
 7. Save the workflow run URL/ID, commit SHA, environment, and final status for review.
-### What the workflow does
+#### What the workflow does
 1. **Validates configuration and source:** checks configuration and required files.
 2. **Authenticates to AWS:** uses GitHub OIDC and the configured IAM role to obtain temporary AWS credentials.
 3. **Deploys Network-Security:** creates or updates VPC networking resources.
